@@ -152,10 +152,14 @@ class AuthGuardianScheduler:
                 )
                 candidates = [account for account in candidates if not self._in_backoff(account.id)]
                 candidates = candidates[: max(0, self.batch_size)]
-            if not candidates:
+                # Read ids while the session is open: closing a read-only session
+                # rolls back and expires its instances, so touching the ORM objects
+                # after this block raises DetachedInstanceError.
+                candidate_ids = [account.id for account in candidates]
+            if not candidate_ids:
                 return
             semaphore = asyncio.Semaphore(max(1, self.concurrency))
-            await asyncio.gather(*(self._refresh_candidate(account.id, semaphore) for account in candidates))
+            await asyncio.gather(*(self._refresh_candidate(account_id, semaphore) for account_id in candidate_ids))
 
     async def _refresh_candidate(self, account_id: str, semaphore: asyncio.Semaphore) -> None:
         if self._in_backoff(account_id):

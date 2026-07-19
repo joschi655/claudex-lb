@@ -34,10 +34,11 @@
 - [x] 4b.4 Usage headers ingested from 429 responses (saturation signal)
 - [x] 4b.5 Relay honors the operator-configured routing strategy
 - [x] 4b.6 `expiresAt` unit tolerance (ms or s) on import; `retry-after` hint on the no-account 429
+- [x] 4b.7 Guardian refresh pass carries plain account ids across the repo-session boundary (live drill caught `DetachedInstanceError`: closing the read-only session rolls back and expires its instances; latent upstream bug armed by enabling the guardian)
 
 ## 5. Validation
 
 - [x] 5.1 Unit: refresh branch, freshness gates, static account, import parsing, header builder, failover matrix, usage parser
 - [x] 5.2 Integration: import → relay stream via ASGITransport (429 failover, byte-identical relay, statuses persisted, usage ingested); OpenAI regression untouched
 - [x] 5.3 Migration round-trip on sqlite; `uv run pytest`; `ruff`; strict OpenSpec validation
-- [ ] 5.4 Live drill: two accounts, real Claude Code through the proxy, failover + refresh observed (operator step, post-merge)
+- [x] 5.4 Live drill (2026-07-19, ubuntu-tunnel): 6 accounts imported, real `/v1/messages` 200 + SSE stream, forced-expiry refresh with rotated-token persistence, rate-limited failover to second account, OpenAI row untouched, switcher timer disabled, guardian enabled (surfaced 4b.7)
