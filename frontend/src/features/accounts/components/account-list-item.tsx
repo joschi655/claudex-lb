@@ -91,7 +91,15 @@ export function AccountListItem({
       ) : null}
       <div className="flex items-start gap-2.5">
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-medium">
+          <p className="flex items-center gap-1.5 truncate text-sm font-medium">
+            {account.provider === "anthropic" ? (
+              <Badge
+                variant="outline"
+                className="shrink-0 border-orange-300 bg-orange-50 px-1.5 text-[10px] text-orange-700 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300"
+              >
+                Claude
+              </Badge>
+            ) : null}
             {titleIsEmail && blurred ? (
               <span className="privacy-blur">{title}</span>
             ) : (

@@ -15,6 +15,7 @@ from app.core.clients.rate_limit_reset_credits import (
 )
 from app.core.config.settings import get_settings
 from app.core.crypto import TokenEncryptor
+from app.core.providers import PROVIDER_ANTHROPIC
 from app.core.upstream_proxy import ResolvedUpstreamRoute, UpstreamProxyRouteError
 from app.db.models import Account, AccountStatus
 from app.db.session import detach_session_objects, get_background_session
@@ -98,7 +99,8 @@ class RateLimitResetCreditsRefreshScheduler:
             try:
                 async with get_background_session() as session:
                     accounts_repo = AccountsRepository(session)
-                    accounts = await accounts_repo.list_accounts()
+                    # OpenAI-only: reset credits are a ChatGPT usage concept.
+                    accounts = [a for a in await accounts_repo.list_accounts() if a.provider != PROVIDER_ANTHROPIC]
                     detach_session_objects(session)
                 await refresh_reset_credits_for_accounts(
                     accounts=accounts,

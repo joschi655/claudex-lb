@@ -9,6 +9,7 @@ from datetime import datetime, timezone
 from typing import Protocol, TypeVar, cast
 
 from app.core.config.settings import get_settings
+from app.core.providers import PROVIDER_ANTHROPIC
 from app.db.session import get_background_session
 from app.modules.accounts.repository import AccountsRepository
 from app.modules.proxy.load_balancer import _build_states
@@ -78,7 +79,8 @@ class QuotaPlannerScheduler:
                 return
             accounts_repo = AccountsRepository(session)
             usage_repo = UsageRepository(session)
-            accounts = await accounts_repo.list_accounts()
+            # OpenAI-only: quota planning models ChatGPT plan credits.
+            accounts = [a for a in await accounts_repo.list_accounts() if a.provider != PROVIDER_ANTHROPIC]
             latest_primary = await usage_repo.latest_by_account()
             latest_secondary = await usage_repo.latest_by_account(window="secondary")
             latest_monthly = await usage_repo.latest_by_account(window="monthly")

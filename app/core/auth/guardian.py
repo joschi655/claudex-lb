@@ -9,10 +9,11 @@ import time
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import AbstractAsyncContextManager, asynccontextmanager
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Protocol, TypeVar, cast
 
 from app.core.auth.refresh import RefreshError
+from app.core.providers import PROVIDER_ANTHROPIC
 from app.core.utils.time import to_utc_naive, utcnow
 from app.db.models import Account, AccountStatus
 from app.db.session import get_background_session
@@ -280,6 +281,11 @@ def build_auth_guardian_scheduler() -> AuthGuardianScheduler:
     )
 
 
+# Refresh an anthropic access token proactively once it is within this many
+# seconds of expiry, so idle accounts never lapse into a client re-login.
+_ANTHROPIC_GUARDIAN_HORIZON_SECONDS = 7200
+
+
 def _auth_guardian_account_is_stale_active(
     account: Account,
     *,
@@ -288,6 +294,14 @@ def _auth_guardian_account_is_stale_active(
 ) -> bool:
     if account.status != AccountStatus.ACTIVE:
         return False
+    if account.provider == PROVIDER_ANTHROPIC:
+        # Static-credential accounts (no tracked expiry) are never refreshed;
+        # OAuth accounts are stale once near expiry, not by last_refresh age
+        # (anthropic access tokens live hours, not days).
+        if account.access_token_expires_at is None:
+            return False
+        now_epoch = to_utc_naive(now).replace(tzinfo=timezone.utc).timestamp()
+        return account.access_token_expires_at <= now_epoch + _ANTHROPIC_GUARDIAN_HORIZON_SECONDS
     age = to_utc_naive(now) - to_utc_naive(account.last_refresh)
     return age > timedelta(seconds=max_age_seconds)
 

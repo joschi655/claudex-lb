@@ -50,7 +50,8 @@ _TOKEN_REFRESH_TIMEOUT_OVERRIDE: contextvars.ContextVar[float | None] = contextv
 class TokenRefreshResult:
     access_token: str
     refresh_token: str
-    id_token: str
+    # ``None`` for providers without an id token (e.g. anthropic).
+    id_token: str | None
     account_id: str | None
     plan_type: str | None
     email: str | None
@@ -58,6 +59,9 @@ class TokenRefreshResult:
     workspace_label: str | None = None
     seat_type: str | None = None
     chatgpt_user_id: str | None = None
+    # Access-token expiry (epoch seconds) when the provider reports one;
+    # ``None`` for OpenAI, which relies on the last_refresh age gate.
+    access_token_expires_at: int | None = None
 
 
 class RefreshError(Exception):

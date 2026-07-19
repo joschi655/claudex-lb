@@ -55,6 +55,7 @@ from app.core.usage.reset_credits_refresh_scheduler import build_rate_limit_rese
 from app.db.session import SessionLocal, close_db, close_session, init_background_db, init_db
 from app.modules.accounts import api as accounts_api
 from app.modules.accounts.usage_rollup_scheduler import build_account_usage_rollup_scheduler
+from app.modules.anthropic_proxy import api as anthropic_proxy_api
 from app.modules.api_keys import api as api_keys_api
 from app.modules.api_keys.reset_scheduler import build_api_key_limit_reset_scheduler
 from app.modules.audit import api as audit_api
@@ -598,6 +599,8 @@ def create_app() -> FastAPI:
     app.include_router(proxy_api.transcribe_router)
     app.include_router(proxy_api.files_router)
     app.include_router(proxy_api.usage_router)
+    app.include_router(anthropic_proxy_api.router)
+    app.include_router(anthropic_proxy_api.alias_router)
     app.include_router(audit_api.router)
     app.include_router(accounts_api.router)
     app.include_router(rate_limit_reset_credits_api.router)
@@ -623,7 +626,7 @@ def create_app() -> FastAPI:
     index_html = static_dir / "index.html"
     static_root = static_dir.resolve()
     frontend_build_hint = "Frontend assets are missing. Run `cd frontend && bun run build`."
-    excluded_prefixes = ("api/", "v1/", "backend-api/", "health")
+    excluded_prefixes = ("api/", "v1/", "backend-api/", "anthropic/", "health")
 
     def _is_static_asset_path(path: str) -> bool:
         if path.startswith("assets/"):

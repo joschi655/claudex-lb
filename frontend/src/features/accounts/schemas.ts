@@ -67,6 +67,7 @@ export const AccountAdditionalQuotaSchema = z.object({
 
 export const AccountSummarySchema = z.object({
   accountId: z.string(),
+  provider: z.string().optional(),
   chatgptAccountId: z.string().nullable().optional(),
   email: z.string(),
   alias: z.string().nullable().optional(),

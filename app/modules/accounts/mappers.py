@@ -254,6 +254,7 @@ def _account_to_summary(
 
     return AccountSummary(
         account_id=account.id,
+        provider=account.provider or "openai",
         chatgpt_account_id=account.chatgpt_account_id,
         email=account.email,
         alias=account.alias,

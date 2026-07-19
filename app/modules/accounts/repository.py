@@ -11,6 +11,7 @@ from sqlalchemy import delete, or_, select, text, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.providers import PROVIDER_OPENAI, is_anthropic_provider
 from app.core.utils.time import utcnow
 from app.db.models import (
     Account,
@@ -28,6 +29,7 @@ from app.db.models import (
     UsageHistory,
 )
 from app.db.session import sqlite_writer_section
+from app.modules.accounts.anthropic_import import SYNTHETIC_IMPORT_EMAIL_SUFFIX
 from app.modules.accounts.usage_rollup import (
     AccountUsageRollupRepository,
     deduped_usage_aggregate_stmt,
@@ -677,7 +679,7 @@ class AccountsRepository:
         account_id: str,
         access_token_encrypted: bytes,
         refresh_token_encrypted: bytes,
-        id_token_encrypted: bytes,
+        id_token_encrypted: bytes | None,
         last_refresh: datetime,
         *,
         expected_refresh_token_encrypted: bytes,
@@ -688,6 +690,7 @@ class AccountsRepository:
         workspace_id: str | None = None,
         workspace_label: str | None = None,
         seat_type: str | None = None,
+        access_token_expires_at: int | None = None,
     ) -> bool:
         """Persist rotated access/refresh/id token ciphertext under a mandatory
         compare-and-set on the refresh-token ciphertext.
@@ -704,9 +707,11 @@ class AccountsRepository:
         material at all).
         """
         async with sqlite_writer_section():
-            values: dict[str, bytes | datetime | str] = {
+            values: dict[str, bytes | datetime | str | int | None] = {
                 "access_token_encrypted": access_token_encrypted,
                 "refresh_token_encrypted": refresh_token_encrypted,
+                # ``None`` for anthropic accounts (no id token); the column is
+                # nullable and this write clears any prior value.
                 "id_token_encrypted": id_token_encrypted,
                 "last_refresh": last_refresh,
             }
@@ -724,6 +729,8 @@ class AccountsRepository:
                 values["workspace_label"] = workspace_label
             if seat_type is not None:
                 values["seat_type"] = seat_type
+            if access_token_expires_at is not None:
+                values["access_token_expires_at"] = access_token_expires_at
             stmt = (
                 update(Account)
                 .where(Account.id == account_id)
@@ -869,6 +876,22 @@ class AccountsRepository:
         return matches[0]
 
     async def _account_by_slot_identity(self, account: Account) -> Account | None:
+        if account.provider is not None and is_anthropic_provider(account.provider):
+            # Anthropic accounts have no ChatGPT/workspace identity; their slot
+            # is (provider, email), so re-importing a credential updates the
+            # existing row in place instead of inserting a duplicate whose old
+            # sibling still holds a dead single-use refresh token. Synthetic
+            # fallback emails carry no identity and never dedupe.
+            if not account.email or account.email.endswith(SYNTHETIC_IMPORT_EMAIL_SUFFIX):
+                return None
+            result = await self._session.execute(
+                select(Account)
+                .where(Account.provider == account.provider)
+                .where(Account.email == account.email)
+                .order_by(Account.created_at.asc(), Account.id.asc())
+                .limit(1)
+            )
+            return result.scalar_one_or_none()
         workspace_slot = _workspace_slot_identity(account)
         if account.chatgpt_account_id and account.email and workspace_slot:
             column, value = workspace_slot
@@ -949,10 +972,13 @@ def _apply_account_updates(target: Account, source: Account) -> None:
         target.seat_type = source.seat_type
     if not target.codex_installation_id:
         target.codex_installation_id = source.codex_installation_id or str(uuid.uuid4())
+    if source.provider is not None:
+        target.provider = source.provider
     target.plan_type = source.plan_type
     target.access_token_encrypted = source.access_token_encrypted
     target.refresh_token_encrypted = source.refresh_token_encrypted
     target.id_token_encrypted = source.id_token_encrypted
+    target.access_token_expires_at = source.access_token_expires_at
     target.last_refresh = source.last_refresh
     target.status = source.status
     target.deactivation_reason = source.deactivation_reason
@@ -968,6 +994,8 @@ def _slot_lock_key(account: Account, *, preserve_unknown_workspace_duplicates: b
 
 
 def _slot_lock_keys(account: Account, *, preserve_unknown_workspace_duplicates: bool = True) -> tuple[str, ...]:
+    if account.provider is not None and is_anthropic_provider(account.provider) and account.email:
+        return (f"slot-anthropic:{account.email}",)
     keys: list[str] = []
     workspace_key = _workspace_slot_key(account)
     if account.chatgpt_account_id:
@@ -1028,6 +1056,10 @@ def _is_workspace_less_reauth_for_known_slot(
 
 
 def _can_reuse_email_fallback(existing: Account, incoming: Account) -> bool:
+    # Accounts never merge across providers, even on a shared email: an OpenAI
+    # row must not end up holding Anthropic credentials (or vice versa).
+    if (existing.provider or PROVIDER_OPENAI) != (incoming.provider or PROVIDER_OPENAI):
+        return False
     existing_workspace_key = _workspace_slot_key(existing)
     incoming_workspace_key = _workspace_slot_key(incoming)
     if existing_workspace_key and incoming_workspace_key and existing_workspace_key != incoming_workspace_key:

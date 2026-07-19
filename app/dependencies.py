@@ -12,6 +12,7 @@ from app.db.session import get_background_session, get_session
 from app.modules.accounts.auth_manager import AuthManager
 from app.modules.accounts.repository import AccountsRepository
 from app.modules.accounts.service import AccountsService
+from app.modules.anthropic_proxy.service import AnthropicProxyService
 from app.modules.api_keys.repository import ApiKeysRepository
 from app.modules.api_keys.service import ApiKeysService
 from app.modules.audit.repository import AuditRepository
@@ -32,6 +33,7 @@ from app.modules.limit_warmup.repository import LimitWarmupRepository
 from app.modules.model_sources.repository import ModelSourcesRepository
 from app.modules.model_sources.service import ModelSourcesService
 from app.modules.oauth.service import OauthService
+from app.modules.proxy.load_balancer import LoadBalancer
 from app.modules.proxy.repo_bundle import ProxyRepositories
 from app.modules.proxy.service import ProxyService
 from app.modules.proxy.sticky_repository import StickySessionsRepository
@@ -255,6 +257,18 @@ def get_proxy_service_for_app(app: FastAPI) -> ProxyService:
 def get_proxy_websocket_context(websocket: WebSocket) -> ProxyContext:
     service = get_proxy_service_for_app(websocket.app)
     return ProxyContext(service=service)
+
+
+def get_anthropic_proxy_service_for_app(app: FastAPI) -> AnthropicProxyService:
+    state = app.state
+    service = getattr(state, "anthropic_proxy_service", None)
+    if not isinstance(service, AnthropicProxyService):
+        service = AnthropicProxyService(
+            load_balancer=LoadBalancer(_proxy_repo_context),
+            accounts_repo_factory=_accounts_repo_context,
+        )
+        setattr(state, "anthropic_proxy_service", service)
+    return service
 
 
 def get_api_keys_context(
