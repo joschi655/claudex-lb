@@ -1813,6 +1813,7 @@ async def test_select_account_does_not_open_repo_before_runtime_lock(monkeypatch
         service_tier: str | None = None,
         additional_limit_name: str | None = None,
         account_ids: Collection[str] | None = None,
+        provider: str = "openai",
     ):
         del model, service_tier, additional_limit_name, account_ids
         return load_balancer_module._SelectionInputs(
@@ -2075,6 +2076,7 @@ async def test_select_account_reloads_inputs_after_version_conflict(monkeypatch)
         service_tier: str | None = None,
         additional_limit_name: str | None = None,
         account_ids: Collection[str] | None = None,
+        provider: str = "openai",
     ):
         nonlocal load_calls
         load_calls += 1
@@ -2141,7 +2143,9 @@ async def test_select_account_does_not_hold_runtime_lock_during_conflict_reload(
     release_reload = asyncio.Event()
     load_calls = 0
 
-    async def blocking_load_selection_inputs(*, model: str | None, additional_limit_name: str | None = None):
+    async def blocking_load_selection_inputs(
+        *, model: str | None, additional_limit_name: str | None = None, provider: str = "openai"
+    ):
         nonlocal load_calls
         load_calls += 1
         if load_calls == 2:
@@ -2217,6 +2221,7 @@ async def test_select_account_sticky_reloads_inputs_after_stale_selected_persist
         service_tier: str | None = None,
         additional_limit_name: str | None = None,
         account_ids: Collection[str] | None = None,
+        provider: str = "openai",
     ):
         nonlocal load_calls
         load_calls += 1
@@ -2303,6 +2308,7 @@ async def test_select_account_sticky_does_not_return_stale_selection_at_retry_ca
         service_tier: str | None = None,
         additional_limit_name: str | None = None,
         account_ids: Collection[str] | None = None,
+        provider: str = "openai",
     ):
         nonlocal load_calls
         load_calls += 1

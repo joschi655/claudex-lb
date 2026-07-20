@@ -32,12 +32,18 @@ from app.core.clients.usage import (
 from app.core.config.settings import get_settings
 from app.core.crypto import TokenEncryptor
 from app.core.plan_types import coerce_account_plan_type
+from app.core.providers import PROVIDER_ANTHROPIC, PROVIDER_OPENAI
 from app.core.upstream_proxy import ResolvedUpstreamRoute, UpstreamProxyRouteError, resolve_upstream_route
 from app.core.upstream_proxy.resolver import _is_missing_upstream_proxy_schema
 from app.core.usage.models import UsagePayload
 from app.core.utils.time import naive_utc_to_epoch, to_utc_naive, utcnow
-from app.db.models import Account, AccountStatus, DashboardSettings
+from app.db.models import Account, AccountRoutingPolicy, AccountStatus, DashboardSettings
 from app.db.session import get_background_session
+from app.modules.accounts.anthropic_import import (
+    InvalidAnthropicCredentialError,
+    looks_like_anthropic_payload,
+    parse_anthropic_credential,
+)
 from app.modules.accounts.auth_manager import AuthManager
 from app.modules.accounts.mappers import build_account_summaries, build_account_usage_trends
 from app.modules.accounts.repository import AccountsRepository
@@ -102,6 +108,10 @@ class AccountNotProbableError(Exception):
 
 class AccountStateTransitionError(Exception):
     """Raised when an operator action is not valid for the account state."""
+
+
+class ProviderActionUnsupportedError(Exception):
+    """Raised when an OpenAI-only account action targets another provider."""
 
 
 class AccountUsageResetCreditsUnavailableError(Exception):
@@ -426,6 +436,7 @@ class AccountsService:
         account = await self._repo.get_by_id(account_id)
         if account is None:
             return None
+        _require_openai_provider(account, "OpenCode auth export")
 
         access_token = self._encryptor.decrypt(account.access_token_encrypted)
         refresh_token = self._encryptor.decrypt(account.refresh_token_encrypted)
@@ -451,9 +462,11 @@ class AccountsService:
         account = await self._repo.get_by_id(account_id)
         if account is None:
             return None
+        _require_openai_provider(account, "Codex auth export")
 
         access_token = self._encryptor.decrypt(account.access_token_encrypted)
         refresh_token = self._encryptor.decrypt(account.refresh_token_encrypted)
+        assert account.id_token_encrypted is not None  # OpenAI accounts always carry an id token
         id_token = self._encryptor.decrypt(account.id_token_encrypted)
         expires = token_expiry_epoch_ms(access_token) or 0
 
@@ -499,6 +512,13 @@ class AccountsService:
 
     async def import_account(self, raw: bytes) -> AccountImportResponse:
         try:
+            probe = json.loads(raw)
+        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+            raise InvalidAuthJsonError("Invalid auth.json payload") from exc
+        if looks_like_anthropic_payload(probe):
+            return await self._import_anthropic_account(probe)
+
+        try:
             auth = parse_auth_json(raw)
         except (json.JSONDecodeError, ValidationError, UnicodeDecodeError, TypeError) as exc:
             raise InvalidAuthJsonError("Invalid auth.json payload") from exc
@@ -543,6 +563,48 @@ class AccountsService:
             await self._usage_updater.refresh_accounts([saved], latest_usage)
         if saved.status == AccountStatus.ACTIVE:
             clear_account_routing_unavailable(saved.id)
+        get_account_selection_cache().invalidate()
+        return AccountImportResponse(
+            account_id=saved.id,
+            email=saved.email,
+            workspace_id=saved.workspace_id,
+            workspace_label=saved.workspace_label,
+            seat_type=saved.seat_type,
+            plan_type=saved.plan_type,
+            status=saved.status,
+        )
+
+    async def _import_anthropic_account(self, data: dict[str, object]) -> AccountImportResponse:
+        try:
+            parsed = parse_anthropic_credential(data)
+        except InvalidAnthropicCredentialError as exc:
+            raise InvalidAuthJsonError(str(exc)) from exc
+
+        # Static console credentials are consumption-based and routed last by
+        # default (operator can flip routing policy in the dashboard); OAuth
+        # accounts route normally.
+        routing_policy = AccountRoutingPolicy.PRESERVE.value if parsed.is_static else AccountRoutingPolicy.NORMAL.value
+        # Static credentials have no refresh token, but the column is non-null;
+        # an encrypted empty string marks "nothing to refresh".
+        refresh_material = parsed.refresh_token if parsed.refresh_token is not None else ""
+
+        account = Account(
+            id=f"anthropic-{uuid4().hex}",
+            provider=PROVIDER_ANTHROPIC,
+            email=parsed.email,
+            plan_type=parsed.plan_type,
+            routing_policy=routing_policy,
+            access_token_encrypted=self._encryptor.encrypt(parsed.access_token),
+            refresh_token_encrypted=self._encryptor.encrypt(refresh_material),
+            id_token_encrypted=None,
+            access_token_expires_at=parsed.access_token_expires_at,
+            last_refresh=utcnow(),
+            status=AccountStatus.ACTIVE,
+            deactivation_reason=None,
+        )
+
+        saved = await self._repo.upsert_account_slot(account)
+        clear_account_routing_unavailable(saved.id)
         get_account_selection_cache().invalidate()
         return AccountImportResponse(
             account_id=saved.id,
@@ -679,8 +741,10 @@ class AccountsService:
         account = await self._repo.get_by_id(account_id)
         if not account:
             return None
+        _require_openai_provider(account, "auth.json export")
         access_token = self._encryptor.decrypt(account.access_token_encrypted)
         refresh_token = self._encryptor.decrypt(account.refresh_token_encrypted)
+        assert account.id_token_encrypted is not None  # OpenAI accounts always carry an id token
         id_token = self._encryptor.decrypt(account.id_token_encrypted)
         auth_json = {
             "auth_mode": "chatgpt",
@@ -720,6 +784,7 @@ class AccountsService:
         account = await self._repo.get_by_id(account_id)
         if account is None:
             return None
+        _require_openai_provider(account, "probe")
         if account.status in (AccountStatus.PAUSED, AccountStatus.REAUTH_REQUIRED, AccountStatus.DEACTIVATED):
             raise AccountNotProbableError(f"Account is {account.status.value} and cannot be probed")
 
@@ -822,3 +887,10 @@ def _opencode_auth_export_filename(account: Account) -> str:
     source = account.email or account.id
     safe = "".join(char if char.isalnum() or char in "._-" else "-" for char in source).strip("-._")
     return f"opencode-auth-{safe or account.id}.json"
+
+
+def _require_openai_provider(account: Account, action: str) -> None:
+    # A transient/legacy account with no provider set is treated as OpenAI;
+    # only an explicit non-OpenAI provider blocks the action.
+    if account.provider not in (None, PROVIDER_OPENAI):
+        raise ProviderActionUnsupportedError(f"{action} is not supported for {account.provider} accounts")

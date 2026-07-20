@@ -48,6 +48,7 @@ from app.core.metrics.prometheus import (
 )
 from app.core.openai.model_registry import get_model_registry
 from app.core.plan_types import account_plan_matches_allowed, normalize_account_plan_type
+from app.core.providers import PROVIDER_OPENAI
 from app.core.resilience.circuit_breaker import are_all_account_circuit_breakers_open
 from app.core.resilience.degradation import get_status as get_degradation_status
 from app.core.resilience.degradation import set_degraded, set_normal
@@ -343,6 +344,7 @@ class LoadBalancer:
         stream_reserve_slots: int = 0,
         traffic_class: TrafficClass = TRAFFIC_CLASS_FOREGROUND,
         concurrency_caps: AccountConcurrencyCaps | None = None,
+        provider: str = PROVIDER_OPENAI,
     ) -> AccountSelection:
         excluded_ids = set(exclude_account_ids or ())
         scoped_account_ids = None if account_ids is None else set(account_ids)
@@ -353,6 +355,7 @@ class LoadBalancer:
                 service_tier=service_tier,
                 additional_limit_name=additional_limit_name,
                 account_ids=scoped_account_ids,
+                provider=provider,
             )
             if require_security_work_authorized and selection_inputs.accounts:
                 authorized_accounts = [
@@ -832,6 +835,7 @@ class LoadBalancer:
         service_tier: str | None = None,
         additional_limit_name: str | None = None,
         account_ids: Collection[str] | None = None,
+        provider: str = PROVIDER_OPENAI,
     ) -> _SelectionInputs:
         effective_limit_name = additional_limit_name or _gated_limit_name_for_model(model)
         additional_quota_routing_policies: dict[str, str] = {}
@@ -848,6 +852,7 @@ class LoadBalancer:
             additional_limit_name,
             additional_quota_routing_policies_cache_key,
             None if account_ids is None else tuple(sorted(set(account_ids))),
+            provider,
         )
         cached = await self._selection_inputs_cache.get(cache_key)
         if cached is not None:
@@ -856,7 +861,14 @@ class LoadBalancer:
         load_generation = self._selection_inputs_cache.generation
 
         async with self._repo_factory() as repos:
-            all_accounts = await repos.accounts.list_accounts()
+            # Provider-scoped: a selection for one provider never considers
+            # another provider's accounts (nor sends its credentials upstream).
+            # A NULL provider (legacy/transient row) is treated as OpenAI.
+            all_accounts = [
+                account
+                for account in await repos.accounts.list_accounts()
+                if (account.provider or PROVIDER_OPENAI) == provider
+            ]
             quota_planner_repo = getattr(repos, "quota_planner", None)
             get_quota_planner_settings = getattr(quota_planner_repo, "get_settings", None)
             if callable(get_quota_planner_settings):

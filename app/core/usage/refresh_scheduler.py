@@ -11,6 +11,7 @@ from datetime import datetime
 from typing import Any, AsyncIterator, Protocol, TypeVar, cast
 
 from app.core.config.settings import get_settings
+from app.core.providers import PROVIDER_ANTHROPIC
 from app.core.usage import capacity_for_plan
 from app.db.models import Account, AccountLimitWarmup, AccountStatus, UsageHistory
 from app.db.session import detach_session_objects, get_background_session
@@ -252,7 +253,11 @@ def _ordered_usage_refresh_accounts(accounts: list[Account]) -> list[Account]:
         (
             account
             for account in accounts
-            if account.status not in (AccountStatus.PAUSED, AccountStatus.REAUTH_REQUIRED, AccountStatus.DEACTIVATED)
+            # OpenAI-only: this scheduler polls the ChatGPT usage API. Anthropic
+            # usage is ingested from relay response headers instead. (None
+            # provider = legacy OpenAI account.)
+            if account.provider != PROVIDER_ANTHROPIC
+            and account.status not in (AccountStatus.PAUSED, AccountStatus.REAUTH_REQUIRED, AccountStatus.DEACTIVATED)
         ),
         key=lambda account: account.id,
     )

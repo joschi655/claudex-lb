@@ -81,6 +81,7 @@ class AccountAdditionalQuota(DashboardModel):
 
 class AccountSummary(DashboardModel):
     account_id: str
+    provider: str = "openai"
     chatgpt_account_id: str | None = None
     email: str
     alias: str | None = None

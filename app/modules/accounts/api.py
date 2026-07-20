@@ -49,6 +49,7 @@ from app.modules.accounts.service import (
     AccountUsageResetConsumeUnavailableError,
     AccountUsageResetCreditsUnavailableError,
     InvalidAuthJsonError,
+    ProviderActionUnsupportedError,
 )
 
 router = APIRouter(
@@ -149,7 +150,10 @@ async def export_account(
     _write_access=Depends(require_dashboard_write_access),
     context: AccountsContext = Depends(get_accounts_context),
 ) -> AccountExportResponse:
-    result = await context.service.export_account(account_id)
+    try:
+        result = await context.service.export_account(account_id)
+    except ProviderActionUnsupportedError as exc:
+        raise DashboardBadRequestError(str(exc), code="provider_action_unsupported") from exc
     if not result:
         raise DashboardNotFoundError("Account not found", code="account_not_found")
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
@@ -171,7 +175,10 @@ async def export_account_auth(
     _write_access=Depends(require_dashboard_write_access),
     context: AccountsContext = Depends(get_accounts_context),
 ) -> AccountAuthExportResponse:
-    result = await context.service.export_auth(account_id)
+    try:
+        result = await context.service.export_auth(account_id)
+    except ProviderActionUnsupportedError as exc:
+        raise DashboardBadRequestError(str(exc), code="provider_action_unsupported") from exc
     if not result:
         raise DashboardNotFoundError("Account not found", code="account_not_found")
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
@@ -193,7 +200,10 @@ async def export_account_opencode_auth(
     _write_access=Depends(require_dashboard_write_access),
     context: AccountsContext = Depends(get_accounts_context),
 ) -> AccountOpenCodeAuthExportResponse:
-    result = await context.service.export_opencode_auth(account_id)
+    try:
+        result = await context.service.export_opencode_auth(account_id)
+    except ProviderActionUnsupportedError as exc:
+        raise DashboardBadRequestError(str(exc), code="provider_action_unsupported") from exc
     if not result:
         raise DashboardNotFoundError("Account not found", code="account_not_found")
     response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
@@ -283,6 +293,8 @@ async def probe_account(
     requested_model = body.model if body is not None else None
     try:
         result = await context.service.probe_account(account_id, model=requested_model)
+    except ProviderActionUnsupportedError as exc:
+        raise DashboardBadRequestError(str(exc), code="provider_action_unsupported") from exc
     except AccountNotProbableError as exc:
         raise DashboardConflictError(str(exc), code="account_not_probable") from exc
     except RefreshError as exc:

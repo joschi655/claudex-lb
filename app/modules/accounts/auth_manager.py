@@ -15,6 +15,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.anthropic.oauth import refresh_claude_access_token
 from app.core.auth import DEFAULT_PLAN, OpenAIAuthClaims, extract_id_token_claims
 from app.core.auth.refresh import (
     RefreshError,
@@ -29,6 +30,7 @@ from app.core.balancer import PERMANENT_FAILURE_CODES, account_status_for_perman
 from app.core.config.settings import get_settings
 from app.core.crypto import TokenEncryptor
 from app.core.plan_types import coerce_account_plan_type
+from app.core.providers import PROVIDER_ANTHROPIC
 from app.core.upstream_proxy import UpstreamProxyRouteError, resolve_upstream_route
 from app.core.utils.time import utcnow
 from app.db.models import Account, AccountProxyBinding, AccountStatus
@@ -69,7 +71,7 @@ class AccountsRepositoryPort(Protocol):
         account_id: str,
         access_token_encrypted: bytes,
         refresh_token_encrypted: bytes,
-        id_token_encrypted: bytes,
+        id_token_encrypted: bytes | None,
         last_refresh: datetime,
         *,
         expected_refresh_token_encrypted: bytes,
@@ -80,6 +82,7 @@ class AccountsRepositoryPort(Protocol):
         workspace_id: str | None = None,
         workspace_label: str | None = None,
         seat_type: str | None = None,
+        access_token_expires_at: int | None = None,
     ) -> bool: ...
 
     async def update_account_metadata(
@@ -271,12 +274,25 @@ class AuthManager:
         self._refresh_claims = refresh_claims
 
     async def ensure_fresh(self, account: Account, *, force: bool = False) -> Account:
-        if force or should_refresh(account.last_refresh):
+        if self._should_refresh_account(account, force=force):
             account = await _REFRESH_SINGLEFLIGHT.run(
                 _refresh_singleflight_key(self._encryptor, account),
                 lambda: self._run_refresh(account),
             )
+        if account.provider == PROVIDER_ANTHROPIC:
+            # Anthropic accounts carry no id token, so the chatgpt_account_id
+            # backfill (which decrypts id_token_encrypted) does not apply.
+            return account
         return await self._ensure_chatgpt_account_id(account)
+
+    def _should_refresh_account(self, account: Account, *, force: bool) -> bool:
+        if account.provider == PROVIDER_ANTHROPIC:
+            # Static-credential anthropic accounts (no expiry) are never
+            # refreshed, even under force -- there is nothing to refresh.
+            if account.access_token_expires_at is None:
+                return False
+            return force or anthropic_token_needs_refresh(account.access_token_expires_at)
+        return force or should_refresh(account.last_refresh)
 
     async def _run_refresh(self, account: Account) -> Account:
         """Singleflight body for token refresh.
@@ -528,6 +544,17 @@ class AuthManager:
                     return adopted
             raise
 
+        if account.provider == PROVIDER_ANTHROPIC:
+            return await self._persist_anthropic_refresh(
+                account,
+                result,
+                refresh_token_encrypted=refresh_token_encrypted,
+                deadline=deadline,
+            )
+
+        # OpenAI refresh always returns an id token (refresh_access_token raises
+        # invalid_response otherwise); anthropic accounts are handled above.
+        assert result.id_token is not None
         new_access_token_encrypted = self._encryptor.encrypt(result.access_token)
         new_refresh_token_encrypted = self._encryptor.encrypt(result.refresh_token)
         new_id_token_encrypted = self._encryptor.encrypt(result.id_token)
@@ -617,6 +644,62 @@ class AuthManager:
         account.workspace_id = next_workspace_id
         account.workspace_label = new_workspace_label
         account.seat_type = new_seat_type
+        return account
+
+    async def _persist_anthropic_refresh(
+        self,
+        account: Account,
+        result: TokenRefreshResult,
+        *,
+        refresh_token_encrypted: bytes,
+        deadline: float | None,
+    ) -> Account:
+        """Persist a rotated anthropic token pair through the shared CAS path.
+
+        Anthropic accounts carry no id token and no workspace/seat identity, so
+        this is a slim sibling of the OpenAI persist body. It reuses the same
+        guarded compare-and-set (``_persist_refreshed_tokens``) that protects the
+        single-use refresh token from concurrent rotations.
+        """
+        new_access_token_encrypted = self._encryptor.encrypt(result.access_token)
+        new_refresh_token_encrypted = self._encryptor.encrypt(result.refresh_token)
+        new_last_refresh = utcnow()
+        if result.plan_type is not None:
+            new_plan_type = coerce_account_plan_type(result.plan_type, account.plan_type or DEFAULT_PLAN)
+        else:
+            new_plan_type = account.plan_type or DEFAULT_PLAN
+        new_email = result.email or account.email
+        new_expires_at = result.access_token_expires_at
+
+        async def _write_tokens(expected_refresh_token_encrypted: bytes) -> bool:
+            return await self._repo.rotate_tokens(
+                account.id,
+                access_token_encrypted=new_access_token_encrypted,
+                refresh_token_encrypted=new_refresh_token_encrypted,
+                id_token_encrypted=None,
+                last_refresh=new_last_refresh,
+                plan_type=new_plan_type,
+                email=new_email,
+                access_token_expires_at=new_expires_at,
+                expected_refresh_token_encrypted=expected_refresh_token_encrypted,
+            )
+
+        adopted = await self._persist_refreshed_tokens(
+            account,
+            write=_write_tokens,
+            expected_refresh_token_encrypted=refresh_token_encrypted,
+            deadline=deadline,
+        )
+        if adopted is not None:
+            return adopted
+
+        account.access_token_encrypted = new_access_token_encrypted
+        account.refresh_token_encrypted = new_refresh_token_encrypted
+        account.id_token_encrypted = None
+        account.last_refresh = new_last_refresh
+        account.plan_type = new_plan_type
+        account.email = new_email
+        account.access_token_expires_at = new_expires_at
         return account
 
     async def _persist_refreshed_tokens(
@@ -1082,7 +1165,60 @@ class AuthManager:
             transport_error=True,
         ) from exc
 
+    async def _refresh_anthropic_tokens(self, refresh_token: str, *, account: Account) -> TokenRefreshResult:
+        """Refresh a Claude OAuth token pair under the caller's refresh budget.
+
+        Mirrors the OpenAI budget/admission discipline (the caller holds the
+        cross-replica refresh claim) but skips upstream-proxy route resolution
+        (out of scope for anthropic accounts) and OpenAI id-token claim parsing.
+        A missing refresh token means a static console credential reached the
+        refresh path; that is a permanent, re-auth-required condition.
+        """
+        if not refresh_token:
+            raise RefreshError(
+                "refresh_token_invalidated",
+                f"Anthropic account {account.id} has no refresh token (static credential)",
+                True,
+            )
+        budget = get_token_refresh_timeout_override()
+        deadline = time.monotonic() + max(0.0, budget) if budget is not None else None
+        refresh_lease = await self._acquire_refresh_admission_bounded(account, deadline)
+        try:
+            exchange_override: contextvars.Token[float | None] | None = None
+            if deadline is not None:
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RefreshError(
+                        "refresh_claim_timeout",
+                        f"Token refresh for anthropic account {account.id} exhausted its budget "
+                        f"after acquiring admission but before the exchange could start",
+                        False,
+                        transport_error=True,
+                    )
+                exchange_override = push_token_refresh_timeout_override(remaining)
+            try:
+                result = await refresh_claude_access_token(refresh_token)
+            finally:
+                if exchange_override is not None:
+                    pop_token_refresh_timeout_override(exchange_override)
+        finally:
+            if refresh_lease is not None:
+                refresh_lease.release()
+
+        plan_type = f"claude_{result.subscription_type}" if result.subscription_type else None
+        return TokenRefreshResult(
+            access_token=result.access_token,
+            refresh_token=result.refresh_token,
+            id_token=None,
+            account_id=None,
+            plan_type=plan_type,
+            email=None,
+            access_token_expires_at=result.expires_at,
+        )
+
     async def _refresh_tokens(self, refresh_token: str, *, account: Account) -> TokenRefreshResult:
+        if account.provider == PROVIDER_ANTHROPIC:
+            return await self._refresh_anthropic_tokens(refresh_token, account=account)
         # Bound the ENTIRE claim-holding work of this body — the token-refresh
         # admission wait AND the upstream OAuth exchange — by the caller's
         # remaining refresh budget. This runs inside the shielded singleflight
@@ -1203,7 +1339,7 @@ class AuthManager:
             ) from exc
 
     async def _ensure_chatgpt_account_id(self, account: Account) -> Account:
-        if account.chatgpt_account_id:
+        if account.chatgpt_account_id or account.id_token_encrypted is None:
             return account
         try:
             id_token = self._encryptor.decrypt(account.id_token_encrypted)
@@ -1232,6 +1368,16 @@ class AuthManager:
         except Exception:
             logger.warning("Failed to persist chatgpt_account_id account_id=%s", account.id, exc_info=True)
         return account
+
+
+# Refresh an anthropic access token this many seconds before it expires, so a
+# request never dispatches with a token about to lapse mid-flight.
+ANTHROPIC_REFRESH_SKEW_SECONDS = 300
+
+
+def anthropic_token_needs_refresh(access_token_expires_at: int, *, now: int | None = None) -> bool:
+    current = now if now is not None else int(time.time())
+    return current >= access_token_expires_at - ANTHROPIC_REFRESH_SKEW_SECONDS
 
 
 def _chatgpt_account_id_from_id_token(id_token: str) -> str | None:

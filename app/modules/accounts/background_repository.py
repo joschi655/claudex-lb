@@ -88,7 +88,7 @@ class BackgroundAccountsRepository:
         account_id: str,
         access_token_encrypted: bytes,
         refresh_token_encrypted: bytes,
-        id_token_encrypted: bytes,
+        id_token_encrypted: bytes | None,
         last_refresh: datetime,
         *,
         expected_refresh_token_encrypted: bytes,
@@ -99,6 +99,7 @@ class BackgroundAccountsRepository:
         workspace_id: str | None = None,
         workspace_label: str | None = None,
         seat_type: str | None = None,
+        access_token_expires_at: int | None = None,
     ) -> bool:
         async with get_background_session() as session:
             return await AccountsRepository(session).rotate_tokens(
@@ -115,6 +116,7 @@ class BackgroundAccountsRepository:
                 workspace_id=workspace_id,
                 workspace_label=workspace_label,
                 seat_type=seat_type,
+                access_token_expires_at=access_token_expires_at,
             )
 
     async def update_account_metadata(

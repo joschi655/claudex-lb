@@ -62,6 +62,9 @@ export function AccountActions({
 }: AccountActionsProps) {
   const showOperatorRecoveryAction =
     account.status === "reauth_required" || account.status === "deactivated";
+  // Probe, warm-up, and Codex auth export hit ChatGPT-specific upstream APIs
+  // and only apply to OpenAI accounts.
+  const isOpenAiProvider = account.provider !== "anthropic";
   const probeDisabled =
     busy || readOnly || account.status === "paused" || showOperatorRecoveryAction;
   const resetCountdown = account.resetCreditNearestExpiresAt
@@ -168,43 +171,49 @@ export function AccountActions({
           </Button>
         ) : null}
 
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-8 gap-1.5 text-xs"
-          onClick={() => onProbe(account.accountId)}
-          disabled={probeDisabled}
-        >
-          <Activity className="h-3.5 w-3.5" />
-          Force probe
-        </Button>
+        {isOpenAiProvider ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => onProbe(account.accountId)}
+            disabled={probeDisabled}
+          >
+            <Activity className="h-3.5 w-3.5" />
+            Force probe
+          </Button>
+        ) : null}
 
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-8 gap-1.5 text-xs"
-          onClick={() =>
-            onLimitWarmupChange(account.accountId, !account.limitWarmupEnabled)
-          }
-          disabled={busy || readOnly}
-        >
-          <Zap className="h-3.5 w-3.5" />
-          {account.limitWarmupEnabled ? "Disable warm-up" : "Enable warm-up"}
-        </Button>
+        {isOpenAiProvider ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() =>
+              onLimitWarmupChange(account.accountId, !account.limitWarmupEnabled)
+            }
+            disabled={busy || readOnly}
+          >
+            <Zap className="h-3.5 w-3.5" />
+            {account.limitWarmupEnabled ? "Disable warm-up" : "Enable warm-up"}
+          </Button>
+        ) : null}
 
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          className="h-8 gap-1.5 text-xs"
-          onClick={() => onExportAuth(account.accountId)}
-          disabled={busy || readOnly}
-        >
-          <Download className="h-3.5 w-3.5" />
-          Export
-        </Button>
+        {isOpenAiProvider ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => onExportAuth(account.accountId)}
+            disabled={busy || readOnly}
+          >
+            <Download className="h-3.5 w-3.5" />
+            Export
+          </Button>
+        ) : null}
 
         {hasResetCredits ? (
           <Button

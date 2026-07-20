@@ -70,6 +70,14 @@ class Account(Base):
     __tablename__ = "accounts"
 
     id: Mapped[str] = mapped_column(String, primary_key=True)
+    # Upstream vendor this account's credentials belong to; see
+    # app.core.providers. Selection/refresh/schedulers are provider-scoped.
+    provider: Mapped[str] = mapped_column(
+        String,
+        default="openai",
+        server_default=text("'openai'"),
+        nullable=False,
+    )
     chatgpt_account_id: Mapped[str | None] = mapped_column(String, nullable=True)
     # Stable per-seat OpenAI principal identity (chatgpt_user_id / auth sub).
     # Distinct from chatgpt_account_id, which is the shared Team/Business
@@ -97,7 +105,11 @@ class Account(Base):
 
     access_token_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     refresh_token_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
-    id_token_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    # OpenAI accounts always carry an id token; anthropic accounts have none.
+    id_token_encrypted: Mapped[bytes | None] = mapped_column(LargeBinary, nullable=True)
+    # Access-token expiry (epoch seconds). Anthropic freshness is expiry-based;
+    # OpenAI accounts leave this NULL and keep the last_refresh age gate.
+    access_token_expires_at: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     last_refresh: Mapped[datetime] = mapped_column(DateTime, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)

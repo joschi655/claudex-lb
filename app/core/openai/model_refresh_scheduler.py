@@ -24,6 +24,7 @@ from app.core.openai.model_registry_store import (
     persist_registry_snapshot,
     reconcile_model_registry_from_store,
 )
+from app.core.providers import PROVIDER_ANTHROPIC
 from app.core.upstream_proxy import ResolvedUpstreamRoute, resolve_upstream_route
 from app.db.models import Account, AccountStatus
 from app.db.session import detach_session_objects, get_background_session
@@ -104,7 +105,8 @@ class ModelRefreshScheduler:
         try:
             async with get_background_session() as session:
                 accounts_repo = AccountsRepository(session)
-                accounts = await accounts_repo.list_accounts()
+                # OpenAI-only: model discovery hits the ChatGPT models API.
+                accounts = [a for a in await accounts_repo.list_accounts() if a.provider != PROVIDER_ANTHROPIC]
                 detach_session_objects(session)
             grouped = _group_by_plan(accounts)
             if not grouped:

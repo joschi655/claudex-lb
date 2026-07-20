@@ -604,6 +604,63 @@ async def test_auth_guardian_waits_for_refresh_before_cancelled_candidate_exits(
     assert repo_exited is True
 
 
+class _ExpiringAccount:
+    """Mimics an ORM instance whose attributes expire when its session closes."""
+
+    def __init__(self, account: Account) -> None:
+        object.__setattr__(self, "_account", account)
+        object.__setattr__(self, "_expired", False)
+
+    def expire(self) -> None:
+        object.__setattr__(self, "_expired", True)
+
+    def __getattr__(self, name: str) -> object:
+        if object.__getattribute__(self, "_expired"):
+            raise RuntimeError(f"detached instance attribute access: {name}")
+        return getattr(object.__getattribute__(self, "_account"), name)
+
+    def __setattr__(self, name: str, value: object) -> None:
+        if object.__getattribute__(self, "_expired"):
+            raise RuntimeError(f"detached instance attribute write: {name}")
+        setattr(object.__getattribute__(self, "_account"), name, value)
+
+
+@pytest.mark.asyncio
+async def test_refresh_pass_does_not_touch_orm_instances_after_session_close() -> None:
+    """Closing a read-only session rolls back and expires its instances; the
+    guardian must only carry plain ids across the repo-context boundary."""
+    now = datetime(2026, 1, 2, 12, 0, 0)
+    raw_accounts = [_account("stale-active", status=AccountStatus.ACTIVE, last_refresh=now - timedelta(hours=13))]
+    calls: list[str] = []
+
+    @asynccontextmanager
+    async def repo_factory() -> AsyncIterator[_Repo]:
+        proxies = [_ExpiringAccount(account) for account in raw_accounts]
+        try:
+            yield _Repo(cast("list[Account]", proxies))
+        finally:
+            for proxy in proxies:
+                proxy.expire()
+
+    scheduler = AuthGuardianScheduler(
+        interval_seconds=21600,
+        enabled=True,
+        max_age_seconds=12 * 3600,
+        batch_size=10,
+        concurrency=2,
+        jitter_seconds=0.0,
+        leader_election_factory=lambda: _Leader(),
+        repo_factory=repo_factory,
+        auth_manager_factory=lambda _repo: _AuthManager(calls),
+        sleep=lambda _delay: _noop_sleep(),
+        now=lambda: now,
+    )
+
+    await scheduler._refresh_once()
+
+    assert calls == ["stale-active"]
+
+
 async def _noop_sleep() -> None:
     return None
 
