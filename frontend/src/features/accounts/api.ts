@@ -16,6 +16,7 @@ import {
   AccountUsageResetConsumeResponseSchema,
   AccountUsageResetCreditsResponseSchema,
   AccountTrendsResponseSchema,
+  AnthropicApiKeyRequestSchema,
   AccountProbeRequestSchema,
   AccountProbeResponseSchema,
   ConsumeRateLimitResetCreditResponseSchema,
@@ -32,13 +33,35 @@ import {
 import type {
   AccountRoutingPolicy,
   AccountUsageResetConsumeRequest,
+  AnthropicApiKeyRequest,
 } from "@/features/accounts/schemas";
+import type { ProviderScope } from "@/features/providers/schemas";
 
 const ACCOUNTS_BASE_PATH = "/api/accounts";
 const OAUTH_BASE_PATH = "/api/oauth";
 
-export function listAccounts() {
-  return get(ACCOUNTS_BASE_PATH, AccountsResponseSchema);
+export function listAccounts(provider: ProviderScope = "all") {
+  const query = new URLSearchParams({ provider });
+  return get(`${ACCOUNTS_BASE_PATH}?${query.toString()}`, AccountsResponseSchema);
+}
+
+export function createAnthropicApiKey(payload: AnthropicApiKeyRequest) {
+  const validated = AnthropicApiKeyRequestSchema.parse(payload);
+  return post(`${ACCOUNTS_BASE_PATH}/anthropic-api-key`, AccountImportResponseSchema, {
+    body: validated,
+  });
+}
+
+export function replaceAnthropicApiKey(
+  accountId: string,
+  payload: AnthropicApiKeyRequest,
+) {
+  const validated = AnthropicApiKeyRequestSchema.parse(payload);
+  return put(
+    `${ACCOUNTS_BASE_PATH}/${encodeURIComponent(accountId)}/anthropic-api-key`,
+    AccountImportResponseSchema,
+    { body: validated },
+  );
 }
 
 export function importAccount(file: File) {

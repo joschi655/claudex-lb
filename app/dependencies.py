@@ -265,7 +265,7 @@ def get_anthropic_proxy_service_for_app(app: FastAPI) -> AnthropicProxyService:
     if not isinstance(service, AnthropicProxyService):
         service = AnthropicProxyService(
             load_balancer=LoadBalancer(_proxy_repo_context),
-            accounts_repo_factory=_accounts_repo_context,
+            repo_factory=_proxy_repo_context,
         )
         setattr(state, "anthropic_proxy_service", service)
     return service

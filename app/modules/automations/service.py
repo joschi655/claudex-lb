@@ -21,6 +21,7 @@ from app.core.config.settings import get_settings
 from app.core.crypto import TokenEncryptor
 from app.core.openai.model_registry import get_model_registry
 from app.core.openai.requests import ResponsesCompactRequest, ResponsesReasoning
+from app.core.providers import PROVIDER_OPENAI
 from app.core.upstream_proxy import ResolvedUpstreamRoute, resolve_upstream_route
 from app.core.utils.time import naive_utc_to_epoch, utcnow
 from app.db.models import Account, AccountStatus
@@ -2032,6 +2033,8 @@ class AutomationsService:
         *,
         include_paused_accounts: bool,
     ) -> bool:
+        if (account.provider or PROVIDER_OPENAI) != PROVIDER_OPENAI:
+            return False
         if account.status in _AUTOMATION_ALWAYS_SKIPPED_ACCOUNT_STATUSES:
             return False
         if account.status == AccountStatus.PAUSED and not include_paused_accounts:

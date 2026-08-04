@@ -6,6 +6,7 @@ from asyncio import Semaphore
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from app.core.anthropic.errors import anthropic_error_for_status, is_anthropic_messages_path
 from app.core.resilience.memory_monitor import is_memory_pressure, is_memory_warning
 from app.core.resilience.overload import (
     deny_websocket_with_http_response,
@@ -86,6 +87,13 @@ class BulkheadMiddleware:
 
         if is_memory_pressure():
             message = "codex-lb is temporarily unavailable due to local memory pressure"
+            payload = (
+                anthropic_error_for_status(503, message)
+                if is_anthropic_messages_path(path)
+                else local_unavailable_error(message)
+                if is_proxy_path(path)
+                else {"detail": message}
+            )
             await self._log_rejection(
                 path=path,
                 scope_type=scope["type"],
@@ -99,14 +107,14 @@ class BulkheadMiddleware:
                     receive,
                     send,
                     status_code=503,
-                    payload=local_unavailable_error(message) if is_proxy_path(path) else {"detail": message},
+                    payload=payload,
                     headers=merge_retry_after_headers(),
                 )
                 return
             await send_json_http_response(
                 send,
                 status_code=503,
-                payload=local_unavailable_error(message) if is_proxy_path(path) else {"detail": message},
+                payload=payload,
                 headers=merge_retry_after_headers(),
             )
             return
@@ -118,6 +126,13 @@ class BulkheadMiddleware:
 
         if sem.locked():
             message = f"codex-lb is temporarily overloaded in the {lane} lane"
+            payload = (
+                anthropic_error_for_status(429, message)
+                if is_anthropic_messages_path(path)
+                else local_overload_error(message)
+                if is_proxy_path(path)
+                else {"detail": message}
+            )
             await self._log_rejection(
                 path=path,
                 scope_type=scope["type"],
@@ -131,14 +146,14 @@ class BulkheadMiddleware:
                     receive,
                     send,
                     status_code=429,
-                    payload=local_overload_error(message) if is_proxy_path(path) else {"detail": message},
+                    payload=payload,
                     headers=merge_retry_after_headers(),
                 )
                 return
             await send_json_http_response(
                 send,
                 status_code=429,
-                payload=local_overload_error(message) if is_proxy_path(path) else {"detail": message},
+                payload=payload,
                 headers=merge_retry_after_headers(),
             )
             return

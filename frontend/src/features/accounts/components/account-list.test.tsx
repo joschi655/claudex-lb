@@ -26,6 +26,8 @@ describe("AccountList", () => {
         accounts={[
           {
             accountId: "acc-1",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "primary@example.com",
             displayName: "Primary",
             planType: "plus",
@@ -35,6 +37,8 @@ describe("AccountList", () => {
           },
           {
             accountId: "acc-2",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "secondary@example.com",
             displayName: "Secondary",
             planType: "pro",
@@ -47,6 +51,7 @@ describe("AccountList", () => {
         onSelect={onSelect}
         onOpenImport={() => {}}
         onOpenOauth={() => {}}
+        onOpenAnthropic={() => {}}
       />,
     );
 
@@ -72,6 +77,8 @@ describe("AccountList", () => {
         accounts={[
           {
             accountId: "acc-hidden-early",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "hidden-early@example.com",
             displayName: "Hidden Early",
             planType: "plus",
@@ -89,6 +96,8 @@ describe("AccountList", () => {
           },
           {
             accountId: "acc-visible-early",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "visible-early@example.com",
             displayName: "Visible Early",
             planType: "plus",
@@ -109,6 +118,7 @@ describe("AccountList", () => {
         onSelect={() => {}}
         onOpenImport={() => {}}
         onOpenOauth={() => {}}
+        onOpenAnthropic={() => {}}
       />,
     );
 
@@ -125,6 +135,8 @@ describe("AccountList", () => {
         accounts={[
           {
             accountId: "acc-stale",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "stale@example.com",
             displayName: "Stale",
             planType: "plus",
@@ -142,6 +154,8 @@ describe("AccountList", () => {
           },
           {
             accountId: "acc-fresh",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "fresh@example.com",
             displayName: "Fresh",
             planType: "plus",
@@ -162,6 +176,7 @@ describe("AccountList", () => {
         onSelect={() => {}}
         onOpenImport={() => {}}
         onOpenOauth={() => {}}
+        onOpenAnthropic={() => {}}
       />,
     );
 
@@ -176,6 +191,8 @@ describe("AccountList", () => {
         accounts={[
           {
             accountId: "acc-late",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "late@example.com",
             displayName: "Late",
             planType: "plus",
@@ -193,6 +210,8 @@ describe("AccountList", () => {
           },
           {
             accountId: "acc-early",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "early@example.com",
             displayName: "Early",
             planType: "plus",
@@ -213,6 +232,7 @@ describe("AccountList", () => {
         onSelect={() => {}}
         onOpenImport={() => {}}
         onOpenOauth={() => {}}
+        onOpenAnthropic={() => {}}
       />,
     );
 
@@ -227,6 +247,8 @@ describe("AccountList", () => {
         accounts={[
           {
             accountId: "acc-z",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "z@example.com",
             displayName: "Zeta",
             planType: "pro",
@@ -237,6 +259,8 @@ describe("AccountList", () => {
           },
           {
             accountId: "acc-a",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "a@example.com",
             displayName: "Alpha",
             planType: "plus",
@@ -250,6 +274,7 @@ describe("AccountList", () => {
         onSelect={() => {}}
         onOpenImport={() => {}}
         onOpenOauth={() => {}}
+        onOpenAnthropic={() => {}}
         sortMode="name_asc"
         onSortModeChange={() => {}}
       />,
@@ -267,6 +292,8 @@ describe("AccountList", () => {
         accounts={[
           {
             accountId: "acc-b",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "b@example.com",
             displayName: "Beta",
             planType: "plus",
@@ -277,6 +304,8 @@ describe("AccountList", () => {
           },
           {
             accountId: "acc-a",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "a@example.com",
             displayName: "Alpha",
             planType: "plus",
@@ -290,6 +319,7 @@ describe("AccountList", () => {
         onSelect={() => {}}
         onOpenImport={() => {}}
         onOpenOauth={() => {}}
+        onOpenAnthropic={() => {}}
         sortMode="name_desc"
         onSortModeChange={() => {}}
       />,
@@ -307,6 +337,8 @@ describe("AccountList", () => {
         accounts={[
           {
             accountId: "acc-a",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "a@example.com",
             displayName: "Alpha",
             planType: "plus",
@@ -317,6 +349,8 @@ describe("AccountList", () => {
           },
           {
             accountId: "acc-z",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "z@example.com",
             displayName: "Zeta",
             planType: "plus",
@@ -330,6 +364,7 @@ describe("AccountList", () => {
         onSelect={() => {}}
         onOpenImport={() => {}}
         onOpenOauth={() => {}}
+        onOpenAnthropic={() => {}}
         sortMode="reset_latest"
         onSortModeChange={() => {}}
       />,
@@ -347,6 +382,8 @@ describe("AccountList", () => {
         accounts={[
           {
             accountId: "acc-unknown",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "unknown@example.com",
             displayName: "Unknown",
             planType: "plus",
@@ -356,6 +393,8 @@ describe("AccountList", () => {
           },
           {
             accountId: "acc-stale",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "stale@example.com",
             displayName: "Stale",
             planType: "plus",
@@ -366,6 +405,8 @@ describe("AccountList", () => {
           },
           {
             accountId: "acc-latest",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "latest@example.com",
             displayName: "Latest",
             planType: "plus",
@@ -376,6 +417,8 @@ describe("AccountList", () => {
           },
           {
             accountId: "acc-earlier",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "earlier@example.com",
             displayName: "Earlier",
             planType: "plus",
@@ -389,6 +432,7 @@ describe("AccountList", () => {
         onSelect={() => {}}
         onOpenImport={() => {}}
         onOpenOauth={() => {}}
+        onOpenAnthropic={() => {}}
         sortMode="reset_latest"
         onSortModeChange={() => {}}
       />,
@@ -410,6 +454,8 @@ describe("AccountList", () => {
         accounts={[
           {
             accountId: "acc-1",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "primary@example.com",
             displayName: "Primary",
             planType: "plus",
@@ -422,6 +468,7 @@ describe("AccountList", () => {
         onSelect={() => {}}
         onOpenImport={() => {}}
         onOpenOauth={() => {}}
+        onOpenAnthropic={() => {}}
       />,
     );
 
@@ -438,6 +485,8 @@ describe("AccountList", () => {
         accounts={[
           {
             accountId: "acc-1",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "primary@example.com",
             displayName: "Primary",
             planType: "plus",
@@ -450,6 +499,7 @@ describe("AccountList", () => {
         onSelect={() => {}}
         onOpenImport={() => {}}
         onOpenOauth={() => {}}
+        onOpenAnthropic={() => {}}
       />,
     );
 
@@ -464,6 +514,8 @@ describe("AccountList", () => {
       <AccountList
         accounts={Array.from({ length: 20 }, (_, index) => ({
           accountId: `acc-${index}`,
+            provider: "openai",
+            credentialKind: "openai_oauth",
           email: `account-${index}@example.com`,
           displayName: `Account ${index}`,
           planType: "plus",
@@ -475,6 +527,7 @@ describe("AccountList", () => {
         onSelect={() => {}}
         onOpenImport={() => {}}
         onOpenOauth={() => {}}
+        onOpenAnthropic={() => {}}
       />,
     );
 
@@ -494,6 +547,8 @@ describe("AccountList", () => {
         accounts={[
           {
             accountId: "acc-active",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "active@example.com",
             displayName: "Active",
             planType: "plus",
@@ -503,6 +558,8 @@ describe("AccountList", () => {
           },
           {
             accountId: "acc-reauth",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "reauth@example.com",
             displayName: "Needs Reauth",
             planType: "pro",
@@ -515,6 +572,7 @@ describe("AccountList", () => {
         onSelect={() => {}}
         onOpenImport={() => {}}
         onOpenOauth={() => {}}
+        onOpenAnthropic={() => {}}
       />,
     );
 
@@ -531,6 +589,8 @@ describe("AccountList", () => {
         accounts={[
           {
             accountId: "d48f0bfc-8ea6-48a7-8d76-d0e5ef1816c5_6f12b5d5",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "dup@example.com",
             displayName: "Same email, different workspace",
             planType: "plus",
@@ -541,6 +601,8 @@ describe("AccountList", () => {
           },
           {
             accountId: "7f9de2ad-7621-4a6f-88bc-ec7f3d914701_91a95cee",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "dup@example.com",
             displayName: "Same email, duplicate slot",
             planType: "plus",
@@ -551,6 +613,8 @@ describe("AccountList", () => {
           },
           {
             accountId: "acc-3",
+            provider: "openai",
+            credentialKind: "openai_oauth",
             email: "unique@example.com",
             displayName: "Unique",
             planType: "pro",
@@ -563,6 +627,7 @@ describe("AccountList", () => {
         onSelect={() => {}}
         onOpenImport={() => {}}
         onOpenOauth={() => {}}
+        onOpenAnthropic={() => {}}
       />,
     );
 

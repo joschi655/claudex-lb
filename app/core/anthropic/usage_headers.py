@@ -1,64 +1,75 @@
-"""Parse Anthropic unified rate-limit response headers into usage snapshots.
-
-Messages API responses (including 429s) carry ``anthropic-ratelimit-unified-*``
-headers describing the account's 5h and 7d window utilization. The parser is
-deliberately permissive: any missing or malformed header yields ``None`` for
-that field and never raises, so a header-shape change upstream degrades to "no
-usage written" rather than a failed relay.
-"""
+"""Parse standard Anthropic API rate-limit response headers."""
 
 from __future__ import annotations
 
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from math import isfinite
 
-_PRIMARY_UTILIZATION = "anthropic-ratelimit-unified-5h-utilization"
-_PRIMARY_RESET = "anthropic-ratelimit-unified-5h-reset"
-_SECONDARY_UTILIZATION = "anthropic-ratelimit-unified-7d-utilization"
-_SECONDARY_RESET = "anthropic-ratelimit-unified-7d-reset"
-
-
-@dataclass(frozen=True)
-class AnthropicUsageSnapshot:
-    primary_used_percent: float | None = None
-    primary_reset_at: int | None = None
-    secondary_used_percent: float | None = None
-    secondary_reset_at: int | None = None
-
-    @property
-    def has_any(self) -> bool:
-        return self.primary_used_percent is not None or self.secondary_used_percent is not None
+_LIMIT_GROUPS = ("requests", "tokens", "input-tokens", "output-tokens")
 
 
-def parse_unified_usage(headers: Mapping[str, str]) -> AnthropicUsageSnapshot:
+@dataclass(frozen=True, slots=True)
+class AnthropicRateLimit:
+    quota_key: str
+    limit_name: str
+    used_percent: float
+    reset_at: int | None
+
+
+def parse_rate_limits(headers: Mapping[str, str]) -> tuple[AnthropicRateLimit, ...]:
     lowered = {key.lower(): value for key, value in headers.items()}
-    return AnthropicUsageSnapshot(
-        primary_used_percent=_utilization_percent(lowered.get(_PRIMARY_UTILIZATION)),
-        primary_reset_at=_epoch(lowered.get(_PRIMARY_RESET)),
-        secondary_used_percent=_utilization_percent(lowered.get(_SECONDARY_UTILIZATION)),
-        secondary_reset_at=_epoch(lowered.get(_SECONDARY_RESET)),
-    )
+    snapshots: list[AnthropicRateLimit] = []
+    for group in _LIMIT_GROUPS:
+        prefix = f"anthropic-ratelimit-{group}"
+        limit = _non_negative_float(lowered.get(f"{prefix}-limit"))
+        remaining = _non_negative_float(lowered.get(f"{prefix}-remaining"))
+        if limit is None or remaining is None or limit <= 0:
+            continue
+        used_percent = round(
+            max(0.0, min(100.0, ((limit - min(limit, remaining)) / limit) * 100.0)),
+            6,
+        )
+        snapshots.append(
+            AnthropicRateLimit(
+                quota_key=f"anthropic_{group.replace('-', '_')}",
+                limit_name=f"Anthropic {group.replace('-', ' ').title()}",
+                used_percent=used_percent,
+                reset_at=parse_reset_at(lowered.get(f"{prefix}-reset")),
+            )
+        )
+    return tuple(snapshots)
 
 
-def _utilization_percent(raw: str | None) -> float | None:
+def parse_reset_at(raw: str | None) -> int | None:
+    if raw is None:
+        return None
+    value = raw.strip()
+    if not value:
+        return None
+    try:
+        numeric = float(value)
+    except ValueError:
+        numeric = None
+    if numeric is not None:
+        if not isfinite(numeric):
+            return None
+        return int(numeric)
+    try:
+        parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return int(parsed.timestamp())
+
+
+def _non_negative_float(raw: str | None) -> float | None:
     if raw is None:
         return None
     try:
         value = float(raw)
     except (TypeError, ValueError):
         return None
-    if value < 0:
-        return None
-    # Anthropic reports utilization as a 0-1 fraction; tolerate an already-percent
-    # value (0-100) too. Values at or below 1 are treated as a fraction.
-    percent = value * 100 if value <= 1 else value
-    return min(100.0, percent)
-
-
-def _epoch(raw: str | None) -> int | None:
-    if raw is None:
-        return None
-    try:
-        return int(float(raw))
-    except (TypeError, ValueError):
-        return None
+    return value if isfinite(value) and value >= 0 else None

@@ -14,6 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse, Response
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
+from app.core.anthropic.errors import anthropic_error_for_status, error_type_for_status, is_anthropic_messages_path
 from app.core.errors import dashboard_error, openai_error
 from app.core.exceptions import (
     AppError,
@@ -64,6 +65,8 @@ def _error_format(request: Request) -> str | None:
         return fmt
     # Fallback for unmatched routes (e.g. SPA fallback 404s)
     path = request.url.path
+    if is_anthropic_messages_path(path):
+        return "anthropic"
     if path.startswith("/api/"):
         return "dashboard"
     if path.startswith("/v1/") or path.startswith("/backend-api/"):
@@ -218,6 +221,20 @@ def add_exception_handlers(app: FastAPI) -> None:
             if isinstance(message, str):
                 first_message = message
         fmt = _error_format(request)
+        if fmt == "anthropic":
+            message = first_message or "Invalid request payload"
+            log_error_response(
+                logger,
+                request,
+                400,
+                "invalid_request_error",
+                message,
+                category="anthropic_error_response",
+            )
+            return JSONResponse(
+                status_code=400,
+                content=anthropic_error_for_status(400, "Invalid request payload"),
+            )
         if fmt == "dashboard":
             log_error_response(
                 logger,
@@ -263,6 +280,20 @@ def add_exception_handlers(app: FastAPI) -> None:
     ) -> Response:
         fmt = _error_format(request)
         detail = exc.detail if isinstance(exc.detail, str) else "Request failed"
+        if fmt == "anthropic":
+            error_type = error_type_for_status(exc.status_code)
+            log_error_response(
+                logger,
+                request,
+                exc.status_code,
+                error_type,
+                detail,
+                category="anthropic_error_response",
+            )
+            return JSONResponse(
+                status_code=exc.status_code,
+                content=anthropic_error_for_status(exc.status_code, detail),
+            )
         if fmt == "dashboard":
             log_error_response(
                 logger,
@@ -314,6 +345,11 @@ def add_exception_handlers(app: FastAPI) -> None:
         code = "server_error"
         message = str(exc) or "Unexpected error"
         log_error_response(logger, request, 500, code, message, category=category, exc_info=True)
+        if fmt == "anthropic":
+            return JSONResponse(
+                status_code=500,
+                content=anthropic_error_for_status(500, "Internal server error"),
+            )
         if fmt == "dashboard":
             return JSONResponse(
                 status_code=500,

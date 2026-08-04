@@ -5,6 +5,8 @@ from importlib import import_module
 from starlette.responses import JSONResponse
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from app.core.anthropic.errors import anthropic_error_for_status, is_anthropic_messages_path
+
 _DRAIN_ALLOWED_HTTP_PATHS = frozenset(
     {
         "/health/live",
@@ -43,14 +45,19 @@ class InFlightMiddleware:
         # Return 503 when draining, except for health checks
         path = scope.get("path", "")
         if shutdown_state.is_draining() and path not in _DRAIN_ALLOWED_HTTP_PATHS:
-            response = JSONResponse(
-                status_code=503,
-                content={
+            content = (
+                anthropic_error_for_status(503, "Server is draining")
+                if is_anthropic_messages_path(path)
+                else {
                     "error": {
                         "type": "service_unavailable",
                         "message": "Server is draining",
                     }
-                },
+                }
+            )
+            response = JSONResponse(
+                status_code=503,
+                content=content,
             )
             await response(scope, receive, send)
             return

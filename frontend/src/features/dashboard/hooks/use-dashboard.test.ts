@@ -36,7 +36,9 @@ describe("useDashboard", () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data?.accounts.length).toBeGreaterThan(0);
 
-    const query = queryClient.getQueryCache().find({ queryKey: ["dashboard", "overview", "30d"] });
+    const query = queryClient.getQueryCache().find({
+      queryKey: ["dashboard", "overview", "30d", "all"],
+    });
     const refetchInterval = (query?.options as { refetchInterval?: unknown } | undefined)
       ?.refetchInterval;
     expect(refetchInterval).toBe(30_000);
@@ -44,9 +46,11 @@ describe("useDashboard", () => {
 
   it("passes timeframe to the overview endpoint", async () => {
     let requestedTimeframe: string | null = null;
+    let requestedProvider: string | null = null;
     server.use(
       http.get("/api/dashboard/overview", ({ request }) => {
         requestedTimeframe = new URL(request.url).searchParams.get("timeframe");
+        requestedProvider = new URL(request.url).searchParams.get("provider");
         return HttpResponse.json({
           lastSyncAt: "2026-01-01T00:00:00Z",
           timeframe: { key: "1d", windowMinutes: 1440, bucketSeconds: 3600, bucketCount: 24 },
@@ -73,12 +77,13 @@ describe("useDashboard", () => {
     );
 
     const queryClient = createTestQueryClient();
-    const { result } = renderHook(() => useDashboard("1d"), {
+    const { result } = renderHook(() => useDashboard("1d", "anthropic"), {
       wrapper: createWrapper(queryClient),
     });
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(requestedTimeframe).toBe("1d");
+    expect(requestedProvider).toBe("anthropic");
   });
 
   it("exposes error state on request failure", async () => {

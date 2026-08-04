@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import { AccountAdditionalQuotaSchema, AccountSummarySchema } from "@/features/accounts/schemas";
 import type { AccountSummary } from "@/features/accounts/schemas";
+import { AccountProviderSchema } from "@/features/providers/schemas";
 
 export { AccountAdditionalQuotaSchema, AccountSummarySchema };
 export type { AccountSummary };
@@ -47,6 +48,7 @@ const DashboardOverviewTimeframeSchema = z.object({
 const UsageCostSchema = z.object({
   currency: z.string(),
   totalUsd: z.number(),
+  isPartial: z.boolean().default(false),
 });
 
 const DashboardMetricsSchema = z.object({
@@ -157,6 +159,7 @@ const RequestLogCostBreakdownSchema = z.object({
 
 export const RequestLogSchema = z.object({
   requestedAt: z.iso.datetime({ offset: true }),
+  provider: AccountProviderSchema.default("openai"),
   accountId: z.string().nullable(),
   planType: z.string().nullable().optional().default(null),
   apiKeyName: z.string().nullable().optional().default(null),

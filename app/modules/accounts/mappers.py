@@ -7,6 +7,7 @@ from app.core.auth import DEFAULT_EMAIL, DEFAULT_PLAN, extract_id_token_claims, 
 from app.core.config import settings as config_settings
 from app.core.crypto import TokenEncryptor
 from app.core.plan_types import coerce_account_plan_type
+from app.core.providers import require_account_credential_kind, require_account_provider
 from app.core.usage.quota import apply_usage_quota
 from app.core.usage.types import UsageTrendBucket, UsageWindowRow
 from app.core.utils.time import from_epoch_seconds
@@ -254,7 +255,8 @@ def _account_to_summary(
 
     return AccountSummary(
         account_id=account.id,
-        provider=account.provider or "openai",
+        provider=require_account_provider(account.provider or "openai"),
+        credential_kind=require_account_credential_kind(account.credential_kind or "openai_oauth"),
         chatgpt_account_id=account.chatgpt_account_id,
         email=account.email,
         alias=account.alias,

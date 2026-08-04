@@ -7,6 +7,7 @@ from typing import cast
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 
+from app.core.anthropic.errors import anthropic_error_for_status, is_anthropic_messages_path
 from app.core.config.settings import get_settings
 from app.core.errors import openai_error
 from app.core.middleware.firewall_cache import get_firewall_ip_cache
@@ -52,7 +53,11 @@ def add_api_firewall_middleware(app: FastAPI) -> None:
 
         return JSONResponse(
             status_code=403,
-            content=openai_error("ip_forbidden", "Access denied for client IP", error_type="access_error"),
+            content=(
+                anthropic_error_for_status(403, "Access denied for client IP")
+                if is_anthropic_messages_path(path)
+                else openai_error("ip_forbidden", "Access denied for client IP", error_type="access_error")
+            ),
         )
 
 

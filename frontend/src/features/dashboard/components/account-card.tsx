@@ -78,6 +78,7 @@ function QuotaBar({
 
 export function AccountCard({ account, showAccountId = false, readOnly = false, onAction }: AccountCardProps) {
   const blurred = usePrivacyStore((s) => s.blurred);
+  const isOpenAiAccount = account.provider === "openai";
   const status = normalizeStatus(account.status);
   const primaryRemaining = account.usage?.primaryRemainingPercent ?? null;
   const secondaryRemaining = account.usage?.secondaryRemainingPercent ?? null;
@@ -104,7 +105,7 @@ export function AccountCard({ account, showAccountId = false, readOnly = false, 
 
   const title = account.displayName || account.email;
   const compactId = formatCompactAccountId(account.accountId);
-  const planLabel = formatSlug(account.planType);
+  const planLabel = isOpenAiAccount ? formatSlug(account.planType) : "Claude · API key";
   const emailSubtitle =
     account.displayName && account.displayName !== account.email
       ? account.email
@@ -155,48 +156,61 @@ export function AccountCard({ account, showAccountId = false, readOnly = false, 
         <StatusBadge status={status} />
       </div>
 
-      {/* Quota bars */}
-      <div className={cn("mt-3.5 grid gap-3", weeklyOnly || monthlyOnly ? "grid-cols-1" : "grid-cols-2")}>
-        {monthlyOnly ? (
-          <QuotaBar label="Monthly" percent={monthlyRemaining} resetLabel={monthlyReset} />
-        ) : (
-          <>
-            {!weeklyOnly && <QuotaBar label="5h" percent={primaryRemaining} resetLabel={primaryReset} />}
-            <QuotaBar label="Weekly" percent={secondaryRemaining} resetLabel={secondaryReset} />
-          </>
-        )}
-      </div>
+      {isOpenAiAccount ? (
+        <>
+          {/* Quota bars */}
+          <div className={cn("mt-3.5 grid gap-3", weeklyOnly || monthlyOnly ? "grid-cols-1" : "grid-cols-2")}>
+            {monthlyOnly ? (
+              <QuotaBar label="Monthly" percent={monthlyRemaining} resetLabel={monthlyReset} />
+            ) : (
+              <>
+                {!weeklyOnly && <QuotaBar label="5h" percent={primaryRemaining} resetLabel={primaryReset} />}
+                <QuotaBar label="Weekly" percent={secondaryRemaining} resetLabel={secondaryReset} />
+              </>
+            )}
+          </div>
 
-      <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-muted/40 px-2.5 py-2 text-xs">
-        <div className="min-w-0">
-          <p className="font-medium">{warmupStatus}</p>
-          <p className="truncate text-[11px] text-muted-foreground">{warmupDetail}</p>
+          <div className="mt-3 flex items-center justify-between gap-2 rounded-lg bg-muted/40 px-2.5 py-2 text-xs">
+            <div className="min-w-0">
+              <p className="font-medium">{warmupStatus}</p>
+              <p className="truncate text-[11px] text-muted-foreground">{warmupDetail}</p>
+            </div>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              className={cn(
+                "h-7 gap-1.5 rounded-lg text-xs",
+                account.limitWarmupEnabled
+                  ? "text-primary hover:bg-primary/10 hover:text-primary"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+              aria-label={warmupToggleLabel}
+              disabled={readOnly}
+              onClick={() => onAction?.(account, "warmup-toggle")}
+            >
+              <Zap className="h-3 w-3" aria-hidden="true" />
+              {account.limitWarmupEnabled ? "On" : "Off"}
+            </Button>
+          </div>
+
+          <div className="mt-3 text-xs text-muted-foreground">
+            Credits:{" "}
+            <span className="font-medium tabular-nums text-foreground">
+              {creditsLabel}
+            </span>
+          </div>
+        </>
+      ) : (
+        <div className="mt-3.5 rounded-md border bg-muted/30 px-3 py-2.5 text-xs">
+          <p className="font-medium">Anthropic throughput</p>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">
+            {account.additionalQuotas.length > 0
+              ? `${account.additionalQuotas.length} rate-limit ${account.additionalQuotas.length === 1 ? "snapshot" : "snapshots"}`
+              : "No rate-limit snapshot"}
+          </p>
         </div>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className={cn(
-            "h-7 gap-1.5 rounded-lg text-xs",
-            account.limitWarmupEnabled
-              ? "text-primary hover:bg-primary/10 hover:text-primary"
-              : "text-muted-foreground hover:text-foreground",
-          )}
-          aria-label={warmupToggleLabel}
-          disabled={readOnly}
-          onClick={() => onAction?.(account, "warmup-toggle")}
-        >
-          <Zap className="h-3 w-3" aria-hidden="true" />
-          {account.limitWarmupEnabled ? "On" : "Off"}
-        </Button>
-      </div>
-
-      <div className="mt-3 text-xs text-muted-foreground">
-        Credits:{" "}
-        <span className="font-medium tabular-nums text-foreground">
-          {creditsLabel}
-        </span>
-      </div>
+      )}
 
       {/* Actions */}
       <div className="mt-3 flex items-center gap-1.5 border-t pt-3">
@@ -210,7 +224,7 @@ export function AccountCard({ account, showAccountId = false, readOnly = false, 
           <ExternalLink className="h-3 w-3" />
           Details
         </Button>
-        {hasResetCredits ? (
+        {isOpenAiAccount && hasResetCredits ? (
           <Button
             type="button"
             size="sm"
@@ -248,7 +262,7 @@ export function AccountCard({ account, showAccountId = false, readOnly = false, 
             Resume
           </Button>
         )}
-        {(status === "reauth" || status === "deactivated") && (
+        {isOpenAiAccount && (status === "reauth" || status === "deactivated") && (
           <Button
             type="button"
             size="sm"

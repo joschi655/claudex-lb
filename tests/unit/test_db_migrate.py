@@ -202,6 +202,137 @@ def test_schema_migration_contract_matches_after_upgrade(tmp_path: Path) -> None
     assert check_schema_drift(url) == ()
 
 
+def test_anthropic_credential_migration_quarantines_legacy_rows_and_backfills_logs(tmp_path: Path) -> None:
+    db_path = tmp_path / "anthropic-credential-kind.db"
+    url = _db_url(db_path)
+    parent_revision = "20260718_000000_add_account_provider"
+    target_revision = "20260721_000000_add_account_credential_kind"
+
+    run_upgrade(url, parent_revision, bootstrap_legacy=False)
+    engine = create_engine(to_sync_database_url(url), future=True)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO accounts "
+                    "(id, provider, codex_installation_id, email, plan_type, access_token_encrypted, "
+                    "refresh_token_encrypted, "
+                    "id_token_encrypted, last_refresh, status, deactivation_reason, reset_at, blocked_at) "
+                    "VALUES "
+                    "('openai-row', 'openai', '00000000-0000-0000-0000-000000000001', "
+                    "'openai@example.com', 'plus', :access, :refresh, :id_token, "
+                    "'2026-07-20 00:00:00', 'active', NULL, NULL, NULL), "
+                    "('anthropic-row', 'anthropic', '00000000-0000-0000-0000-000000000002', "
+                    "'claude@example.com', 'claude_max', :access, :refresh, NULL, "
+                    "'2026-07-20 00:00:00', 'rate_limited', 'old reason', 1900000000, '2026-07-20 01:00:00')"
+                ),
+                {"access": b"access", "refresh": b"refresh", "id_token": b"id"},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO request_logs (account_id, request_id, model, status) "
+                    "VALUES ('openai-row', 'historical-log', 'gpt-5.1', 'success')"
+                )
+            )
+    finally:
+        engine.dispose()
+
+    run_upgrade(url, target_revision, bootstrap_legacy=False)
+
+    engine = create_engine(to_sync_database_url(url), future=True)
+    try:
+        with engine.connect() as connection:
+            account_rows = connection.execute(
+                text(
+                    "SELECT id, credential_kind, status, deactivation_reason, reset_at, blocked_at "
+                    "FROM accounts ORDER BY id"
+                )
+            ).all()
+            log_provider = connection.execute(
+                text("SELECT provider FROM request_logs WHERE request_id = 'historical-log'")
+            ).scalar_one()
+            indexes = {index["name"] for index in inspect(connection).get_indexes("request_logs")}
+    finally:
+        engine.dispose()
+
+    assert account_rows == [
+        ("anthropic-row", "legacy_anthropic_oauth", "deactivated", "unsupported_anthropic_oauth", None, None),
+        ("openai-row", "openai_oauth", "active", None, None, None),
+    ]
+    assert log_provider == "openai"
+    assert "idx_logs_provider_requested_at" in indexes
+
+
+def test_anthropic_migrations_refuse_unsafe_downgrade_until_rows_are_removed(tmp_path: Path) -> None:
+    db_path = tmp_path / "anthropic-downgrade.db"
+    url = _db_url(db_path)
+    provider_parent = "20260716_000000_add_oauth_device_flow_slots"
+    provider_revision = "20260718_000000_add_account_provider"
+    credential_revision = "20260721_000000_add_account_credential_kind"
+
+    run_upgrade(url, credential_revision, bootstrap_legacy=False)
+    engine = create_engine(to_sync_database_url(url), future=True)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO accounts "
+                    "(id, provider, credential_kind, codex_installation_id, email, plan_type, access_token_encrypted, "
+                    "refresh_token_encrypted, id_token_encrypted, last_refresh, status) "
+                    "VALUES ('anthropic-downgrade', 'anthropic', 'anthropic_api_key', "
+                    "'00000000-0000-0000-0000-000000000003', "
+                    "'anthropic-downgrade@api-key.local', 'claude_api', :access, :refresh, NULL, "
+                    "'2026-07-21 00:00:00', 'active')"
+                ),
+                {"access": b"access", "refresh": b"refresh"},
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO request_logs "
+                    "(account_id, request_id, provider, model, status) "
+                    "VALUES ('anthropic-downgrade', 'anthropic-history', "
+                    "'anthropic', 'claude-sonnet-5', 'success')"
+                )
+            )
+    finally:
+        engine.dispose()
+
+    with pytest.raises(RuntimeError, match="non-OpenAI accounts exist"):
+        command.downgrade(_build_alembic_config(url), provider_revision)
+
+    engine = create_engine(to_sync_database_url(url), future=True)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("DELETE FROM accounts WHERE provider <> 'openai'"))
+    finally:
+        engine.dispose()
+
+    with pytest.raises(RuntimeError, match="non-OpenAI logs exist"):
+        command.downgrade(_build_alembic_config(url), provider_revision)
+
+    engine = create_engine(to_sync_database_url(url), future=True)
+    try:
+        with engine.begin() as connection:
+            connection.execute(text("DELETE FROM request_logs WHERE provider <> 'openai'"))
+    finally:
+        engine.dispose()
+
+    command.downgrade(_build_alembic_config(url), provider_revision)
+    command.downgrade(_build_alembic_config(url), provider_parent)
+
+    engine = create_engine(to_sync_database_url(url), future=True)
+    try:
+        with engine.connect() as connection:
+            account_columns = {column["name"] for column in inspect(connection).get_columns("accounts")}
+            request_log_columns = {column["name"] for column in inspect(connection).get_columns("request_logs")}
+    finally:
+        engine.dispose()
+
+    assert "provider" not in account_columns
+    assert "credential_kind" not in account_columns
+    assert "provider" not in request_log_columns
+
+
 def test_accounts_codex_installation_id_migration_backfills_existing_rows(tmp_path: Path) -> None:
     db_path = tmp_path / "codex-installation-id.db"
     url = _db_url(db_path)

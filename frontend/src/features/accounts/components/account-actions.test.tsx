@@ -19,6 +19,7 @@ describe("AccountActions", () => {
         onProbe={vi.fn()}
         onDelete={vi.fn()}
         onReauth={vi.fn()}
+        onReplaceAnthropicApiKey={vi.fn()}
         onExportAuth={vi.fn()}
         onResetCredit={vi.fn()}
         onSecurityWorkAuthorizedChange={vi.fn()}
@@ -46,6 +47,7 @@ describe("AccountActions", () => {
         onProbe={vi.fn()}
         onDelete={vi.fn()}
         onReauth={onReauth}
+        onReplaceAnthropicApiKey={vi.fn()}
         onExportAuth={vi.fn()}
         onResetCredit={vi.fn()}
         onSecurityWorkAuthorizedChange={vi.fn()}
@@ -79,6 +81,7 @@ describe("AccountActions", () => {
         onProbe={onProbe}
         onDelete={vi.fn()}
         onReauth={vi.fn()}
+        onReplaceAnthropicApiKey={vi.fn()}
         onExportAuth={vi.fn()}
         onResetCredit={vi.fn()}
         onSecurityWorkAuthorizedChange={vi.fn()}
@@ -109,6 +112,7 @@ describe("AccountActions", () => {
           onProbe={onProbe}
           onDelete={vi.fn()}
           onReauth={vi.fn()}
+        onReplaceAnthropicApiKey={vi.fn()}
           onExportAuth={vi.fn()}
           onResetCredit={vi.fn()}
           onSecurityWorkAuthorizedChange={vi.fn()}
@@ -141,6 +145,7 @@ describe("AccountActions", () => {
         onProbe={onProbe}
         onDelete={vi.fn()}
         onReauth={vi.fn()}
+        onReplaceAnthropicApiKey={vi.fn()}
         onExportAuth={vi.fn()}
         onResetCredit={vi.fn()}
         onSecurityWorkAuthorizedChange={vi.fn()}
@@ -174,6 +179,7 @@ describe("AccountActions", () => {
         onProbe={vi.fn()}
         onDelete={vi.fn()}
         onReauth={vi.fn()}
+        onReplaceAnthropicApiKey={vi.fn()}
         onExportAuth={vi.fn()}
         onResetCredit={onResetCredit}
         onSecurityWorkAuthorizedChange={vi.fn()}
@@ -207,6 +213,7 @@ describe("AccountActions", () => {
           onProbe={vi.fn()}
           onDelete={vi.fn()}
           onReauth={vi.fn()}
+        onReplaceAnthropicApiKey={vi.fn()}
           onExportAuth={vi.fn()}
           onResetCredit={onResetCredit}
           onSecurityWorkAuthorizedChange={vi.fn()}
@@ -237,6 +244,7 @@ describe("AccountActions", () => {
         onProbe={vi.fn()}
         onDelete={vi.fn()}
         onReauth={vi.fn()}
+        onReplaceAnthropicApiKey={vi.fn()}
         onExportAuth={vi.fn()}
         onResetCredit={vi.fn()}
         onSecurityWorkAuthorizedChange={vi.fn()}
@@ -245,6 +253,45 @@ describe("AccountActions", () => {
       />,
     );
 
+    expect(screen.queryByRole("button", { name: /Reset \(/ })).not.toBeInTheDocument();
+  });
+
+  it("offers key replacement without OpenAI-only actions for Claude accounts", async () => {
+    const user = userEvent.setup();
+    const onReplaceAnthropicApiKey = vi.fn();
+    const account = createAccountSummary({
+      provider: "anthropic",
+      credentialKind: "anthropic_api_key",
+      status: "deactivated",
+      planType: "claude_api",
+      availableResetCredits: 3,
+    });
+
+    render(
+      <AccountActions
+        account={account}
+        busy={false}
+        onPause={vi.fn()}
+        onResume={vi.fn()}
+        onProbe={vi.fn()}
+        onDelete={vi.fn()}
+        onReauth={vi.fn()}
+        onReplaceAnthropicApiKey={onReplaceAnthropicApiKey}
+        onExportAuth={vi.fn()}
+        onResetCredit={vi.fn()}
+        onSecurityWorkAuthorizedChange={vi.fn()}
+        onLimitWarmupChange={vi.fn()}
+        onRoutingPolicyChange={vi.fn()}
+      />,
+    );
+
+    await user.click(screen.getByRole("button", { name: "Replace API key" }));
+
+    expect(onReplaceAnthropicApiKey).toHaveBeenCalledWith(account.accountId);
+    expect(screen.queryByRole("button", { name: "Re-authenticate" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Force probe" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /warm-up/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Export" })).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /Reset \(/ })).not.toBeInTheDocument();
   });
 });

@@ -14,6 +14,7 @@ from app.core.clients.proxy import stream_responses
 from app.core.crypto import TokenEncryptor
 from app.core.openai.parsing import parse_sse_event
 from app.core.openai.requests import ResponsesRequest
+from app.core.providers import PROVIDER_OPENAI
 from app.core.utils.time import utcnow
 from app.db.models import Account, AccountStatus, QuotaPlannerDecision
 from app.modules.accounts.repository import AccountsRepository
@@ -404,6 +405,8 @@ class QuotaWarmupService:
     ) -> tuple[bool, str]:
         if account is None:
             return False, "account_not_found"
+        if (account.provider or PROVIDER_OPENAI) != PROVIDER_OPENAI:
+            return False, "provider_action_unsupported"
         if settings.mode == "off":
             return False, "planner_off"
         if settings.mode == "shadow":

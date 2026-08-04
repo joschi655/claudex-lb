@@ -195,8 +195,9 @@ export function buildRemainingItems(
   isDark = false,
 ): RemainingItem[] {
   const usageIndex = buildWindowIndex(window);
-  const palette = buildDonutPalette(accounts.length, isDark);
-  return accounts
+  const openAiAccounts = accounts.filter((account) => account.provider === "openai");
+  const palette = buildDonutPalette(openAiAccounts.length, isDark);
+  return openAiAccounts
     .map((account, index) => {
       if (isMonthlyOnlyAccount(account)) {
         return null;
@@ -768,7 +769,9 @@ export function buildDashboardView(
     timeframeHours <= 24
       ? `Avg/hr ${formatCurrency(avgPerUnit(cost, timeframeHours))}`
       : `Avg/day ${formatCurrency(avgPerUnit(cost, timeframeDays))}`;
-  const costMeta = costAverage;
+  const costMeta = overview.summary.cost.isPartial
+    ? `Partial total · ${costAverage}`
+    : costAverage;
   const trends = overview.trends;
   const primaryBurnLabel = formatBurnWindowLabel("primary", overview.summary.primaryWindow.windowMinutes);
   const secondaryBurnLabel = formatBurnWindowLabel("secondary", overview.summary.secondaryWindow?.windowMinutes);

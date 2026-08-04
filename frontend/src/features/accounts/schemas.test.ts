@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import {
   AccountAuthExportResponseSchema,
+  AccountImportResponseSchema,
   AccountProbeResponseSchema,
   AccountSummarySchema,
+  AnthropicApiKeyRequestSchema,
   ConsumeRateLimitResetCreditResponseSchema,
   ImportStateSchema,
   OAuthStateSchema,
@@ -52,6 +54,8 @@ describe("AccountSummarySchema", () => {
     });
 
     expect(parsed.accountId).toBe("acc-1");
+    expect(parsed.provider).toBe("openai");
+    expect(parsed.credentialKind).toBe("openai_oauth");
     expect(parsed.routingPolicy ?? "normal").toBe("normal");
     expect(parsed.usage?.primaryRemainingPercent).toBe(85);
     expect(parsed.usage?.monthlyRemainingPercent).toBe(95);
@@ -71,6 +75,28 @@ describe("AccountSummarySchema", () => {
     });
 
     expect(parsed.routingPolicy).toBe("preserve");
+  });
+});
+
+describe("provider credential schemas", () => {
+  it("parses Claude account responses and validates Console API keys", () => {
+    const account = AccountImportResponseSchema.parse({
+      accountId: "anthropic-1",
+      provider: "anthropic",
+      credentialKind: "anthropic_api_key",
+      email: "anthropic-1@api-key.local",
+      planType: "claude_api",
+      status: "active",
+    });
+    const payload = AnthropicApiKeyRequestSchema.parse({
+      label: " Production Claude ",
+      apiKey: " sk-ant-api03-test ",
+    });
+
+    expect(account.provider).toBe("anthropic");
+    expect(account.credentialKind).toBe("anthropic_api_key");
+    expect(payload).toEqual({ label: "Production Claude", apiKey: "sk-ant-api03-test" });
+    expect(AnthropicApiKeyRequestSchema.safeParse({ label: "", apiKey: "secret" }).success).toBe(false);
   });
 });
 

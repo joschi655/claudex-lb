@@ -22,6 +22,7 @@ class DashboardOverviewTimeframe(DashboardModel):
 class DashboardUsageCost(DashboardModel):
     currency: str
     total_usd: float = Field(alias="totalUsd")
+    is_partial: bool = Field(default=False, alias="isPartial")
 
 
 class DashboardUsageMetrics(DashboardModel):

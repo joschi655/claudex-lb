@@ -4,6 +4,7 @@ import asyncio
 
 from starlette.types import ASGIApp, Receive, Scope, Send
 
+from app.core.anthropic.errors import anthropic_error_for_status, is_anthropic_messages_path
 from app.core.resilience.overload import (
     deny_websocket_with_http_response,
     is_proxy_path,
@@ -30,19 +31,26 @@ class BackpressureMiddleware:
 
         if self._semaphore.locked():
             message = "codex-lb is temporarily overloaded by local backpressure"
+            payload = (
+                anthropic_error_for_status(429, message)
+                if is_anthropic_messages_path(path)
+                else local_overload_error(message)
+                if is_proxy_path(path)
+                else {"detail": message}
+            )
             if scope["type"] == "websocket":
                 await deny_websocket_with_http_response(
                     receive,
                     send,
                     status_code=429,
-                    payload=local_overload_error(message) if is_proxy_path(path) else {"detail": message},
+                    payload=payload,
                     headers=merge_retry_after_headers(),
                 )
                 return
             await send_json_http_response(
                 send,
                 status_code=429,
-                payload=local_overload_error(message) if is_proxy_path(path) else {"detail": message},
+                payload=payload,
                 headers=merge_retry_after_headers(),
             )
             return

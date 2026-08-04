@@ -68,6 +68,8 @@ function idleMutation() {
 function account(overrides: Partial<AccountSummary>): AccountSummary {
   return {
     accountId: "acc-default",
+    provider: "openai",
+    credentialKind: "openai_oauth",
     email: "default@example.com",
     displayName: "Default",
     planType: "plus",
@@ -113,6 +115,7 @@ describe("AccountsPage", () => {
         refetch: vi.fn(),
       },
       importMutation: idleMutation(),
+      anthropicApiKeyMutation: idleMutation(),
       pauseMutation: idleMutation(),
       resumeMutation: idleMutation(),
       probeMutation: idleMutation(),
@@ -155,6 +158,7 @@ describe("AccountsPage", () => {
         refetch: vi.fn(),
       },
       importMutation: idleMutation(),
+      anthropicApiKeyMutation: idleMutation(),
       pauseMutation: idleMutation(),
       resumeMutation: idleMutation(),
       probeMutation: idleMutation(),
@@ -201,6 +205,7 @@ describe("AccountsPage", () => {
         refetch: vi.fn(),
       },
       importMutation: idleMutation(),
+      anthropicApiKeyMutation: idleMutation(),
       pauseMutation: idleMutation(),
       resumeMutation: idleMutation(),
       probeMutation: idleMutation(),
@@ -254,6 +259,7 @@ describe("AccountsPage", () => {
         refetch: vi.fn(),
       },
       importMutation: idleMutation(),
+      anthropicApiKeyMutation: idleMutation(),
       pauseMutation: idleMutation(),
       resumeMutation: idleMutation(),
       probeMutation: idleMutation(),
@@ -317,6 +323,7 @@ describe("AccountsPage", () => {
         refetch: vi.fn(),
       },
       importMutation: idleMutation(),
+      anthropicApiKeyMutation: idleMutation(),
       pauseMutation: idleMutation(),
       resumeMutation: idleMutation(),
       probeMutation: {

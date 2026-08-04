@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import {
   consumeRateLimitResetCredit,
   consumeAccountUsageResetCredit,
+  createAnthropicApiKey,
   deleteAccount,
   exportAccountAuth,
   getAccountTrends,
@@ -15,6 +16,7 @@ import {
   pauseAccount,
   probeAccount,
   reactivateAccount,
+  replaceAnthropicApiKey,
   setAccountAlias,
   updateAccount,
   updateAccountLimitWarmup,
@@ -23,7 +25,9 @@ import {
 import type {
   AccountRoutingPolicy,
   AccountUsageResetConsumeResponse,
+  AnthropicApiKeyRequest,
 } from "@/features/accounts/schemas";
+import type { ProviderScope } from "@/features/providers/schemas";
 
 async function invalidateAccountRelatedQueries(queryClient: ReturnType<typeof useQueryClient>, accountId?: string) {
   const invalidations = [
@@ -85,6 +89,26 @@ export function useAccountMutations() {
     },
     onError: (error: Error) => {
       toast.error(error.message || "Import failed");
+    },
+  });
+
+  const anthropicApiKeyMutation = useMutation({
+    mutationFn: ({
+      accountId,
+      payload,
+    }: {
+      accountId?: string;
+      payload: AnthropicApiKeyRequest;
+    }) =>
+      accountId
+        ? replaceAnthropicApiKey(accountId, payload)
+        : createAnthropicApiKey(payload),
+    onSuccess: (_data, variables) => {
+      toast.success(variables.accountId ? "Claude API key replaced" : "Claude account added");
+      void invalidateAccountRelatedQueries(queryClient);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Claude API key update failed");
     },
   });
 
@@ -242,6 +266,7 @@ export function useAccountMutations() {
 
   return {
     importMutation,
+    anthropicApiKeyMutation,
     pauseMutation,
     resumeMutation,
     setAliasMutation,
@@ -268,30 +293,30 @@ export function useRateLimitResetCredits(
   });
 }
 
-export function useAccountTrends(accountId: string | null) {
+export function useAccountTrends(accountId: string | null, enabled = true) {
   return useQuery({
     queryKey: ["accounts", "trends", accountId],
     queryFn: () => getAccountTrends(accountId!),
-    enabled: !!accountId,
+    enabled: enabled && !!accountId,
     staleTime: 5 * 60_000,
     refetchInterval: 5 * 60_000,
     refetchIntervalInBackground: false,
   });
 }
 
-export function useAccountUsageResetCredits(accountId: string | null) {
+export function useAccountUsageResetCredits(accountId: string | null, enabled = true) {
   return useQuery({
     queryKey: ["accounts", "usage-reset-credits", accountId],
     queryFn: () => getAccountUsageResetCredits(accountId!),
-    enabled: !!accountId,
+    enabled: enabled && !!accountId,
     staleTime: 60_000,
   });
 }
 
-export function useAccounts() {
+export function useAccounts(provider: ProviderScope = "all") {
   const { data, error, isFetching, isLoading, isPending, isSuccess, refetch } = useQuery({
-    queryKey: ["accounts", "list"],
-    queryFn: listAccounts,
+    queryKey: ["accounts", "list", provider],
+    queryFn: () => listAccounts(provider),
     select: (data) => data.accounts,
     refetchInterval: 30_000,
     refetchIntervalInBackground: false,

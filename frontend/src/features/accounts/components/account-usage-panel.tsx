@@ -224,6 +224,60 @@ export function AccountUsagePanel({
   const hasTrends =
     primaryTrendPoints.length > 0 || secondaryTrendPoints.length > 0 || secondaryScheduledTrendPoints.length > 0;
 
+  if (account.provider === "anthropic") {
+    return (
+      <div className="min-w-0 space-y-4 rounded-lg border bg-muted/30 p-4">
+        <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+          Claude API rate limits
+        </h3>
+        {account.additionalQuotas.length > 0 ? (
+          <div className="space-y-3">
+            {account.additionalQuotas.map((quota) => (
+              <div
+                key={quota.quotaKey ?? quota.limitName}
+                className="space-y-2 rounded-md border bg-background/60 px-3 py-2"
+              >
+                <p className="text-xs font-medium">
+                  {quota.displayLabel ?? formatAdditionalLimitName(quota.limitName, quota.quotaKey)}
+                </p>
+                {quota.primaryWindow != null ? (
+                  <AdditionalQuotaRow
+                    label={formatWindowLabel("primary", quota.primaryWindow.windowMinutes ?? null)}
+                    usedPercent={quota.primaryWindow.usedPercent}
+                    resetAt={quota.primaryWindow.resetAt ?? null}
+                  />
+                ) : null}
+                {quota.secondaryWindow != null ? (
+                  <AdditionalQuotaRow
+                    label={formatWindowLabel("secondary", quota.secondaryWindow.windowMinutes ?? null)}
+                    usedPercent={quota.secondaryWindow.usedPercent}
+                    resetAt={quota.secondaryWindow.resetAt ?? null}
+                  />
+                ) : null}
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-xs text-muted-foreground">
+            Rate-limit snapshots appear after this key handles a Claude request.
+          </p>
+        )}
+        <div className="rounded-md border bg-background/60 px-3 py-2">
+          <p className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+            Request logs total
+          </p>
+          {hasRequestUsage ? (
+            <p className="mt-1 text-xs tabular-nums text-muted-foreground">
+              {formatCompactNumber(requestUsage?.totalTokens)} tok | {formatCompactNumber(requestUsage?.requestCount)} req
+            </p>
+          ) : (
+            <p className="mt-1 text-xs text-muted-foreground">No request usage yet.</p>
+          )}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-w-0 space-y-4 rounded-lg border bg-muted/30 p-4">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Usage</h3>

@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   useAccounts,
+  useAccountTrends,
   useAccountUsageResetCredits,
 } from "@/features/accounts/hooks/use-accounts";
 import { server } from "@/test/mocks/server";
@@ -224,5 +225,61 @@ describe("useAccounts", () => {
     const refetchInterval = (query?.options as { refetchInterval?: unknown } | undefined)
       ?.refetchInterval;
     expect(refetchInterval).toBeUndefined();
+  });
+
+  it("uses provider-scoped account queries and creates Claude API-key accounts", async () => {
+    const queryClient = createTestQueryClient();
+    let requestedProvider: string | null = null;
+    let submittedPayload: unknown;
+    server.use(
+      http.get("/api/accounts", ({ request }) => {
+        requestedProvider = new URL(request.url).searchParams.get("provider");
+        return HttpResponse.json({ accounts: [] });
+      }),
+      http.post("/api/accounts/anthropic-api-key", async ({ request }) => {
+        submittedPayload = await request.json();
+        return HttpResponse.json({
+          accountId: "anthropic-new",
+          provider: "anthropic",
+          credentialKind: "anthropic_api_key",
+          email: "anthropic-new@api-key.local",
+          planType: "claude_api",
+          status: "active",
+        });
+      }),
+    );
+
+    const { result } = renderHook(() => useAccounts("anthropic"), {
+      wrapper: createWrapper(queryClient),
+    });
+    await waitFor(() => expect(result.current.accountsQuery.isSuccess).toBe(true));
+    const created = await result.current.anthropicApiKeyMutation.mutateAsync({
+      payload: { label: "Claude Production", apiKey: "sk-ant-api03-secret" },
+    });
+
+    expect(requestedProvider).toBe("anthropic");
+    expect(submittedPayload).toEqual({
+      label: "Claude Production",
+      apiKey: "sk-ant-api03-secret",
+    });
+    expect(created.credentialKind).toBe("anthropic_api_key");
+    expect(
+      queryClient.getQueryCache().find({
+        queryKey: ["accounts", "list", "anthropic"],
+      }),
+    ).toBeDefined();
+  });
+
+  it("does not fetch OpenAI trends or reset credits for Claude accounts", () => {
+    const queryClient = createTestQueryClient();
+    const trends = renderHook(() => useAccountTrends("anthropic-1", false), {
+      wrapper: createWrapper(queryClient),
+    });
+    const credits = renderHook(() => useAccountUsageResetCredits("anthropic-1", false), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    expect(trends.result.current.fetchStatus).toBe("idle");
+    expect(credits.result.current.fetchStatus).toBe("idle");
   });
 });

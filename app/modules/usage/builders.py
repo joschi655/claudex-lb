@@ -40,6 +40,7 @@ class ActivityCostSummary:
     currency: str
     total_usd: float
     by_model: list[UsageCostByModel]
+    is_partial: bool = False
 
 
 @dataclass(frozen=True)
@@ -189,6 +190,7 @@ def build_activity_summaries(
             currency="USD",
             total_usd=round(aggregate.cost_usd, 6),
             by_model=[],
+            is_partial=aggregate.unpriced_count > 0,
         ),
     )
 

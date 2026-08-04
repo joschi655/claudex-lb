@@ -1,30 +1,50 @@
 ## Why
 
-Operators who hold both OpenAI Codex accounts and Anthropic Claude accounts currently need two systems: codex-lb for Codex and ad-hoc credential switching (keychain/file swapping) for Claude. Claude OAuth refresh tokens are single-use and rotate on every refresh, so any scheme that keeps credential copies on client machines eventually strands a stale refresh token and forces a re-login. Centralizing Claude token custody in the proxy — with the same cross-replica single-writer refresh machinery Codex accounts already get — removes the failure mode structurally: clients hold only a proxy API key, never OAuth tokens.
+Operators using both OpenAI Codex and the Anthropic Messages API should not need
+separate proxy and observability systems. The first implementation used
+Claude.ai consumer OAuth credentials, but Anthropic's authentication policy
+does not permit third parties to offer Claude.ai login or route Free, Pro, or
+Max credentials. Production support therefore needs to use commercial
+Anthropic API keys and enforce provider separation at every shared boundary.
 
 ## What Changes
 
-- `accounts.provider` discriminator column (`openai` default, `anthropic` new); `id_token_encrypted` becomes nullable and `access_token_expires_at` (epoch seconds) is added for expiry-based freshness.
-- Anthropic OAuth token refresh (`api.anthropic.com/v1/oauth/token`, Claude Code public client id) wired into the existing `AuthManager` single-writer refresh path; expiry-based freshness gate replaces the 8-day age gate for anthropic accounts.
-- Static-credential anthropic accounts (imported without a refresh token, e.g. console API keys) are routable but never refreshed; auth failure moves them straight to `reauth_required`.
-- Account import accepts the Claude Code credential shape (`claudeAiOauth` JSON) alongside the existing Codex `auth.json`.
-- New transparent relay for the Anthropic Messages API: `POST /v1/messages` and `POST /v1/messages/count_tokens` (plus an `/anthropic/v1` alias), authenticated with existing proxy API keys, selecting an anthropic account per request with rate-limit/auth failover.
-- Account selection, selection caching, and per-account schedulers become provider-scoped; OpenAI-only schedulers and account actions skip or reject anthropic accounts.
-- Usage ingestion for anthropic accounts from `anthropic-ratelimit-unified-*` response headers (passive) plus sparse polling, feeding the existing primary/secondary usage windows.
+- Add a typed account provider and credential kind. Existing Anthropic OAuth
+  rows are quarantined and cannot be selected until explicitly replaced with
+  an Anthropic Console API key.
+- Add dashboard APIs and forms to create or replace encrypted Anthropic API-key
+  accounts. Claude.ai OAuth payloads are rejected.
+- Keep the standard Anthropic Messages endpoints at `/v1/messages` and
+  `/v1/messages/count_tokens`, using existing proxy API keys and commercial
+  Anthropic API keys upstream.
+- Enforce API-key account assignments, model policy, usage reservations,
+  settlement, request logging, firewall rules, bounded bodies, and safe
+  pre-response failover on the Anthropic relay.
+- Make every OpenAI-only account consumer reject or skip Anthropic credentials.
+- Add provider-scoped accounts, request logs, overview statistics, and shared
+  `All | OpenAI | Claude` dashboard views. Traffic may aggregate across
+  providers; incompatible quota/capacity units do not.
 
-No new `CODEX_LB_*` settings: the anthropic path activates only when an anthropic account exists.
+No new `CODEX_LB_*` setting is introduced. The Anthropic path is available only
+when an operator explicitly stores an Anthropic API key.
 
 ## Capabilities
 
 ### New Capabilities
 
-- `anthropic-provider`: multi-provider account custody and the Anthropic Messages relay.
+- `anthropic-provider`: provider-safe Anthropic API-key custody and Messages
+  relay.
 
 ### Modified Capabilities
 
-- `account-routing`: selection MUST be provider-scoped; a request routed for one provider never lands on another provider's account.
-- `usage-refresh-policy`: OpenAI usage refresh flows MUST skip anthropic accounts; anthropic usage comes from relay response headers plus sparse polling.
+- `account-routing`: account selection and all provider-specific dispatchers
+  are provider-scoped.
+- `usage-refresh-policy`: OpenAI refresh and quota flows never receive
+  Anthropic credentials; Anthropic rate-limit metadata is passive only.
 
 ## Impact
 
-`app/db/models.py` + one Alembic revision, `app/modules/accounts/auth_manager.py`, `app/modules/proxy/load_balancer.py`, `app/modules/accounts/service.py`, `app/main.py`, per-account schedulers (usage refresh, reset credits, model refresh, quota planner, auth guardian); new `app/core/anthropic/` and `app/modules/anthropic_proxy/` modules; dashboard account list gains a provider badge. Existing OpenAI behavior unchanged (defaults preserve current call-site semantics).
+Account and request-log schema, account onboarding APIs, Anthropic relay,
+OpenAI per-account schedulers/actions, dashboard queries, account management,
+and published client setup documentation. Existing OpenAI behavior and routes
+remain the default for call sites without an explicit provider.

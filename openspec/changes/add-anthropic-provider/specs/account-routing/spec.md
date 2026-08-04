@@ -16,3 +16,15 @@ Account selection MUST be scoped to a single provider per request: a selection f
 
 - **WHEN** an existing OpenAI proxy path selects an account without naming a provider
 - **THEN** only `openai` accounts are considered, matching pre-change behavior
+
+#### Scenario: Assigned scope remains provider-scoped
+
+- **GIVEN** a client API key assigned to accounts from multiple providers
+- **WHEN** an Anthropic request selects an account
+- **THEN** only assigned Anthropic API-key accounts are eligible
+
+#### Scenario: Single-account strategy is exact
+
+- **GIVEN** single-account routing configured with an OpenAI or unavailable account id
+- **WHEN** an Anthropic request is made
+- **THEN** selection fails without falling back to another account

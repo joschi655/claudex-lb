@@ -118,7 +118,7 @@ export function ReportsPage({ initialFilters }: ReportsPageProps = {}) {
     refetch: refetchAccounts,
   } = useQuery({
     queryKey: ["accounts", "reports-filter"],
-    queryFn: listAccounts,
+    queryFn: () => listAccounts(),
   });
 
   const accountOptions = useMemo(

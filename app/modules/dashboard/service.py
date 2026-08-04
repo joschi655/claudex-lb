@@ -5,9 +5,11 @@ from datetime import datetime, timedelta
 from app.core import usage as usage_core
 from app.core.config.settings import get_settings
 from app.core.crypto import TokenEncryptor
+from app.core.providers import PROVIDER_OPENAI, ProviderScope, provider_from_scope
 from app.core.usage.types import UsageWindowRow
 from app.core.utils.time import utcnow
 from app.db.models import UsageHistory
+from app.modules.accounts.additional_quotas import AdditionalQuotaEntries, build_additional_quotas_by_account
 from app.modules.accounts.mappers import build_account_summaries
 from app.modules.dashboard.builders import (
     build_dashboard_overview_summary,
@@ -60,15 +62,41 @@ class DashboardService:
     async def get_overview(
         self,
         timeframe_key: DashboardOverviewTimeframeKey = "7d",
+        *,
+        provider: ProviderScope = "all",
     ) -> DashboardOverviewResponse:
         now = utcnow()
+        provider_filter = provider_from_scope(provider)
         overview_timeframe = resolve_overview_timeframe(timeframe_key)
         accounts = await self._repo.list_accounts()
+        if provider_filter is not None:
+            accounts = [account for account in accounts if (account.provider or PROVIDER_OPENAI) == provider_filter]
+        openai_accounts = [account for account in accounts if (account.provider or PROVIDER_OPENAI) == PROVIDER_OPENAI]
+        openai_account_ids = [account.id for account in openai_accounts]
         account_ids = [account.id for account in accounts]
-        primary_usage = await self._repo.latest_usage_by_account("primary")
-        secondary_usage = await self._repo.latest_usage_by_account("secondary")
-        monthly_usage = await self._repo.latest_usage_by_account("monthly")
+        primary_usage = await self._repo.latest_usage_by_account("primary", account_ids=openai_account_ids)
+        secondary_usage = await self._repo.latest_usage_by_account("secondary", account_ids=openai_account_ids)
+        monthly_usage = await self._repo.latest_usage_by_account("monthly", account_ids=openai_account_ids)
         limit_warmups_by_account = await self._repo.latest_limit_warmups_by_account(account_ids)
+        additional_quota_entries: list[AdditionalQuotaEntries] = []
+        quota_keys = await self._repo.list_additional_quota_keys(account_ids=account_ids)
+        for quota_key in quota_keys:
+            primary_entries = await self._repo.latest_additional_usage_by_account(
+                quota_key,
+                "primary",
+                account_ids=account_ids,
+            )
+            secondary_entries = await self._repo.latest_additional_usage_by_account(
+                quota_key,
+                "secondary",
+                account_ids=account_ids,
+            )
+            additional_quota_entries.append((quota_key, primary_entries, secondary_entries))
+        additional_quotas_by_account = build_additional_quotas_by_account(
+            additional_quota_entries,
+            account_ids=account_ids,
+            routing_overrides=await self._repo.additional_quota_routing_policy_overrides(),
+        )
 
         account_summaries = sorted(
             build_account_summaries(
@@ -76,6 +104,7 @@ class DashboardService:
                 primary_usage=primary_usage,
                 secondary_usage=secondary_usage,
                 monthly_usage=monthly_usage,
+                additional_quotas_by_account=additional_quotas_by_account,
                 limit_warmups_by_account=limit_warmups_by_account,
                 encryptor=self._encryptor,
                 include_auth=False,
@@ -99,6 +128,7 @@ class DashboardService:
         bucket_rows = await self._repo.aggregate_logs_by_bucket(
             bucket_query_since,
             overview_timeframe.bucket_seconds,
+            provider=provider_filter,
         )
         trends, _, _ = build_trends_from_buckets(
             bucket_rows,
@@ -107,10 +137,18 @@ class DashboardService:
             bucket_count=overview_timeframe.bucket_count,
         )
         previous_window_start = bucket_since - timedelta(minutes=overview_timeframe.window_minutes)
-        activity_aggregate = await self._repo.aggregate_activity_between(bucket_since, now)
-        previous_activity_aggregate = await self._repo.aggregate_activity_between(previous_window_start, bucket_since)
-        top_error = await self._repo.top_error_between(bucket_since, now)
-        earliest_activity_at = await self._repo.earliest_activity_at()
+        activity_aggregate = await self._repo.aggregate_activity_between(
+            bucket_since,
+            now,
+            provider=provider_filter,
+        )
+        previous_activity_aggregate = await self._repo.aggregate_activity_between(
+            previous_window_start,
+            bucket_since,
+            provider=provider_filter,
+        )
+        top_error = await self._repo.top_error_between(bucket_since, now, provider=provider_filter)
+        earliest_activity_at = await self._repo.earliest_activity_at(provider=provider_filter)
         activity_metrics, activity_cost = build_activity_summaries(
             activity_aggregate,
             top_error=top_error,
@@ -126,7 +164,7 @@ class DashboardService:
         )
 
         summary = build_dashboard_overview_summary(
-            accounts=accounts,
+            accounts=openai_accounts,
             primary_rows=primary_rows,
             secondary_rows=secondary_rows,
             activity_metrics=activity_metrics,
@@ -142,13 +180,13 @@ class DashboardService:
                 window_key="primary",
                 window_minutes=primary_window_minutes,
                 usage_rows=primary_rows,
-                accounts=accounts,
+                accounts=openai_accounts,
             ),
             secondary=build_usage_window_response(
                 window_key="secondary",
                 window_minutes=secondary_minutes,
                 usage_rows=secondary_rows,
-                accounts=accounts,
+                accounts=openai_accounts,
             ),
         )
 
@@ -162,12 +200,19 @@ class DashboardService:
             trends=trends,
         )
 
-    async def get_projections(self) -> DashboardProjectionsResponse:
+    async def get_projections(self, *, provider: ProviderScope = "all") -> DashboardProjectionsResponse:
+        if provider == "anthropic":
+            return DashboardProjectionsResponse()
         now = utcnow()
-        accounts = await self._repo.list_accounts()
-        primary_usage = await self._repo.latest_usage_by_account("primary")
-        secondary_usage = await self._repo.latest_usage_by_account("secondary")
-        monthly_usage = await self._repo.latest_usage_by_account("monthly")
+        accounts = [
+            account
+            for account in await self._repo.list_accounts()
+            if (account.provider or PROVIDER_OPENAI) == PROVIDER_OPENAI
+        ]
+        account_ids = [account.id for account in accounts]
+        primary_usage = await self._repo.latest_usage_by_account("primary", account_ids=account_ids)
+        secondary_usage = await self._repo.latest_usage_by_account("secondary", account_ids=account_ids)
+        monthly_usage = await self._repo.latest_usage_by_account("monthly", account_ids=account_ids)
         account_summaries = build_account_summaries(
             accounts=accounts,
             primary_usage=primary_usage,

@@ -9,20 +9,18 @@ from app.core.auth.dependencies import validate_proxy_api_key_authorization
 from app.core.exceptions import ProxyAuthError
 from app.dependencies import get_anthropic_proxy_service_for_app
 from app.modules.anthropic_proxy.schemas import anthropic_error_body
+from app.modules.api_keys.service import ApiKeyData
 
 logger = logging.getLogger(__name__)
 
-# Registered both bare (ANTHROPIC_BASE_URL=http://host:port) and under
-# /anthropic (…/anthropic). The bare paths are unclaimed by the OpenAI proxy.
 router = APIRouter(tags=["anthropic"])
-alias_router = APIRouter(prefix="/anthropic", tags=["anthropic"])
 
 _MAX_BODY_BYTES = 32 * 1024 * 1024
 
 
 async def _relay(request: Request, upstream_path: str) -> Response:
     try:
-        await _authenticate(request)
+        api_key = await _authenticate(request)
     except ProxyAuthError as exc:
         return Response(
             content=anthropic_error_body("authentication_error", str(exc)),
@@ -30,8 +28,9 @@ async def _relay(request: Request, upstream_path: str) -> Response:
             media_type="application/json",
         )
 
-    body = await request.body()
-    if len(body) > _MAX_BODY_BYTES:
+    try:
+        body = await _read_bounded_body(request)
+    except ValueError:
         return Response(
             content=anthropic_error_body("invalid_request_error", "Request body too large"),
             status_code=413,
@@ -39,10 +38,16 @@ async def _relay(request: Request, upstream_path: str) -> Response:
         )
 
     service = get_anthropic_proxy_service_for_app(request.app)
-    return await service.relay(upstream_path=upstream_path, client_headers=request.headers, body=body)
+    return await service.relay(
+        upstream_path=upstream_path,
+        client_headers=request.headers,
+        body=body,
+        api_key=api_key,
+        client_ip=request.client.host if request.client else None,
+    )
 
 
-async def _authenticate(request: Request) -> None:
+async def _authenticate(request: Request) -> ApiKeyData | None:
     # Claude Code sends the proxy key as either Authorization: Bearer (when
     # ANTHROPIC_AUTH_TOKEN is set) or x-api-key. Synthesize a Bearer string and
     # reuse the shared proxy-API-key validation.
@@ -51,7 +56,25 @@ async def _authenticate(request: Request) -> None:
         api_key = request.headers.get("x-api-key")
         if api_key:
             authorization = f"Bearer {api_key}"
-    await validate_proxy_api_key_authorization(authorization, request=request)
+    return await validate_proxy_api_key_authorization(authorization, request=request)
+
+
+async def _read_bounded_body(request: Request) -> bytes:
+    content_length = request.headers.get("content-length")
+    if content_length is not None:
+        try:
+            if int(content_length) > _MAX_BODY_BYTES:
+                raise ValueError("request body too large")
+        except ValueError as exc:
+            if content_length.isdigit():
+                raise
+            raise ValueError("invalid content length") from exc
+    body = bytearray()
+    async for chunk in request.stream():
+        body.extend(chunk)
+        if len(body) > _MAX_BODY_BYTES:
+            raise ValueError("request body too large")
+    return bytes(body)
 
 
 @router.post("/v1/messages")
@@ -61,14 +84,4 @@ async def messages(request: Request) -> Response:
 
 @router.post("/v1/messages/count_tokens")
 async def count_tokens(request: Request) -> Response:
-    return await _relay(request, "/v1/messages/count_tokens")
-
-
-@alias_router.post("/v1/messages")
-async def messages_alias(request: Request) -> Response:
-    return await _relay(request, "/v1/messages")
-
-
-@alias_router.post("/v1/messages/count_tokens")
-async def count_tokens_alias(request: Request) -> Response:
     return await _relay(request, "/v1/messages/count_tokens")

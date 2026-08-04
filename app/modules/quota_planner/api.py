@@ -11,6 +11,7 @@ from app.core.auth.dependencies import (
     validate_dashboard_session,
 )
 from app.core.exceptions import DashboardBadRequestError
+from app.core.providers import PROVIDER_OPENAI
 from app.dependencies import QuotaPlannerContext, get_quota_planner_context
 from app.modules.accounts.repository import AccountsRepository
 from app.modules.proxy.account_cache import get_account_selection_cache
@@ -209,7 +210,11 @@ async def get_quota_planner_forecast(
     settings = await context.repository.get_settings()
     demand_bins = await context.repository.aggregate_demand_bins()
     forecast = build_demand_forecast(settings=settings, bins=demand_bins, horizon_hours=horizon_hours)
-    accounts = await AccountsRepository(context.session).list_accounts()
+    accounts = [
+        account
+        for account in await AccountsRepository(context.session).list_accounts()
+        if (account.provider or PROVIDER_OPENAI) == PROVIDER_OPENAI
+    ]
     usage_repo = UsageRepository(context.session)
     latest_primary = await usage_repo.latest_by_account()
     latest_secondary = await usage_repo.latest_by_account(window="secondary")

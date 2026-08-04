@@ -1,5 +1,13 @@
 import { z } from "zod";
 
+import { AccountProviderSchema } from "@/features/providers/schemas";
+
+export const AccountCredentialKindSchema = z.enum([
+  "openai_oauth",
+  "anthropic_api_key",
+  "legacy_anthropic_oauth",
+]);
+
 const UsageTrendPointSchema = z.object({
   t: z.iso.datetime({ offset: true }),
   v: z.number(),
@@ -67,7 +75,8 @@ export const AccountAdditionalQuotaSchema = z.object({
 
 export const AccountSummarySchema = z.object({
   accountId: z.string(),
-  provider: z.string().optional(),
+  provider: AccountProviderSchema.default("openai"),
+  credentialKind: AccountCredentialKindSchema.default("openai_oauth"),
   chatgptAccountId: z.string().nullable().optional(),
   email: z.string(),
   alias: z.string().nullable().optional(),
@@ -142,12 +151,19 @@ export const AccountsResponseSchema = z.object({
 
 export const AccountImportResponseSchema = z.object({
   accountId: z.string(),
+  provider: AccountProviderSchema.default("openai"),
+  credentialKind: AccountCredentialKindSchema.default("openai_oauth"),
   email: z.string(),
   workspaceId: z.string().nullable().optional(),
   workspaceLabel: z.string().nullable().optional(),
   seatType: z.string().nullable().optional(),
   planType: z.string(),
   status: z.string(),
+});
+
+export const AnthropicApiKeyRequestSchema = z.object({
+  label: z.string().trim().min(1).max(100),
+  apiKey: z.string().trim().min(1).max(4096),
 });
 
 const OpenCodeOAuthAuthSchema = z.object({
@@ -336,6 +352,8 @@ export const ImportStateSchema = z.object({
 
 export type UsageTrendPoint = z.infer<typeof UsageTrendPointSchema>;
 export type AccountSummary = z.infer<typeof AccountSummarySchema>;
+export type AccountCredentialKind = z.infer<typeof AccountCredentialKindSchema>;
+export type AnthropicApiKeyRequest = z.infer<typeof AnthropicApiKeyRequestSchema>;
 export type RateLimitResetCreditItem = z.infer<typeof RateLimitResetCreditItemSchema>;
 export type RateLimitResetCreditsSnapshot = z.infer<
   typeof RateLimitResetCreditsSnapshotSchema

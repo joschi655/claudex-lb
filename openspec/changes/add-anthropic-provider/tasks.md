@@ -1,44 +1,35 @@
-## 1. Schema + provider-aware core
+## 1. Contract and schema safety
 
-- [x] 1.1 Migration: `accounts.provider` (NOT NULL default `openai`), `id_token_encrypted` nullable, `access_token_expires_at` nullable int
-- [x] 1.2 `app/core/providers.py` constants; `Account` model fields
-- [x] 1.3 `app/core/anthropic/oauth.py`: Claude token refresh (RefreshError codes preserved)
-- [x] 1.4 `AuthManager`: provider branch in `_refresh_tokens` / `_perform_refresh` / `ensure_fresh`; static-credential accounts never refresh
-- [x] 1.5 Provider filters: usage refresh, reset credits, model refresh, quota planner; guardian expiry-based staleness for anthropic
-- [x] 1.6 `LoadBalancer.select_account(provider=...)` + cache key; OpenAI call sites unchanged
+- [x] 1.1 Replace consumer OAuth requirements with Console API-key onboarding, relay, analytics, and dashboard requirements
+- [x] 1.2 Add typed provider/credential-kind fields and a forward migration that quarantines legacy Anthropic rows
+- [x] 1.3 Make migrations upgrade/downgrade safe and add migration data tests
+- [x] 1.4 Restore required Python typecheck after nullable token changes
 
-## 2. Claude credential import
+## 2. Credential onboarding and provider boundaries
 
-- [x] 2.1 `claudeAiOauth` payload sniffing in `import_account` → anthropic import path (ms→s expiry, `claude_` plan prefix)
-- [x] 2.2 Static-credential import (no refresh token) → `preserve` routing policy
-- [x] 2.3 Dashboard: `provider` in account schemas + badge; hide OpenAI-only actions for anthropic accounts
+- [x] 2.1 Add create/replace Anthropic API-key dashboard APIs with encrypted storage, audit, no-store responses, and exact-row replacement
+- [x] 2.2 Remove Claude.ai OAuth import/refresh behavior and reject non-OpenAI OAuth reauthentication targets
+- [x] 2.3 Enforce provider guards at all OpenAI dispatch boundaries, including fleet, limits, warmups, quota planning, automations, and reset actions
+- [x] 2.4 Add provider-boundary and credential onboarding regression coverage
 
-## 3. Anthropic Messages relay
+## 3. Anthropic relay hardening
 
-- [x] 3.1 `app/core/anthropic/upstream.py`: header builder (auth injection, beta merge, static x-api-key) + dispatch
-- [x] 3.2 `app/modules/anthropic_proxy/`: routes `POST /v1/messages`, `/v1/messages/count_tokens` (+ `/anthropic/v1` alias), proxy API key auth (`Authorization`/`x-api-key`), Anthropic error envelope
-- [x] 3.3 Failover loop: 429/401/403/5xx matrix, one forced refresh per account per request, no mid-stream retry, disconnect ≠ unhealthy
-- [x] 3.4 Register routers + SPA `excluded_prefixes` in `app/main.py`
+- [x] 3.1 Keep canonical Messages routes only and apply firewall/body/concurrency protections
+- [x] 3.2 Enforce client API-key account/model scope, reservations, settlement, and last-used tracking
+- [x] 3.3 Add provider request logging and Anthropic usage extraction for JSON and SSE responses
+- [x] 3.4 Fix single-account routing, connect/pre-first-byte failover, mid-stream/disconnect cleanup, 401/403/429 classification, and RFC 3339 resets
+- [x] 3.5 Add relay integration tests for security, accounting, logging, failover, and oversized bodies
 
-## 4. Usage ingestion
+## 4. Provider-aware dashboard
 
-- [x] 4.1 `anthropic-ratelimit-unified-*` header parser (permissive)
-- [x] 4.2 Relay hook → `UsageHistory` primary/secondary rows + `reset_at`, throttled, selection-cache invalidation
-- [ ] 4.3 Sparse `/api/oauth/usage` polling for accounts without recent passive snapshot — DEFERRED (passive header ingestion is the dominant signal; idle accounts read as low-utilization, which selection handles gracefully)
+- [x] 4.1 Add `all|openai|anthropic` filters to account, overview, projection, and request-log APIs
+- [x] 4.2 Add shared provider scope controls and provider-specific dashboard capacity presentation
+- [x] 4.3 Add Claude API-key create/replace UI and hide all OpenAI-only account actions and polling
+- [x] 4.4 Add frontend schema, hook, component, and integration coverage
+- [x] 4.5 Add published Claude API-key setup documentation linked to the owning OpenSpec capability
 
-## 4b. Hardening (post-implementation audit)
+## 5. Validation and rollout readiness
 
-- [x] 4b.1 Import dedupe: anthropic slot identity = (provider, email); re-import updates in place and reactivates `reauth_required` accounts
-- [x] 4b.2 Provider guards: email-fallback merge never crosses providers; merge field copy carries `provider` + `access_token_expires_at`; anthropic slot lock key
-- [x] 4b.3 Upstream stream timeout is idle-based (`sock_read`), bounded connect budget
-- [x] 4b.4 Usage headers ingested from 429 responses (saturation signal)
-- [x] 4b.5 Relay honors the operator-configured routing strategy
-- [x] 4b.6 `expiresAt` unit tolerance (ms or s) on import; `retry-after` hint on the no-account 429
-- [x] 4b.7 Guardian refresh pass carries plain account ids across the repo-session boundary (live drill caught `DetachedInstanceError`: closing the read-only session rolls back and expires its instances; latent upstream bug armed by enabling the guardian)
-
-## 5. Validation
-
-- [x] 5.1 Unit: refresh branch, freshness gates, static account, import parsing, header builder, failover matrix, usage parser
-- [x] 5.2 Integration: import → relay stream via ASGITransport (429 failover, byte-identical relay, statuses persisted, usage ingested); OpenAI regression untouched
-- [x] 5.3 Migration round-trip on sqlite; `uv run pytest`; `ruff`; strict OpenSpec validation
-- [x] 5.4 Live drill (2026-07-19, ubuntu-tunnel): 6 accounts imported, real `/v1/messages` 200 + SSE stream, forced-expiry refresh with rotated-token persistence, rate-limited failover to second account, OpenAI row untouched, switcher timer disabled, guardian enabled (surfaced 4b.7)
+- [x] 5.1 Run focused backend/frontend suites, full pytest, ruff, ty, frontend typecheck/lint/tests, and migration graph checks
+- [x] 5.2 Run strict OpenSpec validation when the CLI is available and reconcile all artifacts/tasks
+- [ ] 5.3 Review the final diff against current-head Codex findings and document live quarantine/deployment verification steps

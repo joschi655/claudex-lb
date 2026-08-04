@@ -78,6 +78,12 @@ class Account(Base):
         server_default=text("'openai'"),
         nullable=False,
     )
+    credential_kind: Mapped[str] = mapped_column(
+        String,
+        default="openai_oauth",
+        server_default=text("'openai_oauth'"),
+        nullable=False,
+    )
     chatgpt_account_id: Mapped[str | None] = mapped_column(String, nullable=True)
     # Stable per-seat OpenAI principal identity (chatgpt_user_id / auth sub).
     # Distinct from chatgpt_account_id, which is the shared Team/Business
@@ -252,11 +258,18 @@ class AdditionalUsageHistory(Base):
 class RequestLog(Base):
     __tablename__ = "request_logs"
     __table_args__ = (
+        Index("idx_logs_provider_requested_at", "provider", "requested_at"),
         Index("idx_logs_useragent_group", "useragent_group"),
         Index("idx_logs_client_ip", "client_ip"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    provider: Mapped[str] = mapped_column(
+        String,
+        default="openai",
+        server_default=text("'openai'"),
+        nullable=False,
+    )
     account_id: Mapped[str | None] = mapped_column(
         String,
         ForeignKey("accounts.id", ondelete="SET NULL"),

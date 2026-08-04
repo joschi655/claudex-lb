@@ -11,11 +11,17 @@ from sqlalchemy import delete, or_, select, text, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.providers import PROVIDER_OPENAI, is_anthropic_provider
+from app.core.providers import (
+    CREDENTIAL_ANTHROPIC_API_KEY,
+    PROVIDER_ANTHROPIC,
+    PROVIDER_OPENAI,
+    is_anthropic_provider,
+)
 from app.core.utils.time import utcnow
 from app.db.models import (
     Account,
     AccountLimitWarmup,
+    AccountRoutingPolicy,
     AccountStatus,
     AccountUsageRollup,
     AdditionalUsageHistory,
@@ -29,7 +35,6 @@ from app.db.models import (
     UsageHistory,
 )
 from app.db.session import sqlite_writer_section
-from app.modules.accounts.anthropic_import import SYNTHETIC_IMPORT_EMAIL_SUFFIX
 from app.modules.accounts.usage_rollup import (
     AccountUsageRollupRepository,
     deduped_usage_aggregate_stmt,
@@ -288,6 +293,35 @@ class AccountsRepository:
             if existing is None:
                 return None
             _apply_account_updates(existing, account)
+            await self._session.commit()
+            await self._session.refresh(existing)
+            return existing
+
+    async def replace_anthropic_api_key(
+        self,
+        account_id: str,
+        *,
+        label: str,
+        access_token_encrypted: bytes,
+        empty_refresh_token_encrypted: bytes,
+    ) -> Account | None:
+        async with sqlite_writer_section():
+            existing = await self._session.get(Account, account_id)
+            if existing is None or existing.provider != PROVIDER_ANTHROPIC:
+                return None
+            existing.alias = label
+            existing.credential_kind = CREDENTIAL_ANTHROPIC_API_KEY
+            existing.plan_type = "claude_api"
+            existing.routing_policy = AccountRoutingPolicy.NORMAL.value
+            existing.access_token_encrypted = access_token_encrypted
+            existing.refresh_token_encrypted = empty_refresh_token_encrypted
+            existing.id_token_encrypted = None
+            existing.access_token_expires_at = None
+            existing.last_refresh = utcnow()
+            existing.status = AccountStatus.ACTIVE
+            existing.deactivation_reason = None
+            existing.reset_at = None
+            existing.blocked_at = None
             await self._session.commit()
             await self._session.refresh(existing)
             return existing
@@ -876,22 +910,10 @@ class AccountsRepository:
         return matches[0]
 
     async def _account_by_slot_identity(self, account: Account) -> Account | None:
-        if account.provider is not None and is_anthropic_provider(account.provider):
-            # Anthropic accounts have no ChatGPT/workspace identity; their slot
-            # is (provider, email), so re-importing a credential updates the
-            # existing row in place instead of inserting a duplicate whose old
-            # sibling still holds a dead single-use refresh token. Synthetic
-            # fallback emails carry no identity and never dedupe.
-            if not account.email or account.email.endswith(SYNTHETIC_IMPORT_EMAIL_SUFFIX):
-                return None
-            result = await self._session.execute(
-                select(Account)
-                .where(Account.provider == account.provider)
-                .where(Account.email == account.email)
-                .order_by(Account.created_at.asc(), Account.id.asc())
-                .limit(1)
-            )
-            return result.scalar_one_or_none()
+        if account.provider == PROVIDER_ANTHROPIC:
+            # Console keys expose no stable principal identity. Creation always
+            # inserts a distinct row; replacement is an explicit id-targeted API.
+            return None
         workspace_slot = _workspace_slot_identity(account)
         if account.chatgpt_account_id and account.email and workspace_slot:
             column, value = workspace_slot
@@ -974,6 +996,8 @@ def _apply_account_updates(target: Account, source: Account) -> None:
         target.codex_installation_id = source.codex_installation_id or str(uuid.uuid4())
     if source.provider is not None:
         target.provider = source.provider
+    if source.credential_kind is not None:
+        target.credential_kind = source.credential_kind
     target.plan_type = source.plan_type
     target.access_token_encrypted = source.access_token_encrypted
     target.refresh_token_encrypted = source.refresh_token_encrypted
@@ -994,8 +1018,8 @@ def _slot_lock_key(account: Account, *, preserve_unknown_workspace_duplicates: b
 
 
 def _slot_lock_keys(account: Account, *, preserve_unknown_workspace_duplicates: bool = True) -> tuple[str, ...]:
-    if account.provider is not None and is_anthropic_provider(account.provider) and account.email:
-        return (f"slot-anthropic:{account.email}",)
+    if account.provider is not None and is_anthropic_provider(account.provider):
+        return (f"slot-local:{account.id}",)
     keys: list[str] = []
     workspace_key = _workspace_slot_key(account)
     if account.chatgpt_account_id:
@@ -1059,6 +1083,8 @@ def _can_reuse_email_fallback(existing: Account, incoming: Account) -> bool:
     # Accounts never merge across providers, even on a shared email: an OpenAI
     # row must not end up holding Anthropic credentials (or vice versa).
     if (existing.provider or PROVIDER_OPENAI) != (incoming.provider or PROVIDER_OPENAI):
+        return False
+    if is_anthropic_provider(incoming.provider or PROVIDER_OPENAI):
         return False
     existing_workspace_key = _workspace_slot_key(existing)
     incoming_workspace_key = _workspace_slot_key(incoming)

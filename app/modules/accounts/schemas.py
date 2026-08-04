@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import List
+from typing import List, Literal
 
 from pydantic import Field, field_validator
 
@@ -81,7 +81,12 @@ class AccountAdditionalQuota(DashboardModel):
 
 class AccountSummary(DashboardModel):
     account_id: str
-    provider: str = "openai"
+    provider: Literal["openai", "anthropic"] = "openai"
+    credential_kind: Literal[
+        "openai_oauth",
+        "anthropic_api_key",
+        "legacy_anthropic_oauth",
+    ] = "openai_oauth"
     chatgpt_account_id: str | None = None
     email: str
     alias: str | None = None
@@ -137,12 +142,31 @@ class AccountsResponse(DashboardModel):
 
 class AccountImportResponse(DashboardModel):
     account_id: str
+    provider: Literal["openai", "anthropic"] = "openai"
+    credential_kind: Literal[
+        "openai_oauth",
+        "anthropic_api_key",
+        "legacy_anthropic_oauth",
+    ] = "openai_oauth"
     email: str
     workspace_id: str | None = None
     workspace_label: str | None = None
     seat_type: str | None = None
     plan_type: str
     status: str
+
+
+class AnthropicApiKeyRequest(DashboardModel):
+    label: str = Field(min_length=1, max_length=100)
+    api_key: str = Field(min_length=1, max_length=4096)
+
+    @field_validator("label", "api_key")
+    @classmethod
+    def strip_non_empty_value(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("value must not be blank")
+        return normalized
 
 
 class OpenCodeOAuthAuth(DashboardModel):

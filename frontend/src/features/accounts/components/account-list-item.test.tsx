@@ -247,4 +247,35 @@ describe("AccountListItem", () => {
 
     expect(screen.queryByText("99+")).not.toBeInTheDocument();
   });
+
+  it("renders Claude credential metadata without OpenAI-only row details", () => {
+    const account = createAccountSummary({
+      provider: "anthropic",
+      credentialKind: "anthropic_api_key",
+      email: "Claude Production",
+      displayName: "Claude Production",
+      planType: "api",
+      availableResetCredits: 3,
+      additionalQuotas: [
+        {
+          quotaKey: "anthropic_tokens",
+          limitName: "Anthropic Tokens",
+          meteredFeature: "anthropic_tokens",
+          primaryWindow: { usedPercent: 42 },
+        },
+      ],
+    });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.getByText("Claude API key")).toBeInTheDocument();
+    expect(screen.getByText("Anthropic throughput")).toBeInTheDocument();
+    expect(screen.getByText("1 rate-limit snapshot")).toBeInTheDocument();
+    expect(screen.queryByText(/Personal \/ unknown workspace/)).not.toBeInTheDocument();
+    expect(screen.queryByText("5h")).not.toBeInTheDocument();
+    expect(screen.queryByText("Weekly")).not.toBeInTheDocument();
+    expect(screen.queryByText("Warm-up off")).not.toBeInTheDocument();
+    expect(screen.queryByText("No attempts")).not.toBeInTheDocument();
+    expect(screen.queryByText("3")).not.toBeInTheDocument();
+  });
 });

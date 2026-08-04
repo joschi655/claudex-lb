@@ -23,6 +23,19 @@ async def test_firewall_middleware_blocks_v1_when_ip_not_allowed(async_client):
 
 
 @pytest.mark.asyncio
+async def test_firewall_middleware_uses_anthropic_envelope_for_messages(async_client):
+    add_response = await async_client.post("/api/firewall/ips", json={"ipAddress": "10.20.30.40"})
+    assert add_response.status_code == 200
+
+    response = await async_client.post("/v1/messages", json={"model": "claude-sonnet-5"})
+
+    assert response.status_code == 403
+    assert response.json()["type"] == "error"
+    assert response.json()["error"]["type"] == "permission_error"
+    assert "code" not in response.json()["error"]
+
+
+@pytest.mark.asyncio
 async def test_firewall_middleware_allows_v1_for_allowed_loopback_ip(async_client):
     add_response = await async_client.post("/api/firewall/ips", json={"ipAddress": "127.0.0.1"})
     assert add_response.status_code == 200

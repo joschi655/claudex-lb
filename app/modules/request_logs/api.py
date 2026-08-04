@@ -5,6 +5,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, Query
 
 from app.core.auth.dependencies import set_dashboard_error_format, validate_dashboard_session
+from app.core.providers import ProviderScope, provider_from_scope
 from app.dependencies import RequestLogsContext, get_request_logs_context
 from app.modules.request_logs.schemas import (
     RequestLogApiKeyOption,
@@ -50,6 +51,7 @@ async def list_request_logs(
     model_option: list[str] | None = Query(default=None, alias="modelOption"),
     since: datetime | None = Query(default=None),
     until: datetime | None = Query(default=None),
+    provider: ProviderScope = Query("all"),
     context: RequestLogsContext = Depends(get_request_logs_context),
 ) -> RequestLogsResponse:
     parsed_options: list[ServiceRequestLogModelOption] | None = None
@@ -68,6 +70,7 @@ async def list_request_logs(
         models=model,
         reasoning_efforts=reasoning_effort,
         status=status,
+        provider=provider_from_scope(provider),
     )
     return RequestLogsResponse(
         requests=page.requests,
@@ -86,6 +89,7 @@ async def list_request_log_filter_options(
     model_option: list[str] | None = Query(default=None, alias="modelOption"),
     since: datetime | None = Query(default=None),
     until: datetime | None = Query(default=None),
+    provider: ProviderScope = Query("all"),
     context: RequestLogsContext = Depends(get_request_logs_context),
 ) -> RequestLogFilterOptionsResponse:
     _ = status  # Keep input backward compatible but do not self-filter status facet.
@@ -101,6 +105,7 @@ async def list_request_log_filter_options(
         model_options=parsed_options,
         models=model,
         reasoning_efforts=reasoning_effort,
+        provider=provider_from_scope(provider),
     )
     return RequestLogFilterOptionsResponse(
         account_ids=options.account_ids,

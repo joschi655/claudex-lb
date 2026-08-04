@@ -8,11 +8,13 @@ import {
   RequestLogsResponseSchema,
   type OverviewTimeframe,
 } from "@/features/dashboard/schemas";
+import type { ProviderScope } from "@/features/providers/schemas";
 
 const DASHBOARD_PATH = "/api/dashboard";
 const REQUEST_LOGS_PATH = "/api/request-logs";
 
 export type RequestLogsListFilters = {
+  provider?: ProviderScope;
   limit?: number;
   offset?: number;
   search?: string;
@@ -25,6 +27,7 @@ export type RequestLogsListFilters = {
 };
 
 export type RequestLogFacetFilters = {
+  provider?: ProviderScope;
   since?: string;
   until?: string;
   accountIds?: string[];
@@ -34,6 +37,7 @@ export type RequestLogFacetFilters = {
 
 export type DashboardOverviewParams = {
   timeframe?: OverviewTimeframe;
+  provider?: ProviderScope;
 };
 
 function appendMany(params: URLSearchParams, key: string, values?: string[]): void {
@@ -50,15 +54,18 @@ function appendMany(params: URLSearchParams, key: string, values?: string[]): vo
 export function getDashboardOverview(params: DashboardOverviewParams = {}) {
   const query = new URLSearchParams();
   query.set("timeframe", params.timeframe ?? DEFAULT_OVERVIEW_TIMEFRAME);
+  query.set("provider", params.provider ?? "all");
   return get(`${DASHBOARD_PATH}/overview?${query.toString()}`, DashboardOverviewSchema);
 }
 
-export function getDashboardProjections() {
-  return get(`${DASHBOARD_PATH}/projections`, DashboardProjectionsSchema);
+export function getDashboardProjections(provider: ProviderScope = "all") {
+  const query = new URLSearchParams({ provider });
+  return get(`${DASHBOARD_PATH}/projections?${query.toString()}`, DashboardProjectionsSchema);
 }
 
 export function getRequestLogs(params: RequestLogsListFilters = {}) {
   const query = new URLSearchParams();
+  query.set("provider", params.provider ?? "all");
   if (typeof params.limit === "number") {
     query.set("limit", String(params.limit));
   }
@@ -84,6 +91,7 @@ export function getRequestLogs(params: RequestLogsListFilters = {}) {
 
 export function getRequestLogOptions(params: RequestLogFacetFilters = {}) {
   const query = new URLSearchParams();
+  query.set("provider", params.provider ?? "all");
   if (params.since) {
     query.set("since", params.since);
   }

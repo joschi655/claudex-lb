@@ -95,6 +95,8 @@ export function createAccountSummary(
 ): AccountSummary {
 	return AccountSummarySchema.parse({
 		accountId: "acc_primary",
+		provider: "openai",
+		credentialKind: "openai_oauth",
 		chatgptAccountId: "chatgpt_acc_primary",
 		email: "primary@example.com",
 		alias: null,
@@ -263,6 +265,7 @@ export function createDashboardOverview(
 			cost: {
 				currency: "USD",
 				totalUsd: 1.82,
+				isPartial: false,
 			},
 			metrics: {
 				requests: 228,

@@ -24,6 +24,7 @@ from app.core.config.settings_cache import get_settings_cache
 from app.core.exceptions import ProxyAuthError, ProxyRateLimitError
 from app.core.openai.models import CompactResponsePayload
 from app.core.openai.requests import ResponsesCompactRequest
+from app.core.providers import PROVIDER_OPENAI
 from app.core.upstream_proxy import UpstreamProxyRouteError
 from app.db.models import Account, AccountStatus
 from app.modules.api_keys.service import ApiKeyData, ApiKeyUsageReservationData
@@ -112,12 +113,13 @@ class _WarmupUsageSnapshot:
 @dataclass(frozen=True, slots=True)
 class _WarmupAccountSnapshot:
     id: str
+    provider: str
     chatgpt_account_id: str | None
     email: str
     plan_type: str
     access_token_encrypted: bytes
     refresh_token_encrypted: bytes
-    id_token_encrypted: bytes
+    id_token_encrypted: bytes | None
     last_refresh: datetime
     status: AccountStatus
     deactivation_reason: str | None
@@ -136,6 +138,7 @@ def _is_warmup_usage_eligible(entry: _WarmupUsageSnapshot | None) -> bool:
 def _snapshot_warmup_account(account: Account) -> _WarmupAccountSnapshot:
     return _WarmupAccountSnapshot(
         id=account.id,
+        provider=account.provider,
         chatgpt_account_id=account.chatgpt_account_id,
         email=account.email,
         plan_type=account.plan_type,
@@ -153,6 +156,7 @@ def _snapshot_warmup_account(account: Account) -> _WarmupAccountSnapshot:
 def _materialize_warmup_account(account: _WarmupAccountSnapshot) -> Account:
     return Account(
         id=account.id,
+        provider=account.provider,
         chatgpt_account_id=account.chatgpt_account_id,
         email=account.email,
         plan_type=account.plan_type,
@@ -286,7 +290,11 @@ class _WarmupMixin:
         *,
         api_key: ApiKeyData | None,
     ) -> list[_WarmupAccountSnapshot]:
-        active_accounts = [account for account in accounts if account.status == AccountStatus.ACTIVE]
+        active_accounts = [
+            account
+            for account in accounts
+            if (account.provider or PROVIDER_OPENAI) == PROVIDER_OPENAI and account.status == AccountStatus.ACTIVE
+        ]
         if api_key is None or not api_key.account_assignment_scope_enabled:
             return active_accounts
         assigned_ids = {account_id for account_id in api_key.assigned_account_ids if account_id}

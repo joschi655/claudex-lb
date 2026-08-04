@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, Query
 
 from app.core.auth.dependencies import set_dashboard_error_format, validate_dashboard_session
 from app.core.openai.model_registry import get_model_registry, is_public_model
+from app.core.providers import ProviderScope
 from app.db.session import detach_session_objects, get_background_session
 from app.dependencies import DashboardContext, get_dashboard_context
 from app.modules.dashboard.schemas import (
@@ -24,16 +25,18 @@ router = APIRouter(
 @router.get("/dashboard/overview", response_model=DashboardOverviewResponse)
 async def get_overview(
     timeframe: DashboardOverviewTimeframeKey = Query("7d"),
+    provider: ProviderScope = Query("all"),
     context: DashboardContext = Depends(get_dashboard_context),
 ) -> DashboardOverviewResponse:
-    return await context.service.get_overview(timeframe)
+    return await context.service.get_overview(timeframe, provider=provider)
 
 
 @router.get("/dashboard/projections", response_model=DashboardProjectionsResponse)
 async def get_projections(
+    provider: ProviderScope = Query("all"),
     context: DashboardContext = Depends(get_dashboard_context),
 ) -> DashboardProjectionsResponse:
-    return await context.service.get_projections()
+    return await context.service.get_projections(provider=provider)
 
 
 @router.get("/models")

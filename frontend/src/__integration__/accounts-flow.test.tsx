@@ -62,4 +62,25 @@ describe("accounts flow integration", () => {
       expect(screen.getByRole("heading", { name: "primary@example.com" })).toBeInTheDocument();
     });
   });
+
+  it("adds and manages a Claude Console API-key account in its provider scope", async () => {
+    const user = userEvent.setup({ delay: null });
+
+    window.history.pushState({}, "", "/accounts?provider=anthropic");
+    renderWithProviders(<App />);
+
+    expect(await screen.findByRole("heading", { name: "Accounts" })).toBeInTheDocument();
+    expect(screen.getByRole("radio", { name: "Claude" })).toHaveAttribute("aria-checked", "true");
+    await user.click(await screen.findByRole("button", { name: "Add account" }));
+    expect(screen.queryByRole("button", { name: "Import" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Claude API key" }));
+    await user.type(await screen.findByLabelText("Label"), "Claude Production");
+    await user.type(screen.getByLabelText("Anthropic API key"), "sk-ant-api03-integration");
+    await user.click(screen.getByRole("button", { name: "Add key" }));
+
+    expect(await screen.findByRole("heading", { name: "Claude Production" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Replace API key" })).toBeInTheDocument();
+    expect(screen.queryByText("Token Status")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Re-authenticate" })).not.toBeInTheDocument();
+  });
 });

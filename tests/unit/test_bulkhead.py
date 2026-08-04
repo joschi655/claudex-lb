@@ -69,6 +69,53 @@ async def test_bulkhead_returns_429_when_proxy_http_lane_full():
 
 
 @pytest.mark.asyncio
+async def test_bulkhead_uses_anthropic_envelope_for_messages():
+    app = FastAPI()
+    app.add_middleware(cast(Any, BulkheadMiddleware), bulkhead=_bulkhead())
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    @app.post("/v1/messages")
+    async def messages():
+        entered.set()
+        await release.wait()
+        return {"ok": True}
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        first_request = asyncio.create_task(client.post("/v1/messages"))
+        await entered.wait()
+
+        overloaded = await client.post("/v1/messages")
+        release.set()
+        await first_request
+
+    assert overloaded.status_code == 429
+    assert overloaded.json()["type"] == "error"
+    assert overloaded.json()["error"]["type"] == "rate_limit_error"
+
+
+@pytest.mark.asyncio
+async def test_memory_pressure_uses_anthropic_envelope_for_messages(monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.setattr(bulkhead_module, "is_memory_warning", lambda: False)
+    monkeypatch.setattr(bulkhead_module, "is_memory_pressure", lambda: True)
+    app = FastAPI()
+    app.add_middleware(cast(Any, BulkheadMiddleware), bulkhead=_bulkhead())
+
+    @app.post("/v1/messages")
+    async def messages():
+        return {"ok": True}
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post("/v1/messages")
+
+    assert response.status_code == 503
+    assert response.json()["type"] == "error"
+    assert response.json()["error"]["type"] == "overloaded_error"
+
+
+@pytest.mark.asyncio
 async def test_bulkhead_compact_lane_isolated_from_general_proxy_http():
     app = FastAPI()
     app.add_middleware(cast(Any, BulkheadMiddleware), bulkhead=_bulkhead())

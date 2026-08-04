@@ -82,6 +82,24 @@ async def test_add_entry(async_session: AsyncSession) -> None:
 
 
 @pytest.mark.asyncio
+async def test_explicit_unknown_quota_key_round_trips_through_discovery(async_session: AsyncSession) -> None:
+    repo = AdditionalUsageRepository(async_session)
+
+    await repo.add_entry(
+        account_id="acc_anthropic",
+        quota_key="anthropic_requests",
+        limit_name="Anthropic Requests",
+        metered_feature="requests",
+        window="primary",
+        used_percent=40.0,
+    )
+
+    assert await repo.list_quota_keys() == ["anthropic_requests"]
+    latest = await repo.latest_by_account("anthropic_requests", "primary")
+    assert latest["acc_anthropic"].used_percent == 40.0
+
+
+@pytest.mark.asyncio
 async def test_latest_by_account_returns_most_recent_per_account(async_session: AsyncSession) -> None:
     """Test that latest_by_account returns only the most recent entry per account."""
     repo = AdditionalUsageRepository(async_session)

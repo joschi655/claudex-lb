@@ -34,6 +34,7 @@ export function AccountListItem({
   onSelect,
 }: AccountListItemProps) {
   const blurred = usePrivacyStore((s) => s.blurred);
+  const isOpenAiAccount = account.provider === "openai";
   const quotaDisplay = useAccountQuotaDisplayStore((s) => s.quotaDisplay);
   const status = normalizeStatus(account.status);
   const title = account.displayName || account.email;
@@ -43,7 +44,9 @@ export function AccountListItem({
     : null;
   const workspaceLabel = account.chatgptAccountId || account.workspaceLabel || account.workspaceId || "Personal / unknown workspace";
   const seatLabel = account.seatType ? ` | ${formatSlug(account.seatType)}` : "";
-  const slotSubtitle = `${formatSlug(account.planType)} | ${workspaceLabel}${seatLabel}`;
+  const slotSubtitle = isOpenAiAccount
+    ? `${formatSlug(account.planType)} | ${workspaceLabel}${seatLabel}`
+    : "Claude API key";
   const idSuffix = showAccountId ? ` | ID ${formatCompactAccountId(account.accountId)}` : "";
   const primary = account.usage?.primaryRemainingPercent ?? null;
   const secondary = account.usage?.secondaryRemainingPercent ?? null;
@@ -61,11 +64,11 @@ export function AccountListItem({
     monthly !== null ||
     account.resetAtMonthly != null;
   const monthlyOnly = hasMonthlyWindow && !hasPrimaryWindow && !hasSecondaryWindow;
-  const showMonthlyRow = monthlyOnly;
+  const showMonthlyRow = isOpenAiAccount && monthlyOnly;
   const showPrimaryRow =
-    !monthlyOnly && hasPrimaryWindow && (quotaDisplay !== "weekly" || !hasSecondaryWindow);
+    isOpenAiAccount && !monthlyOnly && hasPrimaryWindow && (quotaDisplay !== "weekly" || !hasSecondaryWindow);
   const showSecondaryRow =
-    !monthlyOnly && hasSecondaryWindow && (quotaDisplay !== "5h" || !hasPrimaryWindow);
+    isOpenAiAccount && !monthlyOnly && hasSecondaryWindow && (quotaDisplay !== "5h" || !hasPrimaryWindow);
   const visibleQuotaRows = Number(showPrimaryRow) + Number(showSecondaryRow) + Number(showMonthlyRow);
   const showRoutingPolicy = status !== "reauth" && status !== "deactivated";
   const warmupLabel = account.limitWarmupEnabled ? "Warm-up on" : "Warm-up off";
@@ -84,7 +87,7 @@ export function AccountListItem({
         selected ? "bg-primary/8 ring-1 ring-primary/25" : "hover:bg-muted/50",
       )}
     >
-      {availableResetCredits > 0 ? (
+      {isOpenAiAccount && availableResetCredits > 0 ? (
         <span className="absolute -top-1 -right-1 grid h-5 min-w-[1.25rem] place-items-center rounded-full bg-primary px-1 text-[10px] font-medium text-primary-foreground">
           {resetBadgeLabel}
         </span>
@@ -151,10 +154,21 @@ export function AccountListItem({
           />
         ) : null}
       </div>
-      <div className="mt-2 flex min-w-0 items-center justify-between gap-2 text-[10px] text-muted-foreground">
-        <span className="shrink-0">{warmupLabel}</span>
-        <span className="min-w-0 truncate">{warmupMeta}</span>
-      </div>
+      {isOpenAiAccount ? (
+        <div className="mt-2 flex min-w-0 items-center justify-between gap-2 text-[10px] text-muted-foreground">
+          <span className="shrink-0">{warmupLabel}</span>
+          <span className="min-w-0 truncate">{warmupMeta}</span>
+        </div>
+      ) : (
+        <div className="mt-2 flex min-w-0 items-center justify-between gap-2 text-[10px] text-muted-foreground">
+          <span className="shrink-0">Anthropic throughput</span>
+          <span className="min-w-0 truncate">
+            {account.additionalQuotas.length > 0
+              ? `${account.additionalQuotas.length} rate-limit ${account.additionalQuotas.length === 1 ? "snapshot" : "snapshots"}`
+              : "No rate-limit snapshot"}
+          </span>
+        </div>
+      )}
     </button>
   );
 }

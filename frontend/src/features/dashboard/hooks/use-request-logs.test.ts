@@ -82,6 +82,29 @@ describe("useRequestLogs", () => {
     expect(key?.[2].offset).toBe(20);
   });
 
+  it("includes provider scope in log, facet, and query-key contracts", async () => {
+    const providers: string[] = [];
+    server.use(
+      http.get("/api/request-logs", ({ request }) => {
+        providers.push(new URL(request.url).searchParams.get("provider") ?? "");
+        return HttpResponse.json({ requests: [], total: 0, hasMore: false });
+      }),
+      http.get("/api/request-logs/options", ({ request }) => {
+        providers.push(new URL(request.url).searchParams.get("provider") ?? "");
+        return HttpResponse.json({ accountIds: [], apiKeys: [], modelOptions: [], statuses: [] });
+      }),
+    );
+    const queryClient = createTestQueryClient();
+    const wrapper = createWrapper(queryClient);
+    const { result } = renderHook(() => useRequestLogs("anthropic"), { wrapper });
+
+    await waitFor(() => expect(result.current.logsQuery.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.optionsQuery.isSuccess).toBe(true));
+    expect(providers).toEqual(expect.arrayContaining(["anthropic", "anthropic"]));
+    expect(result.current.listFilters.provider).toBe("anthropic");
+    expect(result.current.facetFilters.provider).toBe("anthropic");
+  });
+
   it("preserves unrelated search params when request-log filters change", async () => {
     const queryClient = createTestQueryClient();
     let locationSearch = "";

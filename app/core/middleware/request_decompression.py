@@ -11,6 +11,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse, Response
 from starlette.requests import ClientDisconnect
 
+from app.core.anthropic.errors import anthropic_error_for_status, is_anthropic_messages_path
 from app.core.config.settings import get_settings
 from app.core.errors import dashboard_error
 
@@ -128,6 +129,12 @@ def _max_decompressed_body_bytes_for_request(request: Request) -> int:
     return settings.max_decompressed_body_bytes
 
 
+def _error_content(path: str, status_code: int, code: str, message: str) -> object:
+    if is_anthropic_messages_path(path):
+        return anthropic_error_for_status(status_code, message)
+    return dashboard_error(code, message)
+
+
 def add_request_decompression_middleware(app: FastAPI) -> None:
     @app.middleware("http")
     async def request_decompression_middleware(
@@ -150,7 +157,9 @@ def add_request_decompression_middleware(app: FastAPI) -> None:
         except _DecompressedBodyTooLarge:
             return JSONResponse(
                 status_code=413,
-                content=dashboard_error(
+                content=_error_content(
+                    request.url.path,
+                    413,
                     "payload_too_large",
                     "Request body exceeds the maximum allowed size",
                 ),
@@ -158,7 +167,9 @@ def add_request_decompression_middleware(app: FastAPI) -> None:
         except ValueError:
             return JSONResponse(
                 status_code=400,
-                content=dashboard_error(
+                content=_error_content(
+                    request.url.path,
+                    400,
                     "invalid_request",
                     "Unsupported Content-Encoding",
                 ),
@@ -166,7 +177,9 @@ def add_request_decompression_middleware(app: FastAPI) -> None:
         except Exception:
             return JSONResponse(
                 status_code=400,
-                content=dashboard_error(
+                content=_error_content(
+                    request.url.path,
+                    400,
                     "invalid_request",
                     "Request body is compressed but could not be decompressed",
                 ),

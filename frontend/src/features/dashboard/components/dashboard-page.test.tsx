@@ -108,6 +108,7 @@ const buildDashboardViewMock = vi.mocked(buildDashboardView);
 
 describe("DashboardPage", () => {
   beforeEach(() => {
+    window.history.replaceState({}, "", "/dashboard");
     accountCardsSpy.mockReset();
     accountListSpy.mockReset();
     accountSummaryLineSpy.mockReset();
@@ -254,5 +255,51 @@ describe("DashboardPage", () => {
     await user.click(screen.getByTestId("account-list"));
 
     expect(useDashboardPreferencesStore.getState().accountListSort).toEqual({ key: "credits", direction: "desc" });
+  });
+
+  it("scopes all dashboard queries and capacity panels to Claude", async () => {
+    const user = userEvent.setup();
+    window.history.replaceState(
+      {},
+      "",
+      "/dashboard?provider=anthropic&accountId=stale&modelOption=gpt-5.1:::high&offset=20",
+    );
+    const overview = mockReadyDashboard();
+    overview.accounts = [
+      {
+        ...overview.accounts[0]!,
+        accountId: "anthropic-1",
+        provider: "anthropic",
+        credentialKind: "anthropic_api_key",
+        alias: "Claude Production",
+        displayName: "Claude Production",
+        planType: "claude_api",
+        additionalQuotas: [
+          {
+            quotaKey: "anthropic_requests",
+            limitName: "requests",
+            meteredFeature: "requests",
+            displayLabel: "Requests",
+            primaryWindow: { usedPercent: 35, resetAt: 2_000_000_000, windowMinutes: 1 },
+          },
+        ],
+      },
+    ];
+
+    renderWithProviders(<DashboardPage />);
+
+    expect(screen.getByRole("radio", { name: "Claude" })).toHaveAttribute("aria-checked", "true");
+    expect(screen.getByText("Claude throughput limits")).toBeInTheDocument();
+    expect(screen.getByText("Claude Production")).toBeInTheDocument();
+    expect(screen.queryByTestId("usage-donuts")).not.toBeInTheDocument();
+    expect(useDashboardMock).toHaveBeenCalledWith("7d", "anthropic");
+    expect(useDashboardProjectionsMock).toHaveBeenCalledWith("anthropic", false);
+    expect(useRequestLogsMock).toHaveBeenCalledWith("anthropic");
+
+    await user.click(screen.getByRole("radio", { name: "OpenAI" }));
+    expect(window.location.search).toContain("provider=openai");
+    expect(window.location.search).not.toContain("accountId=");
+    expect(window.location.search).not.toContain("modelOption=");
+    expect(window.location.search).toContain("offset=0");
   });
 });

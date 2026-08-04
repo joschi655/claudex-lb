@@ -71,6 +71,40 @@ describe("AccountList", () => {
     expect(within(row).getByText((text) => text.includes("Succeeded | 5h |"))).toBeInTheDocument();
   });
 
+  it("renders Claude rows without OpenAI-only capacity or actions", () => {
+    const account = createAccountSummary({
+      accountId: "anthropic-1",
+      provider: "anthropic",
+      credentialKind: "anthropic_api_key",
+      displayName: "Claude Production",
+      email: "Claude Production",
+      planType: "api",
+      status: "deactivated",
+      availableResetCredits: 2,
+      additionalQuotas: [
+        {
+          quotaKey: "anthropic_requests",
+          limitName: "Anthropic Requests",
+          meteredFeature: "anthropic_requests",
+          primaryWindow: { usedPercent: 28 },
+        },
+      ],
+    });
+
+    render(<AccountList accounts={[account]} />);
+
+    const row = screen.getByTestId("account-list-row");
+    expect(within(row).getByText("Claude API key")).toBeInTheDocument();
+    expect(within(row).getByText("Anthropic throughput")).toBeInTheDocument();
+    expect(within(row).getByText("1 rate-limit snapshot")).toBeInTheDocument();
+    expect(within(row).getByText("Not applicable")).toBeInTheDocument();
+    expect(within(row).queryByText("5h")).not.toBeInTheDocument();
+    expect(within(row).queryByText("Weekly")).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /limit warm-up/i })).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /reset credit/i })).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", { name: /Re-authenticate/i })).not.toBeInTheDocument();
+  });
+
   it("exposes account actions from list rows", async () => {
     const user = userEvent.setup();
     const onAction = vi.fn();

@@ -18,6 +18,8 @@ import { formatCompactAccountId } from "@/utils/account-identifiers";
 function account(overrides: Partial<AccountSummary> & Pick<AccountSummary, "accountId" | "email">): AccountSummary {
   return {
     accountId: overrides.accountId,
+    provider: overrides.provider ?? "openai",
+    credentialKind: overrides.credentialKind ?? "openai_oauth",
     email: overrides.email,
     displayName: overrides.displayName ?? overrides.email,
     planType: overrides.planType ?? "plus",
@@ -294,6 +296,31 @@ describe("buildRemainingItems", () => {
 
     expect(buildRemainingItems([monthly], null, "primary")).toEqual([]);
     expect(buildRemainingItems([monthly], null, "secondary")).toEqual([]);
+  });
+
+  it("omits Anthropic accounts from OpenAI credit donuts", () => {
+    const openAi = account({ accountId: "openai-1", email: "openai@example.com" });
+    const anthropic = account({
+      accountId: "anthropic-1",
+      email: "Claude Production",
+      provider: "anthropic",
+      credentialKind: "anthropic_api_key",
+      planType: "api",
+    });
+
+    const items = buildRemainingItems(
+      [openAi, anthropic],
+      {
+        windowKey: "primary",
+        windowMinutes: 300,
+        accounts: [
+          { accountId: openAi.accountId, remainingPercentAvg: 80, capacityCredits: 225, remainingCredits: 180 },
+        ],
+      },
+      "primary",
+    );
+
+    expect(items.map((item) => item.accountId)).toEqual([openAi.accountId]);
   });
 });
 
@@ -800,6 +827,7 @@ describe("buildDashboardView", () => {
         cost: {
           currency: "USD",
           totalUsd: 1.82,
+          isPartial: false,
         },
         metrics: {
           requests: 228,
@@ -882,6 +910,7 @@ describe("buildDashboardView", () => {
         cost: {
           currency: "USD",
           totalUsd: 1.82,
+          isPartial: false,
         },
         metrics: {
           requests: 228,
@@ -953,6 +982,15 @@ describe("buildDashboardView", () => {
     expect(view.stats).toHaveLength(4);
   });
 
+  it("labels combined cost as partial when Claude requests are unpriced", () => {
+    const overview = createDashboardOverview();
+    overview.summary.cost.isPartial = true;
+
+    const view = buildDashboardView(overview, createDefaultRequestLogs(), false);
+
+    expect(view.stats[2]?.meta).toContain("Partial total");
+  });
+
   it("counts quota-exceeded secondary windows as fully burned", () => {
     const overview = createDashboardOverview({
       accounts: [
@@ -1000,6 +1038,7 @@ describe("buildDashboardView", () => {
           cost: {
             currency: "USD",
             totalUsd: 56,
+            isPartial: false,
           },
           metrics: {
             requests: 228,
@@ -1041,6 +1080,7 @@ describe("buildDashboardView", () => {
           cost: {
             currency: "USD",
             totalUsd: 24,
+            isPartial: false,
           },
           metrics: {
             requests: 228,
@@ -1079,6 +1119,7 @@ describe("buildDashboardView", () => {
           cost: {
             currency: "USD",
             totalUsd: 15,
+            isPartial: false,
           },
           comparison: {
             canCompare: true,
@@ -1119,6 +1160,7 @@ describe("buildDashboardView", () => {
           cost: {
             currency: "USD",
             totalUsd: 10.04,
+            isPartial: false,
           },
           comparison: {
             canCompare: true,

@@ -39,6 +39,7 @@ from app.core.clients.oauth import (
 from app.core.config.settings import OAUTH_CALLBACK_PORT, OAUTH_REDIRECT_URI, get_settings
 from app.core.crypto import TokenEncryptor
 from app.core.plan_types import coerce_account_plan_type
+from app.core.providers import CREDENTIAL_OPENAI_OAUTH, PROVIDER_OPENAI
 from app.core.upstream_proxy import ResolvedUpstreamRoute, UpstreamProxyRouteError, resolve_upstream_route
 from app.core.utils.time import naive_utc_to_epoch, utcnow
 from app.db.models import Account, AccountProxyBinding, AccountStatus
@@ -450,6 +451,14 @@ class OauthService:
     async def start_oauth(self, request: OauthStartRequest) -> OauthStartResponse:
         force_method = (request.force_method or "").lower()
         intended_account_id = clean_account_identity_part(request.account_id)
+        if intended_account_id:
+            intended = await self._accounts_repo.get_by_id(intended_account_id)
+            if intended is not None and (intended.provider or PROVIDER_OPENAI) != PROVIDER_OPENAI:
+                raise OAuthError(
+                    "provider_action_unsupported",
+                    f"OpenAI OAuth cannot reauthenticate a {intended.provider} account",
+                    status_code=400,
+                )
         if not force_method and not intended_account_id:
             accounts = await self._accounts_repo.list_accounts()
             if accounts:
@@ -915,6 +924,8 @@ class OauthService:
 
         account = Account(
             id=intended_account_id or account_id,
+            provider=PROVIDER_OPENAI,
+            credential_kind=CREDENTIAL_OPENAI_OAUTH,
             chatgpt_account_id=raw_account_id,
             chatgpt_user_id=chatgpt_user_id,
             email=email,
@@ -961,17 +972,23 @@ class OauthService:
         intended = await repo.get_by_id(intended_account_id)
         if intended is None:
             raise ReauthSeatMismatchError(None, account.email)
+        if (intended.provider or PROVIDER_OPENAI) != PROVIDER_OPENAI:
+            raise OAuthError(
+                "provider_action_unsupported",
+                f"OpenAI OAuth cannot replace a {intended.provider} account",
+                status_code=400,
+            )
 
         intended_user_id = intended.chatgpt_user_id
         intended_claims = None
-        if intended_user_id is None:
+        if intended_user_id is None and intended.id_token_encrypted is not None:
             try:
                 intended_token = self._encryptor.decrypt(intended.id_token_encrypted)
                 intended_claims = extract_id_token_claims(intended_token)
                 intended_user_id = resolve_seat_identity(intended_claims, intended_claims.auth)
             except Exception:
                 intended_user_id = None
-        if intended_claims is None:
+        if intended_claims is None and intended.id_token_encrypted is not None:
             try:
                 intended_claims = extract_id_token_claims(self._encryptor.decrypt(intended.id_token_encrypted))
             except Exception:
@@ -980,10 +997,11 @@ class OauthService:
         intended_workspace = clean_account_identity_part(intended.workspace_id or intended.workspace_label)
         callback_workspace = clean_account_identity_part(account.workspace_id or account.workspace_label)
         callback_claims = None
-        try:
-            callback_claims = extract_id_token_claims(self._encryptor.decrypt(account.id_token_encrypted))
-        except Exception:
-            callback_claims = None
+        if account.id_token_encrypted is not None:
+            try:
+                callback_claims = extract_id_token_claims(self._encryptor.decrypt(account.id_token_encrypted))
+            except Exception:
+                callback_claims = None
 
         intended_seat_ids = {
             clean_account_identity_part(value)

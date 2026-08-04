@@ -464,6 +464,14 @@ async def lifespan(app: FastAPI):
                 await proxy_service.drain_persistence_tasks(timeout_seconds=settings.shutdown_drain_timeout_seconds)
             except Exception:
                 logger.warning("Failed to drain proxy persistence tasks during shutdown", exc_info=True)
+        anthropic_proxy_service = getattr(app.state, "anthropic_proxy_service", None)
+        if anthropic_proxy_service is not None and hasattr(anthropic_proxy_service, "drain_persistence_tasks"):
+            try:
+                await anthropic_proxy_service.drain_persistence_tasks(
+                    timeout_seconds=settings.shutdown_drain_timeout_seconds
+                )
+            except Exception:
+                logger.warning("Failed to drain Anthropic persistence tasks during shutdown", exc_info=True)
 
         # Cancel heartbeat and age the shared ring row near expiry.
         if heartbeat_task is not None:
@@ -600,7 +608,6 @@ def create_app() -> FastAPI:
     app.include_router(proxy_api.files_router)
     app.include_router(proxy_api.usage_router)
     app.include_router(anthropic_proxy_api.router)
-    app.include_router(anthropic_proxy_api.alias_router)
     app.include_router(audit_api.router)
     app.include_router(accounts_api.router)
     app.include_router(rate_limit_reset_credits_api.router)
@@ -633,6 +640,15 @@ def create_app() -> FastAPI:
             return True
         last_segment = path.rsplit("/", maxsplit=1)[-1]
         return "." in last_segment
+
+    @app.api_route(
+        "/anthropic/{path:path}",
+        methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],
+        include_in_schema=False,
+    )
+    async def removed_anthropic_alias(path: str):
+        del path
+        raise HTTPException(status_code=404, detail="Not Found")
 
     @app.get("/", include_in_schema=False)
     @app.get("/{path:path}", include_in_schema=False)

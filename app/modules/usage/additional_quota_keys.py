@@ -303,7 +303,7 @@ def canonicalize_additional_quota_key(
         if resolved is not None:
             return resolved
 
-    return _normalize_identifier(limit_name) or _normalize_identifier(metered_feature) or normalized_quota_key
+    return normalized_quota_key or _normalize_identifier(limit_name) or _normalize_identifier(metered_feature)
 
 
 def get_additional_quota_lookup_keys(

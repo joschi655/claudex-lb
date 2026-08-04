@@ -87,6 +87,8 @@ describe("RecentRequestsTable", () => {
          accounts={[
            {
              accountId: "acc-primary",
+             provider: "openai",
+             credentialKind: "openai_oauth",
              email: "primary@example.com",
              displayName: "Primary Account",
              planType: "plus",
@@ -98,6 +100,7 @@ describe("RecentRequestsTable", () => {
         requests={[
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-primary",
             planType: "plus",
             apiKeyName: "Key Alpha",
@@ -182,6 +185,7 @@ describe("RecentRequestsTable", () => {
         requests={[
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-speed",
             planType: "plus",
             apiKeyName: "Key Speed",
@@ -230,6 +234,7 @@ describe("RecentRequestsTable", () => {
         requests={[
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-reasoning",
             planType: "plus",
             apiKeyName: "Key Reasoning",
@@ -286,6 +291,7 @@ describe("RecentRequestsTable", () => {
         requests={[
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-normal",
             planType: null,
             apiKeyName: null,
@@ -317,6 +323,7 @@ describe("RecentRequestsTable", () => {
           },
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-warmup",
             planType: null,
             apiKeyName: null,
@@ -362,6 +369,7 @@ describe("RecentRequestsTable", () => {
         requests={[
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-legacy",
             planType: null,
             apiKeyName: null,
@@ -408,6 +416,7 @@ describe("RecentRequestsTable", () => {
         requests={[
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-legacy",
             planType: null,
             apiKeyName: null,
@@ -455,6 +464,7 @@ describe("RecentRequestsTable", () => {
         requests={[
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-cost",
             planType: "plus",
             apiKeyName: "Key Cost",
@@ -511,6 +521,7 @@ describe("RecentRequestsTable", () => {
         requests={[
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-useragent",
             planType: "plus",
             apiKeyName: "Key Agent",
@@ -573,6 +584,7 @@ describe("RecentRequestsTable", () => {
         requests={[
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-no-useragent",
             planType: null,
             apiKeyName: null,
@@ -629,6 +641,7 @@ describe("RecentRequestsTable", () => {
         requests={[
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-no-cost",
             planType: null,
             apiKeyName: null,
@@ -680,6 +693,7 @@ describe("RecentRequestsTable", () => {
         requests={[
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-partial-cost",
             planType: "plus",
             apiKeyName: "Key Partial",
@@ -736,6 +750,7 @@ describe("RecentRequestsTable", () => {
         requests={[
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-partial-no-total",
             planType: "plus",
             apiKeyName: "Key Partial No Total",
@@ -792,6 +807,7 @@ describe("RecentRequestsTable", () => {
         requests={[
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-useragent",
             planType: "plus",
             apiKeyName: "Key Agent",
@@ -852,6 +868,7 @@ describe("RecentRequestsTable", () => {
         requests={[
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-no-useragent",
             planType: null,
             apiKeyName: null,
@@ -908,6 +925,7 @@ describe("RecentRequestsTable", () => {
         requests={[
           {
             requestedAt: ISO,
+            provider: "openai",
             accountId: "acc-total-only-cost",
             planType: "plus",
             apiKeyName: "Key Total Only",

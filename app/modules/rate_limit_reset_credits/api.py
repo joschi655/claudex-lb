@@ -35,11 +35,13 @@ from app.core.clients.rate_limit_reset_credits import (
 from app.core.crypto import TokenEncryptor
 from app.core.exceptions import (
     DashboardAuthError,
+    DashboardBadRequestError,
     DashboardConflictError,
     DashboardNotFoundError,
     DashboardPermissionError,
     DashboardServiceUnavailableError,
 )
+from app.core.providers import PROVIDER_OPENAI
 from app.core.upstream_proxy import ResolvedUpstreamRoute, UpstreamProxyRouteError
 from app.db.models import Account, AccountStatus
 from app.dependencies import AccountsContext, get_accounts_context
@@ -150,6 +152,11 @@ async def consume_rate_limit_reset_credit(
     account = await context.repository.get_by_id(account_id)
     if account is None:
         raise DashboardNotFoundError("Account not found", code="account_not_found")
+    if (account.provider or PROVIDER_OPENAI) != PROVIDER_OPENAI:
+        raise DashboardBadRequestError(
+            f"Reset credits are not supported for {account.provider} accounts",
+            code="provider_action_unsupported",
+        )
 
     store = get_rate_limit_reset_credits_store()
 
@@ -395,6 +402,11 @@ async def _redeem_soonest_reset_credit_locked(
 
 
 def _assert_account_can_redeem_reset_credit(account: Account) -> None:
+    if (account.provider or PROVIDER_OPENAI) != PROVIDER_OPENAI:
+        raise DashboardBadRequestError(
+            f"Reset credits are not supported for {account.provider} accounts",
+            code="provider_action_unsupported",
+        )
     if account.status in _NON_REDEEMABLE_STATUSES or not account.chatgpt_account_id:
         msg = (
             f"Account is {account.status.value} and cannot redeem a reset credit"

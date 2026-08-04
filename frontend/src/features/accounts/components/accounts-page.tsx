@@ -12,6 +12,7 @@ import { AccountsSkeleton } from "@/features/accounts/components/accounts-skelet
 import { ImportDialog } from "@/features/accounts/components/import-dialog";
 import { ResetCreditConfirmDialog } from "@/features/accounts/components/reset-credit-confirm-dialog";
 import { AuthExportDialog } from "@/features/accounts/components/auth-export-dialog";
+import { AnthropicApiKeyDialog } from "@/features/accounts/components/anthropic-api-key-dialog";
 import {
   useAccounts,
   useAccountUsageResetCredits,
@@ -26,6 +27,8 @@ import { useUpstreamProxyAdmin } from "@/features/settings/hooks/use-settings";
 import { useAccountQuotaDisplayStore } from "@/hooks/use-account-quota-display";
 import type { AccountAuthExportResponse } from "@/features/accounts/schemas";
 import { useAuthStore } from "@/features/auth/hooks/use-auth";
+import { ProviderScopeControl } from "@/features/providers/components/provider-scope-control";
+import { parseProviderScope, type ProviderScope } from "@/features/providers/schemas";
 import { getErrorMessageOrNull } from "@/utils/errors";
 
 const OauthDialog = lazy(() =>
@@ -38,9 +41,14 @@ export function AccountsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [accountSortMode, setAccountSortMode] = useState<AccountSortMode>(DEFAULT_ACCOUNT_SORT_MODE);
   const [oauthAccountId, setOauthAccountId] = useState<string | null>(null);
+  const providerScope = useMemo(
+    () => parseProviderScope(searchParams.get("provider")),
+    [searchParams],
+  );
   const {
     accountsQuery,
     importMutation,
+    anthropicApiKeyMutation,
     pauseMutation,
     resumeMutation,
     setAliasMutation,
@@ -51,12 +59,16 @@ export function AccountsPage() {
     deleteMutation,
     routingPolicyMutation,
     exportAuthMutation,
-  } = useAccounts();
+  } = useAccounts(providerScope);
   const { upstreamProxyQuery, accountBindingMutation, testEndpointMutation } = useUpstreamProxyAdmin();
   const oauth = useOauth();
   const canWrite = useAuthStore((state) => state.canWrite);
 
   const importDialog = useDialogState();
+  const anthropicApiKeyDialog = useDialogState<{
+    accountId: string | null;
+    label: string;
+  }>();
   const oauthDialog = useDialogState();
   const deleteDialog = useDialogState<string>();
   type ResetCreditDialogTarget = { accountId: string; availableResetCredits: number };
@@ -107,10 +119,28 @@ export function AccountsPage() {
         : null,
     [accounts, resolvedSelectedAccountId],
   );
-  const resetCreditsQuery = useAccountUsageResetCredits(selectedAccount?.accountId ?? null);
+  const resetCreditsQuery = useAccountUsageResetCredits(
+    selectedAccount?.accountId ?? null,
+    selectedAccount?.provider === "openai",
+  );
+
+  const handleProviderScopeChange = useCallback(
+    (provider: ProviderScope) => {
+      const nextSearchParams = new URLSearchParams(searchParams);
+      if (provider === "all") {
+        nextSearchParams.delete("provider");
+      } else {
+        nextSearchParams.set("provider", provider);
+      }
+      nextSearchParams.delete("selected");
+      setSearchParams(nextSearchParams);
+    },
+    [searchParams, setSearchParams],
+  );
 
   const mutationBusy =
     importMutation.isPending ||
+    anthropicApiKeyMutation.isPending ||
     pauseMutation.isPending ||
     resumeMutation.isPending ||
     setAliasMutation.isPending ||
@@ -126,6 +156,7 @@ export function AccountsPage() {
 
   const mutationError =
     getErrorMessageOrNull(importMutation.error) ||
+    getErrorMessageOrNull(anthropicApiKeyMutation.error) ||
     getErrorMessageOrNull(pauseMutation.error) ||
     getErrorMessageOrNull(resumeMutation.error) ||
     getErrorMessageOrNull(setAliasMutation.error) ||
@@ -143,11 +174,14 @@ export function AccountsPage() {
   return (
     <div className="animate-fade-in-up space-y-6">
       {/* Page header */}
-      <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Manage imported accounts and authentication flows.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight">Accounts</h1>
+          <p className="mt-1 text-sm text-muted-foreground">
+            Manage provider credentials and account routing.
+          </p>
+        </div>
+        <ProviderScopeControl value={providerScope} onChange={handleProviderScopeChange} />
       </div>
 
       {mutationError ? (
@@ -180,6 +214,10 @@ export function AccountsPage() {
                   setOauthAccountId(null);
                   oauthDialog.show();
                 }}
+                onOpenAnthropic={() =>
+                  anthropicApiKeyDialog.show({ accountId: null, label: "" })
+                }
+                providerScope={providerScope}
                 readOnly={!canWrite}
               />
             </div>
@@ -201,6 +239,13 @@ export function AccountsPage() {
             onReauth={() => {
               setOauthAccountId(selectedAccount?.accountId ?? null);
               oauthDialog.show();
+            }}
+            onReplaceAnthropicApiKey={(accountId) => {
+              const account = accounts.find((item) => item.accountId === accountId);
+              anthropicApiKeyDialog.show({
+                accountId,
+                label: account?.alias || account?.displayName || "",
+              });
             }}
             onExportAuth={(accountId) => {
               void exportAuthMutation
@@ -249,6 +294,23 @@ export function AccountsPage() {
         onOpenChange={importDialog.onOpenChange}
         onImport={async (file) => {
           await importMutation.mutateAsync(file);
+        }}
+      />
+
+      <AnthropicApiKeyDialog
+        open={anthropicApiKeyDialog.open}
+        mode={anthropicApiKeyDialog.data?.accountId ? "replace" : "create"}
+        initialLabel={anthropicApiKeyDialog.data?.label}
+        busy={anthropicApiKeyMutation.isPending}
+        onOpenChange={anthropicApiKeyDialog.onOpenChange}
+        onSubmit={async (payload) => {
+          const result = await anthropicApiKeyMutation.mutateAsync({
+            accountId: anthropicApiKeyDialog.data?.accountId ?? undefined,
+            payload,
+          });
+          const nextSearchParams = new URLSearchParams(searchParams);
+          nextSearchParams.set("selected", result.accountId);
+          setSearchParams(nextSearchParams);
         }}
       />
 

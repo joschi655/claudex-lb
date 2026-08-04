@@ -29,6 +29,7 @@ describe("AccountDetail", () => {
         onSetAlias={vi.fn().mockResolvedValue(undefined)}
         onDelete={vi.fn()}
         onReauth={vi.fn()}
+        onReplaceAnthropicApiKey={vi.fn()}
         onExportAuth={vi.fn()}
         onResetCredit={vi.fn()}
         onLimitWarmupChange={vi.fn()}
@@ -60,6 +61,7 @@ describe("AccountDetail", () => {
         onSetAlias={onSetAlias}
         onDelete={vi.fn()}
         onReauth={vi.fn()}
+        onReplaceAnthropicApiKey={vi.fn()}
         onExportAuth={vi.fn()}
         onResetCredit={vi.fn()}
         onLimitWarmupChange={vi.fn()}
@@ -94,6 +96,7 @@ describe("AccountDetail", () => {
         onSetAlias={vi.fn().mockResolvedValue(undefined)}
         onDelete={vi.fn()}
         onReauth={vi.fn()}
+        onReplaceAnthropicApiKey={vi.fn()}
         onExportAuth={vi.fn()}
         onResetCredit={vi.fn()}
         onLimitWarmupChange={vi.fn()}
@@ -104,5 +107,51 @@ describe("AccountDetail", () => {
     );
 
     expect(screen.getByRole("button", { name: "Reset usage" })).toBeDisabled();
+  });
+
+  it("renders Claude throughput limits without OpenAI token or proxy panels", () => {
+    const account = createAccountSummary({
+      provider: "anthropic",
+      credentialKind: "anthropic_api_key",
+      planType: "claude_api",
+      auth: null,
+      additionalQuotas: [
+        {
+          quotaKey: "anthropic_input_tokens",
+          limitName: "input_tokens",
+          meteredFeature: "input_tokens",
+          displayLabel: "Input tokens",
+          primaryWindow: { usedPercent: 25, resetAt: 2_000_000_000, windowMinutes: 1 },
+        },
+      ],
+    });
+
+    renderWithClient(
+      <AccountDetail
+        account={account}
+        busy={false}
+        onPause={vi.fn()}
+        onResume={vi.fn()}
+        onProbe={vi.fn()}
+        onResetUsage={vi.fn()}
+        onSetAlias={vi.fn().mockResolvedValue(undefined)}
+        onDelete={vi.fn()}
+        onReauth={vi.fn()}
+        onReplaceAnthropicApiKey={vi.fn()}
+        onExportAuth={vi.fn()}
+        onResetCredit={vi.fn()}
+        onLimitWarmupChange={vi.fn()}
+        onRoutingPolicyChange={vi.fn()}
+        onSecurityWorkAuthorizedChange={vi.fn()}
+        onProxyBindingSave={vi.fn().mockResolvedValue(undefined)}
+        upstreamProxyAdmin={createUpstreamProxyAdmin()}
+      />,
+    );
+
+    expect(screen.getByText("Claude API rate limits")).toBeInTheDocument();
+    expect(screen.getByText("Input tokens")).toBeInTheDocument();
+    expect(screen.queryByText("Access token")).not.toBeInTheDocument();
+    expect(screen.queryByText("Upstream proxy")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Reset usage" })).not.toBeInTheDocument();
   });
 });

@@ -94,6 +94,11 @@ const AccountRoutingPolicyPayloadSchema = z.object({
   routingPolicy: z.enum(["normal", "burn_first", "preserve"]),
 });
 
+const AnthropicApiKeyPayloadSchema = z.object({
+  label: z.string().trim().min(1).max(100),
+  apiKey: z.string().trim().min(1).max(4096),
+});
+
 const SettingsPayloadSchema = z.looseObject({
   stickyThreadsEnabled: z.boolean().optional(),
   upstreamStreamTransport: z
@@ -364,8 +369,12 @@ function filterRequestLogs(
   const search = (url.searchParams.get("search") || "").trim().toLowerCase();
   const since = parseDateValue(url.searchParams.get("since"));
   const until = parseDateValue(url.searchParams.get("until"));
+  const provider = url.searchParams.get("provider") ?? "all";
 
   return state.requestLogs.filter((entry) => {
+    if (provider !== "all" && entry.provider !== provider) {
+      return false;
+    }
     if (
       accountIds.size > 0 &&
       (!entry.accountId || !accountIds.has(entry.accountId))
@@ -722,10 +731,15 @@ export const handlers = [
     });
   }),
 
-  http.get("/api/dashboard/overview", () => {
+  http.get("/api/dashboard/overview", ({ request }) => {
+    const provider = new URL(request.url).searchParams.get("provider") ?? "all";
+    const accounts =
+      provider === "all"
+        ? state.accounts
+        : state.accounts.filter((account) => account.provider === provider);
     return HttpResponse.json(
       createDashboardOverview({
-        accounts: state.accounts,
+        accounts,
       }),
     );
   }),
@@ -764,8 +778,13 @@ export const handlers = [
     );
   }),
 
-  http.get("/api/accounts", () => {
-    return HttpResponse.json({ accounts: state.accounts });
+  http.get("/api/accounts", ({ request }) => {
+    const provider = new URL(request.url).searchParams.get("provider") ?? "all";
+    const accounts =
+      provider === "all"
+        ? state.accounts
+        : state.accounts.filter((account) => account.provider === provider);
+    return HttpResponse.json({ accounts });
   }),
 
   http.post("/api/accounts/import", async () => {
@@ -779,9 +798,78 @@ export const handlers = [
     state.accounts = [...state.accounts, created];
     return HttpResponse.json({
       accountId: created.accountId,
+      provider: created.provider,
+      credentialKind: created.credentialKind,
       email: created.email,
       planType: created.planType,
       status: created.status,
+    });
+  }),
+
+  http.post("/api/accounts/anthropic-api-key", async ({ request }) => {
+    const payload = await parseJsonBody(request, AnthropicApiKeyPayloadSchema);
+    if (!payload) {
+      return HttpResponse.json(
+        { error: { code: "validation_error", message: "Invalid Claude API key payload" } },
+        { status: 422 },
+      );
+    }
+    const sequence = state.accounts.length + 1;
+    const created = createAccountSummary({
+      accountId: `anthropic-${sequence}`,
+      provider: "anthropic",
+      credentialKind: "anthropic_api_key",
+      email: `anthropic-${sequence}@api-key.local`,
+      alias: payload.label,
+      displayName: payload.label,
+      planType: "claude_api",
+      status: "active",
+      usage: null,
+      auth: null,
+    });
+    state.accounts = [...state.accounts, created];
+    return HttpResponse.json({
+      accountId: created.accountId,
+      provider: created.provider,
+      credentialKind: created.credentialKind,
+      email: created.email,
+      planType: created.planType,
+      status: created.status,
+    });
+  }),
+
+  http.put("/api/accounts/:accountId/anthropic-api-key", async ({ params, request }) => {
+    const account = findAccount(String(params.accountId));
+    if (!account) {
+      return HttpResponse.json(
+        { error: { code: "account_not_found", message: "Account not found" } },
+        { status: 404 },
+      );
+    }
+    if (account.provider !== "anthropic") {
+      return HttpResponse.json(
+        { error: { code: "provider_action_unsupported", message: "Claude account required" } },
+        { status: 409 },
+      );
+    }
+    const payload = await parseJsonBody(request, AnthropicApiKeyPayloadSchema);
+    if (!payload) {
+      return HttpResponse.json(
+        { error: { code: "validation_error", message: "Invalid Claude API key payload" } },
+        { status: 422 },
+      );
+    }
+    account.alias = payload.label;
+    account.displayName = payload.label;
+    account.credentialKind = "anthropic_api_key";
+    account.status = "active";
+    return HttpResponse.json({
+      accountId: account.accountId,
+      provider: account.provider,
+      credentialKind: account.credentialKind,
+      email: account.email,
+      planType: account.planType,
+      status: account.status,
     });
   }),
 

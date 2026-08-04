@@ -22,6 +22,7 @@ from app.core.clients.usage import UsageFetchError, fetch_usage
 from app.core.config.settings import get_settings
 from app.core.crypto import TokenEncryptor
 from app.core.plan_types import ACCOUNT_PLAN_TYPES, coerce_account_plan_type, normalize_account_plan_type
+from app.core.providers import PROVIDER_OPENAI
 from app.core.upstream_proxy import ResolvedUpstreamRoute, UpstreamProxyRouteError, resolve_upstream_route
 from app.core.usage.models import AdditionalRateLimitPayload, UsagePayload, UsageWindow
 from app.core.utils.request_id import get_request_id
@@ -271,6 +272,8 @@ class UsageUpdater:
         interval = settings.usage_refresh_interval_seconds
         _prune_usage_refresh_auth_cooldowns()
         for account in accounts:
+            if (account.provider or PROVIDER_OPENAI) != PROVIDER_OPENAI:
+                continue
             if account.status in (AccountStatus.REAUTH_REQUIRED, AccountStatus.DEACTIVATED):
                 continue
             if _is_usage_refresh_in_cooldown(account.id):
@@ -365,6 +368,8 @@ class UsageUpdater:
     ) -> bool:
         """Refresh one account regardless of cached/fresh usage rows."""
         settings = get_settings()
+        if (account.provider or PROVIDER_OPENAI) != PROVIDER_OPENAI:
+            return False
         if not settings.usage_refresh_enabled and not ignore_refresh_disabled:
             return False
         if account.status in (AccountStatus.REAUTH_REQUIRED, AccountStatus.DEACTIVATED):

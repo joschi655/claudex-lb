@@ -182,6 +182,25 @@ async def test_request_decompression_rejects_unsupported_encoding():
 
 
 @pytest.mark.asyncio
+async def test_request_decompression_uses_anthropic_envelope_for_messages():
+    app = _build_echo_app()
+    body = gzip.compress(b'{"model":"claude-sonnet-5"}')
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        response = await client.post(
+            "/v1/messages",
+            content=body,
+            headers={"Content-Encoding": "br", "Content-Type": "application/json"},
+        )
+
+    assert response.status_code == 400
+    assert response.json()["type"] == "error"
+    assert response.json()["error"]["type"] == "invalid_request_error"
+    assert "code" not in response.json()["error"]
+
+
+@pytest.mark.asyncio
 async def test_request_decompression_allows_larger_responses_payload(monkeypatch):
     monkeypatch.setenv("CODEX_LB_MAX_DECOMPRESSED_BODY_BYTES", "128")
     monkeypatch.setenv("CODEX_LB_MAX_DECOMPRESSED_RESPONSES_BODY_BYTES", "2048")

@@ -9,6 +9,7 @@ import {
   type RequestLogsListFilters,
 } from "@/features/dashboard/api";
 import { FilterStateSchema, type FilterState } from "@/features/dashboard/schemas";
+import type { ProviderScope } from "@/features/providers/schemas";
 
 const DEFAULT_FILTER_STATE: FilterState = {
   search: "",
@@ -99,13 +100,14 @@ function timeframeToSinceIso(timeframe: FilterState["timeframe"]): string | unde
   return new Date(now - lookup[timeframe]).toISOString();
 }
 
-export function useRequestLogs() {
+export function useRequestLogs(provider: ProviderScope = "all") {
   const [searchParams, setSearchParams] = useSearchParams();
 
   const filters = useMemo(() => parseFilterState(searchParams), [searchParams]);
   const since = useMemo(() => timeframeToSinceIso(filters.timeframe), [filters.timeframe]);
   const listFilters = useMemo<RequestLogsListFilters>(
     () => ({
+      provider,
       search: filters.search || undefined,
       limit: filters.limit,
       offset: filters.offset,
@@ -115,16 +117,17 @@ export function useRequestLogs() {
       modelOptions: filters.modelOptions,
       since,
     }),
-    [filters, since],
+    [filters, provider, since],
   );
   const facetFilters = useMemo<RequestLogFacetFilters>(
     () => ({
+      provider,
       since,
       accountIds: filters.accountIds,
       apiKeyIds: filters.apiKeyIds,
       modelOptions: filters.modelOptions,
     }),
-    [filters.accountIds, filters.apiKeyIds, filters.modelOptions, since],
+    [filters.accountIds, filters.apiKeyIds, filters.modelOptions, provider, since],
   );
 
   const {

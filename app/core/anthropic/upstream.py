@@ -5,17 +5,11 @@ from collections.abc import AsyncIterator, Mapping
 
 import aiohttp
 
-from app.core.anthropic.oauth import ANTHROPIC_OAUTH_BETA
 from app.core.clients.http import HttpClientLease, acquire_http_client
 
 logger = logging.getLogger(__name__)
 
 ANTHROPIC_API_BASE = "https://api.anthropic.com"
-
-# Console API keys authenticate with x-api-key; OAuth access tokens use a
-# Bearer header plus the OAuth beta flag. Claude Code's OAuth access tokens are
-# prefixed sk-ant-oat; static console keys are sk-ant-api.
-_STATIC_API_KEY_PREFIX = "sk-ant-api"
 
 # Connection setup gets a short bounded budget; the caller-supplied timeout is
 # an IDLE (sock_read) timeout so an actively streaming SSE response is never
@@ -28,6 +22,7 @@ _STRIPPED_REQUEST_HEADERS = frozenset(
     {
         "authorization",
         "x-api-key",
+        "cookie",
         "host",
         "content-length",
         "connection",
@@ -55,20 +50,17 @@ _STRIPPED_RESPONSE_HEADERS = frozenset(
         "upgrade",
         "content-length",
         "content-encoding",
+        "set-cookie",
     }
 )
-
-
-def credential_is_static_api_key(credential: str) -> bool:
-    return credential.startswith(_STATIC_API_KEY_PREFIX)
 
 
 def build_upstream_headers(client_headers: Mapping[str, str], credential: str) -> dict[str, str]:
     """Rewrite client request headers for the upstream Anthropic request.
 
     Strips client auth and hop-by-hop headers, injects the account credential,
-    and (for OAuth credentials) ensures the ``oauth-2025-04-20`` beta flag is
-    present. All other client headers -- ``anthropic-version``, other
+    using an Anthropic Console API key. All other client headers --
+    ``anthropic-version``, other
     ``anthropic-*``, ``content-type``, ``accept``, the client ``user-agent`` --
     pass through so the upstream sees Claude Code's own fingerprint.
     """
@@ -83,26 +75,15 @@ def build_upstream_headers(client_headers: Mapping[str, str], credential: str) -
             continue
         headers[key] = value
 
-    if credential_is_static_api_key(credential):
-        headers["x-api-key"] = credential
-        if client_beta:
-            headers["anthropic-beta"] = client_beta
-    else:
-        headers["Authorization"] = f"Bearer {credential}"
-        headers["anthropic-beta"] = _merge_beta(client_beta, ANTHROPIC_OAUTH_BETA)
+    headers["x-api-key"] = credential
+    if client_beta:
+        headers["anthropic-beta"] = client_beta
 
     return headers
 
 
 def filter_response_headers(response_headers: Mapping[str, str]) -> list[tuple[str, str]]:
     return [(key, value) for key, value in response_headers.items() if key.lower() not in _STRIPPED_RESPONSE_HEADERS]
-
-
-def _merge_beta(client_beta: str | None, required: str) -> str:
-    flags = [flag.strip() for flag in (client_beta or "").split(",") if flag.strip()]
-    if required not in flags:
-        flags.append(required)
-    return ", ".join(flags)
 
 
 class AnthropicUpstreamResponse:

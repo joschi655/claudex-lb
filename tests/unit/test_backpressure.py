@@ -59,6 +59,34 @@ async def test_backpressure_returns_429_when_at_capacity():
 
 
 @pytest.mark.asyncio
+async def test_backpressure_uses_anthropic_envelope_for_messages():
+    app = FastAPI()
+    app.add_middleware(cast(Any, BackpressureMiddleware), max_concurrent=1)
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    @app.post("/v1/messages")
+    async def messages():
+        entered.set()
+        await release.wait()
+        return {"ok": True}
+
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://testserver") as client:
+        first_request = asyncio.create_task(client.post("/v1/messages"))
+        await entered.wait()
+
+        overloaded = await client.post("/v1/messages")
+        release.set()
+        await first_request
+
+    assert overloaded.status_code == 429
+    assert overloaded.json()["type"] == "error"
+    assert overloaded.json()["error"]["type"] == "rate_limit_error"
+    assert "code" not in overloaded.json()["error"]
+
+
+@pytest.mark.asyncio
 async def test_backpressure_exempts_health_live_even_at_capacity():
     app = FastAPI()
     app.add_middleware(cast(Any, BackpressureMiddleware), max_concurrent=1)

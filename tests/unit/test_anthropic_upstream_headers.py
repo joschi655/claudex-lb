@@ -5,13 +5,12 @@ import aiohttp
 from app.core.anthropic import upstream as upstream_module
 from app.core.anthropic.upstream import (
     build_upstream_headers,
-    credential_is_static_api_key,
     filter_response_headers,
     open_messages,
 )
 
 
-def test_oauth_credential_uses_bearer_and_merges_beta():
+def test_console_api_key_replaces_client_auth_and_preserves_headers():
     headers = build_upstream_headers(
         {
             "authorization": "Bearer client-proxy-key",
@@ -21,29 +20,22 @@ def test_oauth_credential_uses_bearer_and_merges_beta():
             "content-type": "application/json",
             "host": "proxy.local",
             "content-length": "123",
+            "cookie": "session=client-secret",
             "user-agent": "claude-cli/1.0",
         },
-        "sk-ant-oat-abc",
+        "sk-ant-api03-xyz",
     )
-    assert headers["Authorization"] == "Bearer sk-ant-oat-abc"
-    assert "x-api-key" not in headers
-    # OAuth beta flag merged in without dropping the client's own beta flag.
-    assert "prompt-caching-2024-07-31" in headers["anthropic-beta"]
-    assert "oauth-2025-04-20" in headers["anthropic-beta"]
-    # Passed through untouched.
+    assert headers["x-api-key"] == "sk-ant-api03-xyz"
+    assert "Authorization" not in headers
+    assert headers["anthropic-beta"] == "prompt-caching-2024-07-31"
     assert headers["anthropic-version"] == "2023-06-01"
     assert headers["user-agent"] == "claude-cli/1.0"
-    # Hop-by-hop / host / length stripped.
     assert "host" not in headers
     assert "content-length" not in headers
+    assert "cookie" not in headers
 
 
-def test_oauth_credential_adds_beta_when_client_sent_none():
-    headers = build_upstream_headers({"content-type": "application/json"}, "sk-ant-oat-abc")
-    assert headers["anthropic-beta"] == "oauth-2025-04-20"
-
-
-def test_static_api_key_uses_x_api_key_without_oauth_beta():
+def test_console_api_key_does_not_synthesize_oauth_beta():
     headers = build_upstream_headers(
         {"authorization": "Bearer client-proxy-key", "anthropic-version": "2023-06-01"},
         "sk-ant-api03-xyz",
@@ -51,11 +43,6 @@ def test_static_api_key_uses_x_api_key_without_oauth_beta():
     assert headers["x-api-key"] == "sk-ant-api03-xyz"
     assert "Authorization" not in headers
     assert "anthropic-beta" not in headers
-
-
-def test_credential_is_static_api_key():
-    assert credential_is_static_api_key("sk-ant-api03-xyz")
-    assert not credential_is_static_api_key("sk-ant-oat01-xyz")
 
 
 def test_filter_response_headers_drops_hop_by_hop():
@@ -67,6 +54,7 @@ def test_filter_response_headers_drops_hop_by_hop():
                 "transfer-encoding": "chunked",
                 "content-length": "42",
                 "content-encoding": "gzip",
+                "set-cookie": "upstream-session=secret",
             }
         )
     )
@@ -75,6 +63,7 @@ def test_filter_response_headers_drops_hop_by_hop():
     assert "transfer-encoding" not in filtered
     assert "content-length" not in filtered
     assert "content-encoding" not in filtered
+    assert "set-cookie" not in filtered
 
 
 async def test_open_messages_uses_idle_timeout_not_total(monkeypatch):

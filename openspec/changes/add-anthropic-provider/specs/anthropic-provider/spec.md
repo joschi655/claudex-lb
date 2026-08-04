@@ -2,107 +2,140 @@
 
 ## ADDED Requirements
 
-### Requirement: Accounts carry a provider discriminator
+### Requirement: Accounts carry typed provider and credential kind
 
-Every account MUST have a `provider` value (`openai` or `anthropic`); existing accounts default to `openai`. Anthropic accounts MUST be persistable without an id token, and OAuth-backed anthropic accounts MUST persist the access-token expiry (epoch seconds).
+Every account MUST identify its upstream provider and credential kind. Supported
+production combinations are `openai/openai_oauth` and
+`anthropic/anthropic_api_key`. Existing Anthropic rows created from consumer
+OAuth credentials MUST migrate to an unsupported legacy kind, MUST be
+deactivated, and MUST never enter account selection.
 
-#### Scenario: Existing accounts are unaffected
+#### Scenario: Existing OpenAI rows remain active
 
-- **GIVEN** a database created before this change
-- **WHEN** the migration runs
-- **THEN** all existing accounts have `provider = "openai"` and their token material is unchanged
+- **GIVEN** a database created before provider support
+- **WHEN** all provider migrations run
+- **THEN** existing accounts are typed as OpenAI OAuth without changing tokens or status
 
-#### Scenario: Accounts never merge across providers
+#### Scenario: Legacy Anthropic OAuth is quarantined
 
-- **GIVEN** an OpenAI account and an anthropic credential sharing the same email
-- **WHEN** the anthropic credential is imported (merge-by-email enabled or not)
-- **THEN** two distinct accounts exist and the OpenAI account's provider and token material are unchanged
+- **GIVEN** an Anthropic row created by the experimental OAuth implementation
+- **WHEN** the credential-kind migration runs
+- **THEN** the row is deactivated and cannot be selected until explicitly replaced
 
-### Requirement: Anthropic token refresh uses the shared single-writer path
+### Requirement: Anthropic API-key onboarding
 
-Anthropic OAuth refresh MUST go through the same claim-serialized, CAS-persisted refresh path as OpenAI accounts, calling the Anthropic token endpoint with the Claude Code public client id. A rotated refresh token MUST be persisted before the refresh outcome is visible to request handling. The freshness gate for anthropic accounts MUST be expiry-based (refresh when within 5 minutes of `access_token_expires_at`), not the OpenAI 8-day age gate.
+The dashboard MUST allow a write-authorized operator to create a labelled
+Anthropic Console API-key account and replace the key on an exact Anthropic
+account id. Keys MUST be encrypted at rest, MUST never be returned or logged,
+and MUST not be merged by label or synthetic email. Replacing a legacy row MUST
+convert it to `anthropic_api_key` and reactivate it. Claude.ai OAuth payloads
+MUST be rejected.
 
-#### Scenario: Concurrent refreshes serialize
+#### Scenario: Create a Console key account
 
-- **GIVEN** two concurrent requests holding the same expired anthropic account
-- **WHEN** both trigger a refresh
-- **THEN** exactly one upstream refresh call happens and both requests observe the rotated token
+- **WHEN** an operator submits a non-empty label and API key
+- **THEN** a distinct active Anthropic API-key account is created and the response contains no secret
 
-#### Scenario: Dead refresh token surfaces as reauth
+#### Scenario: Replace a legacy credential
 
-- **WHEN** the Anthropic token endpoint answers `invalid_grant`
-- **THEN** the account status becomes `reauth_required` and the account leaves the selection pool
-
-### Requirement: Static-credential anthropic accounts are never refreshed
-
-An anthropic account imported without a refresh token (static credential, e.g. a console API key) MUST be routable, MUST never trigger a token refresh, and MUST move to `reauth_required` on an upstream auth failure without any refresh attempt.
-
-#### Scenario: Static account auth failure
-
-- **GIVEN** a static-credential anthropic account
-- **WHEN** the upstream answers 401 for a relayed request
-- **THEN** no refresh call is made and the account status becomes `reauth_required`
-
-### Requirement: Claude credential import
-
-Account import MUST accept the Claude Code credential shape — a JSON object containing `claudeAiOauth` with `accessToken`, `refreshToken` (optional for static credentials), `expiresAt` (milliseconds; an epoch-seconds value MUST be tolerated), and optional `scopes`/`subscriptionType` — and create an anthropic account with encrypted tokens, `plan_type` prefixed `claude_`, and expiry converted to epoch seconds. Static-credential imports MUST default to the `preserve` routing policy. Importing a credential whose email matches an existing anthropic account MUST update that account in place (tokens, expiry, plan, reactivation) instead of creating a duplicate; synthesized fallback emails carry no identity and never dedupe.
-
-#### Scenario: Switcher backup file imports
-
-- **WHEN** a `{"claudeAiOauth": {...}}` payload is imported with an email label
-- **THEN** an active anthropic account exists with encrypted access/refresh tokens and `access_token_expires_at` in seconds
-
-#### Scenario: Re-import repairs the existing account
-
-- **GIVEN** an anthropic account in `reauth_required`
-- **WHEN** a fresh credential for the same email is imported
-- **THEN** the same account row holds the new tokens, is active again, and no duplicate account exists
+- **GIVEN** a deactivated legacy Anthropic account
+- **WHEN** an operator replaces its credential with a Console API key
+- **THEN** the same account id becomes an active Anthropic API-key account
 
 ### Requirement: Anthropic Messages relay
 
-The proxy MUST expose `POST /v1/messages` and `POST /v1/messages/count_tokens` (and the same paths under `/anthropic/v1`), authenticated by existing proxy API keys via `Authorization` or `x-api-key`. The relay MUST pass request and response bodies through unmodified (including SSE streams byte-for-byte), replacing client auth headers with the selected account's credential: OAuth accounts get `Authorization: Bearer` plus the `oauth-2025-04-20` beta flag merged into `anthropic-beta`; static API-key credentials get `x-api-key` without the OAuth beta flag. Errors produced by the relay itself MUST use the Anthropic error envelope.
+The proxy MUST expose canonical `POST /v1/messages` and
+`POST /v1/messages/count_tokens` routes authenticated by existing codex-lb API
+keys. The relay MUST forward the original request body and replace client
+authentication with the selected account's `x-api-key`. Proxy-produced errors
+MUST use the Anthropic error envelope. The routes MUST use the same firewall,
+bulkhead, and bounded request-body protections as other `/v1` proxy routes.
 
 #### Scenario: Streaming pass-through
 
-- **GIVEN** an anthropic account and a streaming Messages request
-- **WHEN** the upstream responds with SSE
-- **THEN** the client receives the upstream bytes unmodified and `anthropic-*` response headers are forwarded
+- **GIVEN** an eligible Anthropic API-key account and a streaming request
+- **WHEN** upstream returns SSE
+- **THEN** the client receives the upstream bytes in order and no client credential reaches upstream
 
-#### Scenario: Client auth never reaches upstream
+#### Scenario: Oversized chunked body
 
-- **WHEN** a request carrying a proxy API key is relayed
-- **THEN** the upstream request contains the account credential and no proxy API key material
+- **WHEN** a chunked request exceeds the configured relay limit
+- **THEN** reading stops at the limit and the proxy returns an Anthropic-shaped size error without dispatching upstream
 
-### Requirement: Relay failover and health
+### Requirement: API-key policy and accounting are preserved
 
-The relay MUST select accounts with the operator-configured routing strategy, and the upstream stream timeout MUST be idle-based (an actively streaming response is never cut off by a total-duration cap). On upstream failures the relay MUST fail over to a different anthropic account (bounded attempts), never re-sending a request after its first streamed byte reached the client. Outcome handling MUST be: 429 → mark the account rate-limited with the upstream reset time and try the next account; 401 → force one token refresh and retry the same account once, a second 401 marks the account `reauth_required`; revocation-shaped 403 → permanent failure; other 4xx → returned to the client verbatim with no account-health write; 5xx/connect errors before the first byte → record an error and try the next account. A client disconnect mid-stream MUST NOT mark the account unhealthy. When no anthropic account is selectable the relay MUST answer with an Anthropic-shaped 429 including a retry hint.
+The relay MUST enforce client API-key account assignments, exact single-account
+routing, model allowlists/enforcement, request limits, usage reservations, and
+settlement. It MUST update the client key's last-used timestamp and write one
+provider-tagged request log for every relayed outcome. Reservation cleanup MUST
+run after partial errors and client cancellation. Count-token requests MUST
+reserve zero output tokens. Because Anthropic request cost is intentionally
+unpriced, the relay MUST reject a request before reservation and upstream
+dispatch when its client API key has a global or exact-model `cost_usd` limit;
+cost limits filtered to other models MUST NOT block the request.
 
-#### Scenario: Rate-limited account fails over
+#### Scenario: Assigned accounts are a hard boundary
 
-- **GIVEN** two active anthropic accounts
-- **WHEN** the first answers 429 with a reset header
-- **THEN** the first account is marked rate-limited with that reset time and the request succeeds on the second account
+- **GIVEN** a client key assigned to one Anthropic account
+- **WHEN** that account is unavailable
+- **THEN** the request fails without selecting any unassigned account
 
-#### Scenario: 401 refreshes once then degrades
+#### Scenario: Usage settles after a stream
 
-- **WHEN** an upstream 401 arrives for an OAuth anthropic account
-- **THEN** the relay forces exactly one refresh and retries that account once; a second 401 sets `reauth_required` and the relay moves on
+- **WHEN** a streaming response completes with Anthropic usage events
+- **THEN** the reservation and request log contain the observed token totals
 
-#### Scenario: No mid-stream account switch
+#### Scenario: Count tokens reserves no output quota
 
-- **GIVEN** a streaming response that fails after bytes reached the client
-- **THEN** the relay aborts without retrying on any account
+- **GIVEN** a count-tokens payload containing `max_tokens`
+- **WHEN** the client API-key usage reservation is created
+- **THEN** its output-token budget is zero
 
-### Requirement: Anthropic usage ingestion
+#### Scenario: Unpriced cost limit fails closed
 
-The relay MUST parse `anthropic-ratelimit-unified-*` response headers opportunistically (missing or malformed headers are ignored, never an error) — on success responses and on 429s, which report utilization at the cap — and persist 5h/7d utilization into the existing primary/secondary usage windows so selection weights reflect real utilization. Active polling of the Anthropic usage endpoint MUST be sparse: only for accounts without a recent passive snapshot.
+- **GIVEN** a client API key with a `cost_usd` limit applicable to the requested Claude model
+- **WHEN** the client sends a Claude request
+- **THEN** the relay returns an Anthropic-shaped policy error without reserving usage or dispatching upstream
 
-#### Scenario: Headers drive selection weights
+### Requirement: Relay failover and health are bounded
 
-- **WHEN** a relayed response reports 5h utilization for the account
-- **THEN** a subsequent selection observes that utilization without any additional upstream call
+The relay MUST try only distinct eligible Anthropic accounts and MUST never
+replay after response bytes are committed. Connection, TLS, response-header,
+and pre-first-byte failures MAY fail over. A 401 MUST invalidate an API-key
+credential; 429 MUST record the best available reset and try the next eligible
+account; ordinary 403 and other client 4xx responses MUST pass through without
+health degradation; 5xx before first byte MAY fail over. Client disconnects
+MUST close upstream resources and MUST NOT mark the account unhealthy.
 
-#### Scenario: 429 saturation is recorded
+#### Scenario: Empty successful stream fails over
 
-- **WHEN** an upstream 429 carries unified rate-limit headers
-- **THEN** the account's utilization snapshot is persisted alongside the rate-limit health write
+- **GIVEN** upstream returns 2xx headers but disconnects before the first SSE byte
+- **WHEN** another eligible account exists
+- **THEN** the first attempt is recorded as an error and the second account is tried before committing a response
+
+#### Scenario: No mid-stream replay
+
+- **GIVEN** response bytes have reached the client
+- **WHEN** the stream fails or the client disconnects
+- **THEN** no other account receives the request
+
+### Requirement: Provider-aware analytics and presentation
+
+Accounts, dashboard overview, projections, and request-log APIs MUST accept an
+`all`, `openai`, or `anthropic` provider scope, defaulting to `all`. Request logs
+MUST persist provider independently of account lifetime. Combined scope MUST
+aggregate traffic metrics, while OpenAI credits/depletion and Anthropic API
+rate limits remain separately labelled and MUST NOT be summed into one capacity
+number. A cost aggregate containing unpriced requests MUST identify itself as
+partial.
+
+#### Scenario: Combined traffic with separate capacity
+
+- **GIVEN** OpenAI and Anthropic request logs
+- **WHEN** the dashboard loads with provider scope `all`
+- **THEN** request/token/error metrics include both providers and capacity remains provider-specific
+
+#### Scenario: Claude account controls are provider-specific
+
+- **WHEN** an operator selects an Anthropic account
+- **THEN** the dashboard offers key replacement and generic lifecycle/routing actions without OpenAI OAuth, reset-credit, probe, export, or warmup controls

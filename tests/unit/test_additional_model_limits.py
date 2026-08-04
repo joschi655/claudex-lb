@@ -66,6 +66,17 @@ def test_canonicalize_additional_quota_key_normalizes_unknown_aliases() -> None:
     assert canonicalize_additional_quota_key(metered_feature="Deep Research") == "deep_research"
 
 
+def test_canonicalize_additional_quota_key_preserves_explicit_unknown_key() -> None:
+    assert (
+        canonicalize_additional_quota_key(
+            quota_key="anthropic_requests",
+            limit_name="Anthropic Requests",
+            metered_feature="requests",
+        )
+        == "anthropic_requests"
+    )
+
+
 def test_registry_normalizes_configured_quota_key(monkeypatch, tmp_path: Path) -> None:
     registry = tmp_path / "additional_quota_registry.json"
     registry.write_text(

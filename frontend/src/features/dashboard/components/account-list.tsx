@@ -60,6 +60,9 @@ function quotaLabel(label: string, percent: number | null, resetAt: string | nul
 }
 
 function accountQuotaLabels(account: AccountSummary) {
+  if (account.provider !== "openai") {
+    return [];
+  }
   const weeklyOnly = account.windowMinutesPrimary == null && account.windowMinutesSecondary != null;
   const monthlyOnly =
     account.windowMinutesMonthly != null &&
@@ -217,6 +220,19 @@ function SortHeader({
 }
 
 function AccountQuotaCells({ account }: { account: AccountSummary }) {
+  if (account.provider !== "openai") {
+    const snapshotCount = account.additionalQuotas.length;
+    return (
+      <div className="text-xs">
+        <p className="font-medium text-foreground">Anthropic throughput</p>
+        <p className="text-[11px] text-muted-foreground">
+          {snapshotCount > 0
+            ? `${snapshotCount} rate-limit ${snapshotCount === 1 ? "snapshot" : "snapshots"}`
+            : "No rate-limit snapshot"}
+        </p>
+      </div>
+    );
+  }
   return (
     <div className="grid gap-1.5 text-xs">
       {accountQuotaLabels(account).map((quota) => (
@@ -315,6 +331,7 @@ export function AccountList({
           <span className="text-right">Actions</span>
         </div>
         {sortedAccounts.map((account, index) => {
+          const isOpenAiAccount = account.provider === "openai";
           const status = normalizeStatus(account.status);
           const title = accountTitle(account);
           const emailSubtitle =
@@ -364,14 +381,24 @@ export function AccountList({
                 </p>
               </div>
               <StatusBadge status={status} />
-              <span className="text-xs text-muted-foreground">{formatSlug(account.planType)}</span>
+              <span className="text-xs text-muted-foreground">
+                {isOpenAiAccount ? formatSlug(account.planType) : "Claude API key"}
+              </span>
               <AccountQuotaCells account={account} />
-              <span className="font-medium tabular-nums">{accountCreditsLabel(account)}</span>
+              <span className="font-medium tabular-nums">
+                {isOpenAiAccount ? accountCreditsLabel(account) : "--"}
+              </span>
               <div className="min-w-0 text-xs">
-                <p className={cn("font-medium", account.limitWarmupEnabled ? "text-primary" : "text-muted-foreground")}>
-                  {account.limitWarmupEnabled ? "On" : "Off"}
-                </p>
-                <p className="truncate text-[11px] text-muted-foreground">{warmupDetail}</p>
+                {isOpenAiAccount ? (
+                  <>
+                    <p className={cn("font-medium", account.limitWarmupEnabled ? "text-primary" : "text-muted-foreground")}>
+                      {account.limitWarmupEnabled ? "On" : "Off"}
+                    </p>
+                    <p className="truncate text-[11px] text-muted-foreground">{warmupDetail}</p>
+                  </>
+                ) : (
+                  <p className="text-muted-foreground">Not applicable</p>
+                )}
               </div>
               <div className="flex justify-end gap-1">
                 <Button
@@ -385,7 +412,7 @@ export function AccountList({
                 >
                   <ExternalLink className="h-3.5 w-3.5" aria-hidden="true" />
                 </Button>
-                {hasResetCredits ? (
+                {isOpenAiAccount && hasResetCredits ? (
                   <Button
                     type="button"
                     size="sm"
@@ -405,23 +432,25 @@ export function AccountList({
                     </span>
                   </Button>
                 ) : null}
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="ghost"
-                  className={cn(
-                    "h-7 w-7 rounded-md p-0",
-                    account.limitWarmupEnabled
-                      ? "text-primary hover:bg-primary/10 hover:text-primary"
-                      : "text-muted-foreground hover:text-foreground",
-                  )}
-                  aria-label={`${account.limitWarmupEnabled ? "Disable" : "Enable"} limit warm-up for ${title}`}
-                  title="Limit warm-up"
-                  disabled={readOnly}
-                  onClick={() => onAction?.(account, "warmup-toggle")}
-                >
-                  <Zap className="h-3.5 w-3.5" aria-hidden="true" />
-                </Button>
+                {isOpenAiAccount ? (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    className={cn(
+                      "h-7 w-7 rounded-md p-0",
+                      account.limitWarmupEnabled
+                        ? "text-primary hover:bg-primary/10 hover:text-primary"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                    aria-label={`${account.limitWarmupEnabled ? "Disable" : "Enable"} limit warm-up for ${title}`}
+                    title="Limit warm-up"
+                    disabled={readOnly}
+                    onClick={() => onAction?.(account, "warmup-toggle")}
+                  >
+                    <Zap className="h-3.5 w-3.5" aria-hidden="true" />
+                  </Button>
+                ) : null}
                 {status === "paused" ? (
                   <Button
                     type="button"
@@ -436,7 +465,7 @@ export function AccountList({
                     <Play className="h-3.5 w-3.5" aria-hidden="true" />
                   </Button>
                 ) : null}
-                {status === "reauth" || status === "deactivated" ? (
+                {isOpenAiAccount && (status === "reauth" || status === "deactivated") ? (
                   <Button
                     type="button"
                     size="sm"

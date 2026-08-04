@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import cast as typing_cast
 
+from app.core.providers import require_account_provider
 from app.core.usage.logs import (
     RequestLogLike,
     cached_input_tokens_from_log,
@@ -35,6 +36,7 @@ def to_request_log_entry(log: RequestLog, *, api_key_name: str | None = None) ->
     cost_breakdown = cost_breakdown_from_log(log_like, precision=6)
     return RequestLogEntry(
         requested_at=log.requested_at,
+        provider=require_account_provider(log.provider),
         account_id=log.account_id,
         plan_type=log.plan_type,
         api_key_id=log.api_key_id,

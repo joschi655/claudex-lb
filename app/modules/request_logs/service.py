@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime
 
+from app.core.providers import AccountProvider
 from app.modules.request_logs.mappers import (
     QUOTA_CODES,
     RATE_LIMIT_CODES,
@@ -66,6 +67,7 @@ class RequestLogsService:
         models: list[str] | None = None,
         reasoning_efforts: list[str] | None = None,
         status: list[str] | None = None,
+        provider: AccountProvider | None = None,
     ) -> RequestLogsPage:
         status_filter = _map_status_filter(status)
         normalized_model_options = (
@@ -86,6 +88,7 @@ class RequestLogsService:
             include_error_other=status_filter.include_error_other,
             error_codes_in=status_filter.error_codes_in,
             error_codes_excluding=status_filter.error_codes_excluding,
+            provider=provider,
         )
         api_key_ids = [log.api_key_id for log in logs if log.api_key_id]
         api_key_name_by_id = await self._repo.get_api_key_names_by_ids(api_key_ids)
@@ -111,6 +114,7 @@ class RequestLogsService:
         model_options: list[RequestLogModelOption] | None = None,
         models: list[str] | None = None,
         reasoning_efforts: list[str] | None = None,
+        provider: AccountProvider | None = None,
     ) -> RequestLogFilterOptions:
         normalized_model_options = (
             [(option.model, option.reasoning_effort) for option in model_options] if model_options else None
@@ -128,6 +132,7 @@ class RequestLogsService:
             model_options=normalized_model_options,
             models=models,
             reasoning_efforts=reasoning_efforts,
+            provider=provider,
         )
         api_key_details = await self._repo.get_api_key_details_by_ids(option_api_key_ids)
         option_api_keys = [

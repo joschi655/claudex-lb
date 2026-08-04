@@ -48,7 +48,7 @@ from app.core.metrics.prometheus import (
 )
 from app.core.openai.model_registry import get_model_registry
 from app.core.plan_types import account_plan_matches_allowed, normalize_account_plan_type
-from app.core.providers import PROVIDER_OPENAI
+from app.core.providers import PROVIDER_ANTHROPIC, PROVIDER_OPENAI, is_selectable_anthropic_credential
 from app.core.resilience.circuit_breaker import are_all_account_circuit_breakers_open
 from app.core.resilience.degradation import get_status as get_degradation_status
 from app.core.resilience.degradation import set_degraded, set_normal
@@ -868,6 +868,10 @@ class LoadBalancer:
                 account
                 for account in await repos.accounts.list_accounts()
                 if (account.provider or PROVIDER_OPENAI) == provider
+                and (
+                    provider != PROVIDER_ANTHROPIC
+                    or is_selectable_anthropic_credential(account.provider, account.credential_kind)
+                )
             ]
             quota_planner_repo = getattr(repos, "quota_planner", None)
             get_quota_planner_settings = getattr(quota_planner_repo, "get_settings", None)

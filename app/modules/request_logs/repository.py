@@ -13,6 +13,7 @@ from sqlalchemy.orm import InstrumentedAttribute
 from sqlalchemy.sql.elements import ColumnElement
 
 from app.core.config.settings import get_settings
+from app.core.providers import PROVIDER_ANTHROPIC, PROVIDER_OPENAI, AccountProvider
 from app.core.usage.logs import RequestLogLike, calculated_cost_from_log
 from app.core.usage.types import BucketModelAggregate, RequestActivityAggregate, UsageSummaryLogsAggregate
 from app.core.utils.request_id import ensure_request_id
@@ -121,6 +122,8 @@ class RequestLogsRepository:
         self,
         since: datetime,
         bucket_seconds: int = 21600,
+        *,
+        provider: AccountProvider | None = None,
     ) -> list[BucketModelAggregate]:
         bind = self._session.get_bind()
         dialect = bind.dialect.name if bind else "sqlite"
@@ -150,6 +153,8 @@ class RequestLogsRepository:
             .group_by(bucket_col, RequestLog.model, RequestLog.service_tier)
             .order_by(bucket_col)
         )
+        if provider is not None:
+            stmt = stmt.where(RequestLog.provider == provider)
         result = await self._session.execute(stmt)
         return [
             BucketModelAggregate(
@@ -167,8 +172,13 @@ class RequestLogsRepository:
             for row in result.all()
         ]
 
-    async def aggregate_activity_since(self, since: datetime) -> RequestActivityAggregate:
-        stmt = self._aggregate_activity_stmt(since)
+    async def aggregate_activity_since(
+        self,
+        since: datetime,
+        *,
+        provider: AccountProvider | None = None,
+    ) -> RequestActivityAggregate:
+        stmt = self._aggregate_activity_stmt(since, provider=provider)
         result = await self._session.execute(stmt)
         row = result.one()
         return RequestActivityAggregate(
@@ -178,10 +188,17 @@ class RequestLogsRepository:
             output_tokens=int(row.output_tokens),
             cached_input_tokens=int(row.cached_input_tokens),
             cost_usd=float(row.cost_usd or 0.0),
+            unpriced_count=int(row.unpriced_count),
         )
 
-    async def aggregate_activity_between(self, since: datetime, until: datetime) -> RequestActivityAggregate:
-        stmt = self._aggregate_activity_stmt(since, until)
+    async def aggregate_activity_between(
+        self,
+        since: datetime,
+        until: datetime,
+        *,
+        provider: AccountProvider | None = None,
+    ) -> RequestActivityAggregate:
+        stmt = self._aggregate_activity_stmt(since, until, provider=provider)
         result = await self._session.execute(stmt)
         row = result.one()
         return RequestActivityAggregate(
@@ -191,9 +208,16 @@ class RequestLogsRepository:
             output_tokens=int(row.output_tokens),
             cached_input_tokens=int(row.cached_input_tokens),
             cost_usd=float(row.cost_usd or 0.0),
+            unpriced_count=int(row.unpriced_count),
         )
 
-    def _aggregate_activity_stmt(self, since: datetime, until: datetime | None = None):
+    def _aggregate_activity_stmt(
+        self,
+        since: datetime,
+        until: datetime | None = None,
+        *,
+        provider: AccountProvider | None = None,
+    ):
         stmt = select(
             func.count().label("request_count"),
             func.coalesce(
@@ -204,16 +228,27 @@ class RequestLogsRepository:
             func.coalesce(func.sum(RequestLog.output_tokens), 0).label("output_tokens"),
             func.coalesce(func.sum(RequestLog.cached_input_tokens), 0).label("cached_input_tokens"),
             func.coalesce(func.sum(RequestLog.cost_usd), 0.0).label("cost_usd"),
+            func.coalesce(
+                func.sum(cast(RequestLog.cost_usd.is_(None), Integer)),
+                0,
+            ).label("unpriced_count"),
         ).where(
             RequestLog.requested_at >= since,
             self._exclude_warmup_clause(),
         )
         if until is not None:
             stmt = stmt.where(RequestLog.requested_at < until)
+        if provider is not None:
+            stmt = stmt.where(RequestLog.provider == provider)
         return stmt
 
-    async def top_error_since(self, since: datetime) -> str | None:
-        stmt = self._top_error_stmt(since)
+    async def top_error_since(
+        self,
+        since: datetime,
+        *,
+        provider: AccountProvider | None = None,
+    ) -> str | None:
+        stmt = self._top_error_stmt(since, provider=provider)
         result = await self._session.execute(stmt)
         row = result.first()
         return str(row[0]) if row and row[0] else None
@@ -300,13 +335,25 @@ class RequestLogsRepository:
             cost_by_model=sorted((model, cost_sums[model]) for model, count in cost_counts.items() if count > 0),
         )
 
-    async def top_error_between(self, since: datetime, until: datetime) -> str | None:
-        stmt = self._top_error_stmt(since, until)
+    async def top_error_between(
+        self,
+        since: datetime,
+        until: datetime,
+        *,
+        provider: AccountProvider | None = None,
+    ) -> str | None:
+        stmt = self._top_error_stmt(since, until, provider=provider)
         result = await self._session.execute(stmt)
         row = result.first()
         return str(row[0]) if row and row[0] else None
 
-    def _top_error_stmt(self, since: datetime, until: datetime | None = None):
+    def _top_error_stmt(
+        self,
+        since: datetime,
+        until: datetime | None = None,
+        *,
+        provider: AccountProvider | None = None,
+    ):
         stmt = (
             select(RequestLog.error_code, func.count(RequestLog.id).label("error_count"))
             .where(
@@ -321,10 +368,14 @@ class RequestLogsRepository:
         )
         if until is not None:
             stmt = stmt.where(RequestLog.requested_at < until)
+        if provider is not None:
+            stmt = stmt.where(RequestLog.provider == provider)
         return stmt
 
-    async def earliest_activity_at(self) -> datetime | None:
+    async def earliest_activity_at(self, *, provider: AccountProvider | None = None) -> datetime | None:
         stmt = select(func.min(RequestLog.requested_at)).where(self._exclude_warmup_clause())
+        if provider is not None:
+            stmt = stmt.where(RequestLog.provider == provider)
         result = await self._session.execute(stmt)
         value = result.scalar_one_or_none()
         return value if isinstance(value, datetime) else None
@@ -339,6 +390,7 @@ class RequestLogsRepository:
         latency_ms: int | None,
         status: str,
         error_code: str | None,
+        provider: str = PROVIDER_OPENAI,
         latency_first_token_ms: int | None = None,
         latency_queue_ms: int | None = None,
         latency_response_created_ms: int | None = None,
@@ -397,6 +449,7 @@ class RequestLogsRepository:
             resolved_client_ip = client_ip if not isinstance(client_ip, str) or client_ip.strip() else None
             log = RequestLog(
                 account_id=account_id,
+                provider=provider,
                 model_source_id=model_source_id,
                 model_source_kind=model_source_kind,
                 api_key_id=api_key_id,
@@ -449,13 +502,16 @@ class RequestLogsRepository:
                 upstream_proxy_fail_closed_reason=upstream_proxy_fail_closed_reason,
                 requested_at=requested_at or utcnow(),
             )
-            log.cost_usd = (
-                cost_usd
-                if cost_usd is not None
-                else 0.0
-                if model_source_id is not None
-                else calculated_cost_from_log(typing_cast(RequestLogLike, log))
-            )
+            if provider == PROVIDER_ANTHROPIC:
+                log.cost_usd = cost_usd
+            else:
+                log.cost_usd = (
+                    cost_usd
+                    if cost_usd is not None
+                    else 0.0
+                    if model_source_id is not None
+                    else calculated_cost_from_log(typing_cast(RequestLogLike, log))
+                )
             self._session.add(log)
             try:
                 await self._session.commit()
@@ -520,6 +576,7 @@ class RequestLogsRepository:
         include_error_other: bool = True,
         error_codes_in: list[str] | None = None,
         error_codes_excluding: list[str] | None = None,
+        provider: AccountProvider | None = None,
     ) -> tuple[list[RequestLog], int]:
         filters = self._build_filters(
             search=search,
@@ -534,6 +591,7 @@ class RequestLogsRepository:
             include_error_other=include_error_other,
             error_codes_in=error_codes_in,
             error_codes_excluding=error_codes_excluding,
+            provider=provider,
             exclude_soft_deleted=True,
         )
 
@@ -564,6 +622,7 @@ class RequestLogsRepository:
             include_error_other,
             tuple(sorted(error_codes_in)) if error_codes_in else None,
             tuple(sorted(error_codes_excluding)) if error_codes_excluding else None,
+            provider,
         )
         total = _cached_recent_count(cache_key)
         if total is None:
@@ -592,6 +651,7 @@ class RequestLogsRepository:
         model_options: list[tuple[str, str | None]] | None = None,
         models: list[str] | None = None,
         reasoning_efforts: list[str] | None = None,
+        provider: AccountProvider | None = None,
     ) -> tuple[list[str], list[tuple[str, str | None]], list[str], list[tuple[str, str | None]]]:
         filters = self._build_filters(
             since=since,
@@ -606,6 +666,7 @@ class RequestLogsRepository:
             error_codes_in=None,
             error_codes_excluding=None,
             exclude_soft_deleted=True,
+            provider=provider,
         )
         api_key_facet_filters = self._build_filters(
             since=since,
@@ -620,6 +681,7 @@ class RequestLogsRepository:
             error_codes_in=None,
             error_codes_excluding=None,
             exclude_soft_deleted=True,
+            provider=provider,
         )
 
         unfiltered = not any((since, until, account_ids, api_key_ids, model_options, models, reasoning_efforts))
@@ -747,10 +809,13 @@ class RequestLogsRepository:
         error_codes_in: list[str] | None = None,
         error_codes_excluding: list[str] | None = None,
         exclude_soft_deleted: bool = False,
+        provider: AccountProvider | None = None,
     ) -> _RequestLogFilters:
         conditions = []
         if exclude_soft_deleted:
             conditions.append(RequestLog.deleted_at.is_(None))
+        if provider is not None:
+            conditions.append(RequestLog.provider == provider)
         if since is not None:
             conditions.append(RequestLog.requested_at >= since)
         if until is not None:

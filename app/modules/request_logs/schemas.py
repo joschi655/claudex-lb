@@ -4,6 +4,7 @@ from datetime import datetime
 
 from pydantic import Field
 
+from app.core.providers import AccountProvider
 from app.modules.shared.schemas import DashboardModel
 
 
@@ -16,6 +17,7 @@ class RequestLogCostBreakdown(DashboardModel):
 
 class RequestLogEntry(DashboardModel):
     requested_at: datetime
+    provider: AccountProvider
     account_id: str | None = None
     plan_type: str | None = None
     api_key_id: str | None = None

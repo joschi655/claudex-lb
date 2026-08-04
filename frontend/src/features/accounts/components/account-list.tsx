@@ -14,6 +14,7 @@ import { AccountListItem } from "@/features/accounts/components/account-list-ite
 import { AddAccountDialog } from "@/features/accounts/components/add-account-dialog";
 import { WindowsOauthHelp } from "@/features/accounts/components/windows-oauth-help";
 import type { AccountSummary } from "@/features/accounts/schemas";
+import type { ProviderScope } from "@/features/providers/schemas";
 import {
   ACCOUNT_SORT_OPTIONS,
   DEFAULT_ACCOUNT_SORT_MODE,
@@ -31,6 +32,8 @@ export type AccountListProps = {
   onSelect: (accountId: string) => void;
   onOpenImport: () => void;
   onOpenOauth: () => void;
+  onOpenAnthropic: () => void;
+  providerScope?: ProviderScope;
   sortMode?: AccountSortMode;
   onSortModeChange?: (sortMode: AccountSortMode) => void;
   readOnly?: boolean;
@@ -42,6 +45,8 @@ export function AccountList({
   onSelect,
   onOpenImport,
   onOpenOauth,
+  onOpenAnthropic,
+  providerScope = "all",
   sortMode,
   onSortModeChange,
   readOnly = false,
@@ -122,7 +127,7 @@ export function AccountList({
       </div>
 
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <Button
+        {providerScope !== "anthropic" ? <Button
           type="button"
           variant="link"
           size="sm"
@@ -131,7 +136,7 @@ export function AccountList({
         >
           Need help?
           {helpOpen ? <ChevronUp className="h-3.5 w-3.5" /> : <ChevronDown className="h-3.5 w-3.5" />}
-        </Button>
+        </Button> : <span />}
         <Button
           type="button"
           size="sm"
@@ -173,6 +178,8 @@ export function AccountList({
         onOpenChange={setChooserOpen}
         onImport={onOpenImport}
         onAddAccount={onOpenOauth}
+        onAddAnthropic={onOpenAnthropic}
+        providerScope={providerScope}
       />
     </div>
   );

@@ -1,53 +1,85 @@
 from __future__ import annotations
 
-from app.core.anthropic.usage_headers import parse_unified_usage
+from app.core.anthropic.usage_headers import parse_rate_limits, parse_reset_at
 
 pytestmark_names = ("unit",)
 
 
-def test_parses_fraction_utilization_and_reset():
-    snapshot = parse_unified_usage(
+def test_parses_standard_request_and_token_limits() -> None:
+    snapshots = parse_rate_limits(
         {
-            "anthropic-ratelimit-unified-5h-utilization": "0.42",
-            "anthropic-ratelimit-unified-5h-reset": "1900000000",
-            "anthropic-ratelimit-unified-7d-utilization": "0.10",
-            "anthropic-ratelimit-unified-7d-reset": "1900500000",
+            "anthropic-ratelimit-requests-limit": "1000",
+            "anthropic-ratelimit-requests-remaining": "750",
+            "anthropic-ratelimit-requests-reset": "2030-01-02T03:04:05Z",
+            "anthropic-ratelimit-input-tokens-limit": "20000",
+            "anthropic-ratelimit-input-tokens-remaining": "5000",
+            "anthropic-ratelimit-input-tokens-reset": "2030-01-02T03:05:00+00:00",
         }
     )
-    assert snapshot.primary_used_percent == 42.0
-    assert snapshot.primary_reset_at == 1_900_000_000
-    assert snapshot.secondary_used_percent == 10.0
-    assert snapshot.secondary_reset_at == 1_900_500_000
-    assert snapshot.has_any
+
+    assert [(snapshot.quota_key, snapshot.used_percent) for snapshot in snapshots] == [
+        ("anthropic_requests", 25.0),
+        ("anthropic_input_tokens", 75.0),
+    ]
+    assert snapshots[0].reset_at == 1_893_553_445
+    assert snapshots[1].reset_at == 1_893_553_500
 
 
-def test_accepts_already_percent_values():
-    snapshot = parse_unified_usage({"anthropic-ratelimit-unified-5h-utilization": "73"})
-    assert snapshot.primary_used_percent == 73.0
-
-
-def test_case_insensitive_headers():
-    snapshot = parse_unified_usage({"Anthropic-RateLimit-Unified-5h-Utilization": "0.5"})
-    assert snapshot.primary_used_percent == 50.0
-
-
-def test_missing_headers_yield_empty_snapshot():
-    snapshot = parse_unified_usage({"content-type": "text/event-stream"})
-    assert not snapshot.has_any
-    assert snapshot.primary_used_percent is None
-
-
-def test_malformed_values_are_ignored():
-    snapshot = parse_unified_usage(
+def test_headers_are_case_insensitive() -> None:
+    snapshots = parse_rate_limits(
         {
-            "anthropic-ratelimit-unified-5h-utilization": "not-a-number",
-            "anthropic-ratelimit-unified-5h-reset": "bogus",
+            "Anthropic-RateLimit-Tokens-Limit": "100",
+            "Anthropic-RateLimit-Tokens-Remaining": "42",
         }
     )
-    assert snapshot.primary_used_percent is None
-    assert snapshot.primary_reset_at is None
+    assert len(snapshots) == 1
+    assert snapshots[0].quota_key == "anthropic_tokens"
+    assert snapshots[0].used_percent == 58.0
 
 
-def test_utilization_capped_at_100():
-    snapshot = parse_unified_usage({"anthropic-ratelimit-unified-5h-utilization": "150"})
-    assert snapshot.primary_used_percent == 100.0
+def test_missing_or_malformed_pairs_are_ignored() -> None:
+    assert parse_rate_limits({"content-type": "application/json"}) == ()
+    assert (
+        parse_rate_limits(
+            {
+                "anthropic-ratelimit-requests-limit": "not-a-number",
+                "anthropic-ratelimit-requests-remaining": "5",
+                "anthropic-ratelimit-tokens-limit": "0",
+                "anthropic-ratelimit-tokens-remaining": "0",
+            }
+        )
+        == ()
+    )
+
+
+def test_remaining_is_clamped_to_limit() -> None:
+    snapshots = parse_rate_limits(
+        {
+            "anthropic-ratelimit-output-tokens-limit": "100",
+            "anthropic-ratelimit-output-tokens-remaining": "150",
+        }
+    )
+    assert snapshots[0].used_percent == 0.0
+
+
+def test_reset_parser_accepts_rfc3339_and_epoch() -> None:
+    assert parse_reset_at("2030-01-02T03:04:05Z") == 1_893_553_445
+    assert parse_reset_at("1893553445") == 1_893_553_445
+    assert parse_reset_at("bogus") is None
+
+
+def test_non_finite_headers_are_ignored() -> None:
+    assert parse_reset_at("nan") is None
+    assert parse_reset_at("inf") is None
+    assert parse_reset_at("-inf") is None
+    assert (
+        parse_rate_limits(
+            {
+                "anthropic-ratelimit-requests-limit": "inf",
+                "anthropic-ratelimit-requests-remaining": "0",
+                "anthropic-ratelimit-tokens-limit": "100",
+                "anthropic-ratelimit-tokens-remaining": "nan",
+            }
+        )
+        == ()
+    )

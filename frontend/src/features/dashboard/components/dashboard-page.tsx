@@ -18,6 +18,7 @@ import { RecentRequestsTable } from "@/features/dashboard/components/recent-requ
 import { StatsGrid } from "@/features/dashboard/components/stats-grid";
 import { UsageDonuts } from "@/features/dashboard/components/usage-donuts";
 import { WeeklyCreditsPaceCard } from "@/features/dashboard/components/weekly-credits-pace-card";
+import { AnthropicCapacityPanel } from "@/features/dashboard/components/anthropic-capacity-panel";
 import { useAuthStore } from "@/features/auth/hooks/use-auth";
 import { useDashboard, useDashboardProjections } from "@/features/dashboard/hooks/use-dashboard";
 import { useRequestLogs } from "@/features/dashboard/hooks/use-request-logs";
@@ -30,6 +31,8 @@ import {
 } from "@/features/dashboard/schemas";
 import { useDashboardPreferencesStore } from "@/hooks/use-dashboard-preferences";
 import { useThemeStore } from "@/hooks/use-theme";
+import { ProviderScopeControl } from "@/features/providers/components/provider-scope-control";
+import { parseProviderScope, type ProviderScope } from "@/features/providers/schemas";
 import { REQUEST_STATUS_LABELS } from "@/utils/constants";
 import { formatModelLabel, formatSlug } from "@/utils/formatters";
 
@@ -50,9 +53,16 @@ export function DashboardPage() {
     () => parseOverviewTimeframe(searchParams.get("overviewTimeframe")),
     [searchParams],
   );
-  const dashboardQuery = useDashboard(overviewTimeframe);
-  const projectionsQuery = useDashboardProjections(Boolean(dashboardQuery.data));
-  const { filters, logsQuery, optionsQuery, updateFilters } = useRequestLogs();
+  const providerScope = useMemo(
+    () => parseProviderScope(searchParams.get("provider")),
+    [searchParams],
+  );
+  const dashboardQuery = useDashboard(overviewTimeframe, providerScope);
+  const projectionsQuery = useDashboardProjections(
+    providerScope,
+    Boolean(dashboardQuery.data) && providerScope !== "anthropic",
+  );
+  const { filters, logsQuery, optionsQuery, updateFilters } = useRequestLogs(providerScope);
   const { resumeMutation, limitWarmupMutation } = useAccountMutations();
   type ResetCreditDialogTarget = { accountId: string; availableResetCredits: number };
   const resetCreditDialog = useDialogState<ResetCreditDialogTarget>();
@@ -76,11 +86,32 @@ export function DashboardPage() {
     [searchParams, setSearchParams],
   );
 
+  const handleProviderScopeChange = useCallback(
+    (provider: ProviderScope) => {
+      const next = new URLSearchParams(searchParams);
+      if (provider === "all") {
+        next.delete("provider");
+      } else {
+        next.set("provider", provider);
+      }
+      for (const key of ["accountId", "apiKeyId", "modelOption", "status", "offset"]) {
+        next.delete(key);
+      }
+      next.set("offset", "0");
+      setSearchParams(next);
+    },
+    [searchParams, setSearchParams],
+  );
+
   const handleAccountAction = useCallback(
     (account: AccountSummary, action: string) => {
       switch (action) {
         case "details":
-          navigate(`/accounts?selected=${account.accountId}`);
+          navigate(
+            `/accounts?selected=${encodeURIComponent(account.accountId)}${
+              providerScope === "all" ? "" : `&provider=${providerScope}`
+            }`,
+          );
           break;
         case "resume":
           if (canWrite) {
@@ -88,7 +119,11 @@ export function DashboardPage() {
           }
           break;
         case "reauth":
-          navigate(`/accounts?selected=${account.accountId}`);
+          navigate(
+            `/accounts?selected=${encodeURIComponent(account.accountId)}${
+              providerScope === "all" ? "" : `&provider=${providerScope}`
+            }`,
+          );
           break;
         case "warmup-toggle":
           if (canWrite) {
@@ -106,7 +141,7 @@ export function DashboardPage() {
           break;
       }
     },
-    [canWrite, limitWarmupMutation, navigate, resetCreditDialog, resumeMutation],
+    [canWrite, limitWarmupMutation, navigate, providerScope, resetCreditDialog, resumeMutation],
   );
 
   const overview = dashboardQuery.data;
@@ -121,11 +156,11 @@ export function DashboardPage() {
       logPage.requests,
       {
         isDark,
-        showAccountBurnrate,
+        showAccountBurnrate: showAccountBurnrate && providerScope !== "anthropic",
       },
       projectionsQuery.data,
     );
-  }, [overview, logPage, isDark, showAccountBurnrate, projectionsQuery.data]);
+  }, [overview, logPage, isDark, providerScope, showAccountBurnrate, projectionsQuery.data]);
 
   const accountOptions = useMemo(() => {
     const entries = new Map<string, { label: string; isEmail: boolean }>();
@@ -180,14 +215,15 @@ export function DashboardPage() {
   return (
     <div className="animate-fade-in-up space-y-8">
       {/* Page header */}
-      <div className="flex items-start justify-between">
+      <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Dashboard</h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Overview, account health, and recent request logs.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
+          <ProviderScopeControl value={providerScope} onChange={handleProviderScopeChange} />
           <OverviewTimeframeSelect
             value={overviewTimeframe}
             onChange={handleOverviewTimeframeChange}
@@ -212,7 +248,7 @@ export function DashboardPage() {
         <>
           <StatsGrid stats={view.stats} />
 
-          {view.weeklyCreditPace ? (
+          {providerScope !== "anthropic" && view.weeklyCreditPace ? (
             <div className="grid gap-4 xl:grid-cols-[minmax(0,2fr)_minmax(18rem,1fr)]">
               <UsageDonuts
                 primaryItems={view.primaryUsageItems}
@@ -226,7 +262,7 @@ export function DashboardPage() {
               />
               <WeeklyCreditsPaceCard pace={view.weeklyCreditPace} />
             </div>
-          ) : (
+          ) : providerScope !== "anthropic" ? (
             <UsageDonuts
               primaryItems={view.primaryUsageItems}
               secondaryItems={view.secondaryUsageItems}
@@ -237,11 +273,15 @@ export function DashboardPage() {
               safeLinePrimary={view.safeLinePrimary}
               safeLineSecondary={view.safeLineSecondary}
             />
-          )}
+          ) : null}
+
+          {providerScope !== "openai" ? (
+            <AnthropicCapacityPanel accounts={overview?.accounts ?? []} />
+          ) : null}
 
           <section className="space-y-4">
             <div className="flex flex-wrap items-center gap-3">
-              <div className="flex min-w-0 items-center gap-3">
+              <div className="flex min-w-0 flex-wrap items-center gap-3">
                 <h2 className="text-[13px] font-medium uppercase tracking-wider text-muted-foreground">Accounts</h2>
                 <AccountSummaryLine accounts={overview?.accounts ?? []} />
               </div>

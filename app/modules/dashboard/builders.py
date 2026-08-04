@@ -89,6 +89,7 @@ def build_dashboard_overview_summary(
         cost=DashboardUsageCost(
             currency=activity_cost.currency,
             totalUsd=activity_cost.total_usd,
+            isPartial=activity_cost.is_partial,
         ),
         metrics=DashboardUsageMetrics.model_validate(
             {

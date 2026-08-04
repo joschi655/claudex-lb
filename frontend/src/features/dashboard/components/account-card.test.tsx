@@ -152,6 +152,38 @@ describe("AccountCard", () => {
     expect(screen.queryByRole("button", { name: /Reset \(/ })).not.toBeInTheDocument();
   });
 
+  it("renders Claude capacity metadata without OpenAI-only controls", () => {
+    const account = createAccountSummary({
+      provider: "anthropic",
+      credentialKind: "anthropic_api_key",
+      displayName: "Claude Production",
+      email: "Claude Production",
+      planType: "api",
+      status: "deactivated",
+      availableResetCredits: 2,
+      additionalQuotas: [
+        {
+          quotaKey: "anthropic_tokens",
+          limitName: "Anthropic Tokens",
+          meteredFeature: "anthropic_tokens",
+          primaryWindow: { usedPercent: 35 },
+        },
+      ],
+    });
+
+    render(<AccountCard account={account} />);
+
+    expect(screen.getByText("Claude · API key")).toBeInTheDocument();
+    expect(screen.getByText("Anthropic throughput")).toBeInTheDocument();
+    expect(screen.getByText("1 rate-limit snapshot")).toBeInTheDocument();
+    expect(screen.queryByText("5h")).not.toBeInTheDocument();
+    expect(screen.queryByText("Weekly")).not.toBeInTheDocument();
+    expect(screen.queryByText("Credits:")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /limit warm-up/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Reset \(/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Re-auth" })).not.toBeInTheDocument();
+  });
+
   it("disables reset action for paused accounts", async () => {
     const user = userEvent.setup();
     const onAction = vi.fn();

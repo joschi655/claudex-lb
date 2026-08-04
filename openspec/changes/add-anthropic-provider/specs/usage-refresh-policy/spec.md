@@ -2,22 +2,34 @@
 
 ## ADDED Requirements
 
-### Requirement: OpenAI usage flows skip anthropic accounts
+### Requirement: OpenAI usage flows reject Anthropic accounts
 
-Schedulers and account actions that call OpenAI/ChatGPT upstream endpoints per account (usage refresh, rate-limit reset credits, model refresh, quota planning, probe, OpenAI-format auth export) MUST skip anthropic accounts or reject them with a clear error; they MUST NOT send anthropic credentials to OpenAI endpoints.
+Every service that calls an OpenAI or ChatGPT upstream endpoint per account
+MUST enforce the OpenAI provider at its shared dispatch boundary. Batch flows
+MUST skip Anthropic accounts, and direct account actions MUST reject them with a
+provider-specific error. Anthropic credentials MUST never be sent to an OpenAI
+endpoint, including when paused accounts are explicitly included.
 
-#### Scenario: Usage refresh ignores anthropic accounts
+#### Scenario: Batch refresh ignores Anthropic accounts
 
-- **GIVEN** accounts of both providers
-- **WHEN** the OpenAI usage refresh cycle runs
-- **THEN** only openai accounts are polled
+- **GIVEN** active OpenAI and Anthropic accounts
+- **WHEN** any OpenAI usage, fleet, model, warmup, quota, or automation batch runs
+- **THEN** only OpenAI credentials may reach its upstream dispatcher
 
-### Requirement: Proactive anthropic token freshness
+#### Scenario: Direct OpenAI action rejects Claude
 
-When the auth guardian is enabled, an OAuth anthropic account whose access token expires within its staleness horizon MUST be refreshed proactively through the claim-serialized refresh path, keeping idle accounts sign-in-free.
+- **GIVEN** an Anthropic account id
+- **WHEN** an operator invokes an OpenAI-only account action
+- **THEN** the action fails before decrypting or dispatching the credential
 
-#### Scenario: Idle account stays fresh
+### Requirement: Anthropic API-key rate limits are passive
 
-- **GIVEN** the guardian enabled and an anthropic account expiring within the horizon
-- **WHEN** the guardian cycle runs
-- **THEN** the account's token is refreshed and rotated material persisted
+Anthropic API-key accounts MUST NOT enter the OpenAI usage refresh machinery.
+The Messages relay MAY persist standard Anthropic request and token rate-limit
+headers, treating missing or malformed values as absent metadata rather than a
+request failure.
+
+#### Scenario: Relay records a standard reset
+
+- **WHEN** Anthropic returns a request or token reset as an RFC 3339 timestamp
+- **THEN** the persisted provider quota snapshot contains the corresponding UTC reset

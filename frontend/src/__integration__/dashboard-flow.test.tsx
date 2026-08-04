@@ -102,4 +102,40 @@ describe("dashboard flow integration", () => {
     });
     expect(overviewCalls).toBe(overviewAfterTimeframe);
   });
+
+  it("keeps provider scope synchronized across dashboard traffic queries", async () => {
+    const user = userEvent.setup({ delay: null });
+    const overviewProviders: string[] = [];
+    const logProviders: string[] = [];
+    const optionProviders: string[] = [];
+    server.use(
+      http.get("/api/dashboard/overview", ({ request }) => {
+        overviewProviders.push(new URL(request.url).searchParams.get("provider") ?? "");
+        return HttpResponse.json(createDashboardOverview({ accounts: [] }));
+      }),
+      http.get("/api/request-logs", ({ request }) => {
+        logProviders.push(new URL(request.url).searchParams.get("provider") ?? "");
+        return HttpResponse.json(createRequestLogsResponse([], 0, false));
+      }),
+      http.get("/api/request-logs/options", ({ request }) => {
+        optionProviders.push(new URL(request.url).searchParams.get("provider") ?? "");
+        return HttpResponse.json(createRequestLogFilterOptions());
+      }),
+    );
+
+    window.history.pushState({}, "", "/dashboard?accountId=stale&offset=25");
+    renderWithProviders(<App />);
+    expect(await screen.findByRole("heading", { name: "Dashboard" })).toBeInTheDocument();
+    await user.click(screen.getByRole("radio", { name: "Claude" }));
+
+    await waitFor(() => {
+      expect(overviewProviders.at(-1)).toBe("anthropic");
+      expect(logProviders.at(-1)).toBe("anthropic");
+      expect(optionProviders.at(-1)).toBe("anthropic");
+    });
+    expect(window.location.search).toContain("provider=anthropic");
+    expect(window.location.search).not.toContain("accountId=");
+    expect(window.location.search).toContain("offset=0");
+    expect(screen.getByText("Claude throughput limits")).toBeInTheDocument();
+  });
 });

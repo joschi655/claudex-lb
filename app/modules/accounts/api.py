@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
+from fastapi import APIRouter, Depends, File, Query, Request, Response, UploadFile
 
 from app.core.audit.service import AuditService
 from app.core.auth.dependencies import (
@@ -16,6 +16,7 @@ from app.core.exceptions import (
     DashboardNotFoundError,
     DashboardUpstreamError,
 )
+from app.core.providers import ProviderScope
 from app.core.upstream_proxy import UpstreamProxyRouteError
 from app.dependencies import AccountsContext, get_accounts_context
 from app.modules.accounts.repository import AccountIdentityConflictError
@@ -42,6 +43,7 @@ from app.modules.accounts.schemas import (
     AccountUsageResetConsumeRequest,
     AccountUsageResetConsumeResponse,
     AccountUsageResetCreditsResponse,
+    AnthropicApiKeyRequest,
 )
 from app.modules.accounts.service import (
     AccountNotProbableError,
@@ -59,11 +61,18 @@ router = APIRouter(
 )
 
 
+def _set_no_store(response: Response) -> None:
+    response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+    response.headers["Pragma"] = "no-cache"
+    response.headers["Expires"] = "0"
+
+
 @router.get("", response_model=AccountsResponse)
 async def list_accounts(
+    provider: ProviderScope = Query("all"),
     context: AccountsContext = Depends(get_accounts_context),
 ) -> AccountsResponse:
-    accounts = await context.service.list_accounts()
+    accounts = await context.service.list_accounts(provider=provider)
     return AccountsResponse(accounts=accounts)
 
 
@@ -239,6 +248,55 @@ async def import_account(
         raise DashboardConflictError(str(exc), code="duplicate_identity_conflict") from exc
 
 
+@router.post("/anthropic-api-key", response_model=AccountImportResponse)
+async def create_anthropic_api_key(
+    request: Request,
+    response: Response,
+    payload: AnthropicApiKeyRequest,
+    _write_access=Depends(require_dashboard_write_access),
+    context: AccountsContext = Depends(get_accounts_context),
+) -> AccountImportResponse:
+    result = await context.service.create_anthropic_api_key(
+        label=payload.label,
+        api_key=payload.api_key,
+    )
+    _set_no_store(response)
+    AuditService.log_async(
+        "anthropic_api_key_account_created",
+        actor_ip=request.client.host if request.client else None,
+        details={"account_id": result.account_id},
+    )
+    return result
+
+
+@router.put("/{account_id}/anthropic-api-key", response_model=AccountImportResponse)
+async def replace_anthropic_api_key(
+    request: Request,
+    response: Response,
+    account_id: str,
+    payload: AnthropicApiKeyRequest,
+    _write_access=Depends(require_dashboard_write_access),
+    context: AccountsContext = Depends(get_accounts_context),
+) -> AccountImportResponse:
+    try:
+        result = await context.service.replace_anthropic_api_key(
+            account_id,
+            label=payload.label,
+            api_key=payload.api_key,
+        )
+    except ProviderActionUnsupportedError as exc:
+        raise DashboardBadRequestError(str(exc), code="provider_action_unsupported") from exc
+    if result is None:
+        raise DashboardNotFoundError("Account not found", code="account_not_found")
+    _set_no_store(response)
+    AuditService.log_async(
+        "anthropic_api_key_account_replaced",
+        actor_ip=request.client.host if request.client else None,
+        details={"account_id": account_id},
+    )
+    return result
+
+
 @router.post("/{account_id}/reactivate", response_model=AccountReactivateResponse)
 async def reactivate_account(
     account_id: str,
@@ -354,7 +412,10 @@ async def update_account_limit_warmup(
     _write_access=Depends(require_dashboard_write_access),
     context: AccountsContext = Depends(get_accounts_context),
 ) -> AccountLimitWarmupUpdateResponse:
-    success = await context.service.set_limit_warmup_enabled(account_id, payload.enabled)
+    try:
+        success = await context.service.set_limit_warmup_enabled(account_id, payload.enabled)
+    except ProviderActionUnsupportedError as exc:
+        raise DashboardBadRequestError(str(exc), code="provider_action_unsupported") from exc
     if not success:
         raise DashboardNotFoundError("Account not found", code="account_not_found")
     return AccountLimitWarmupUpdateResponse(

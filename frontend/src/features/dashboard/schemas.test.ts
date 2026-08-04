@@ -74,6 +74,7 @@ describe("DashboardOverviewSchema", () => {
     });
 
     expect(parsed.accounts).toHaveLength(0);
+    expect(parsed.summary.cost.isPartial).toBe(false);
     expect(parsed.summary.comparison?.previous.requests).toBe(250);
   });
 
@@ -223,6 +224,7 @@ describe("RequestLogsResponseSchema", () => {
     });
 
     expect(parsed.requests[0]?.apiKeyName).toBe("Key A");
+    expect(parsed.requests[0]?.provider).toBe("openai");
     expect(parsed.requests[0]?.apiKeyId).toBe("key-1");
     expect(parsed.requests[0]?.archiveRequestId).toBe("archive-req-1");
     expect(parsed.requests[0]?.requestKind).toBe("normal");

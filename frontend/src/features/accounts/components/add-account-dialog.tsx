@@ -1,4 +1,4 @@
-import { Plus, Upload } from "lucide-react";
+import { KeyRound, Plus, Upload } from "lucide-react";
 
 import {
   Dialog,
@@ -8,15 +8,25 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import type { ProviderScope } from "@/features/providers/schemas";
 
 export type AddAccountDialogProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   onImport: () => void;
   onAddAccount: () => void;
+  onAddAnthropic: () => void;
+  providerScope?: ProviderScope;
 };
 
-export function AddAccountDialog({ open, onOpenChange, onImport, onAddAccount }: AddAccountDialogProps) {
+export function AddAccountDialog({
+  open,
+  onOpenChange,
+  onImport,
+  onAddAccount,
+  onAddAnthropic,
+  providerScope = "all",
+}: AddAccountDialogProps) {
   // Close the chooser first, then defer the action to the next frame. Opening a
   // second modal Dialog in the same tick the chooser closes can leave Radix's
   // `pointer-events: none` stuck on <body>, making the next dialog uninteractive.
@@ -30,12 +40,13 @@ export function AddAccountDialog({ open, onOpenChange, onImport, onAddAccount }:
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add account</DialogTitle>
-          <DialogDescription>Choose how you want to add a ChatGPT account.</DialogDescription>
+          <DialogDescription>Choose a provider and credential type.</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-2">
-          <button
+          {providerScope !== "anthropic" ? <button
             type="button"
+            aria-label="Add account"
             onClick={() => handleSelect(onAddAccount)}
             className={cn(
               "flex w-full cursor-pointer items-start gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-muted/50",
@@ -51,10 +62,11 @@ export function AddAccountDialog({ open, onOpenChange, onImport, onAddAccount }:
                 Sign in with OAuth (browser or device code)
               </span>
             </span>
-          </button>
+          </button> : null}
 
-          <button
+          {providerScope !== "anthropic" ? <button
             type="button"
+            aria-label="Import"
             onClick={() => handleSelect(onImport)}
             className={cn(
               "flex w-full cursor-pointer items-start gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-muted/50",
@@ -70,7 +82,29 @@ export function AddAccountDialog({ open, onOpenChange, onImport, onAddAccount }:
                 Import an exported auth.json file
               </span>
             </span>
-          </button>
+          </button> : null}
+
+          {providerScope !== "openai" ? (
+            <button
+              type="button"
+              aria-label="Claude API key"
+              onClick={() => handleSelect(onAddAnthropic)}
+              className={cn(
+                "flex w-full cursor-pointer items-start gap-3 rounded-lg border p-3 text-left transition-colors hover:bg-muted/50",
+                "outline-none focus-visible:border-ring focus-visible:ring-ring/50 focus-visible:ring-[3px]",
+              )}
+            >
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border bg-muted/50">
+                <KeyRound className="h-4 w-4 text-muted-foreground" />
+              </span>
+              <span className="min-w-0">
+                <span className="block text-sm font-medium">Claude API key</span>
+                <span className="mt-0.5 block text-xs text-muted-foreground">
+                  Add an Anthropic Console API key
+                </span>
+              </span>
+            </button>
+          ) : null}
         </div>
       </DialogContent>
     </Dialog>

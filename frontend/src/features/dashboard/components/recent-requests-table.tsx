@@ -236,11 +236,16 @@ export function RecentRequestsTable({
                     </div>
                   </TableCell>
                   <TableCell className="truncate align-top text-sm">
-                    {isEmailLabel && blurred ? (
-                      <span className="privacy-blur">{accountLabel}</span>
-                    ) : (
-                      accountLabel
-                    )}
+                    <div className="truncate">
+                      {isEmailLabel && blurred ? (
+                        <span className="privacy-blur">{accountLabel}</span>
+                      ) : (
+                        accountLabel
+                      )}
+                    </div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                      {request.provider === "anthropic" ? "Claude" : "OpenAI"}
+                    </div>
                   </TableCell>
                   <TableCell className="align-top">
                     {planType ? (

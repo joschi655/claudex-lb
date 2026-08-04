@@ -32,24 +32,24 @@ from app.core.clients.usage import (
 from app.core.config.settings import get_settings
 from app.core.crypto import TokenEncryptor
 from app.core.plan_types import coerce_account_plan_type
-from app.core.providers import PROVIDER_ANTHROPIC, PROVIDER_OPENAI
+from app.core.providers import (
+    CREDENTIAL_ANTHROPIC_API_KEY,
+    CREDENTIAL_OPENAI_OAUTH,
+    PROVIDER_ANTHROPIC,
+    PROVIDER_OPENAI,
+    ProviderScope,
+)
 from app.core.upstream_proxy import ResolvedUpstreamRoute, UpstreamProxyRouteError, resolve_upstream_route
 from app.core.upstream_proxy.resolver import _is_missing_upstream_proxy_schema
 from app.core.usage.models import UsagePayload
 from app.core.utils.time import naive_utc_to_epoch, to_utc_naive, utcnow
 from app.db.models import Account, AccountRoutingPolicy, AccountStatus, DashboardSettings
 from app.db.session import get_background_session
-from app.modules.accounts.anthropic_import import (
-    InvalidAnthropicCredentialError,
-    looks_like_anthropic_payload,
-    parse_anthropic_credential,
-)
+from app.modules.accounts.additional_quotas import AdditionalQuotaEntries, build_additional_quotas_by_account
 from app.modules.accounts.auth_manager import AuthManager
 from app.modules.accounts.mappers import build_account_summaries, build_account_usage_trends
 from app.modules.accounts.repository import AccountsRepository
 from app.modules.accounts.schemas import (
-    AccountAdditionalQuota,
-    AccountAdditionalWindow,
     AccountAuthExportResponse,
     AccountAuthExportTokens,
     AccountExportResponse,
@@ -76,10 +76,6 @@ from app.modules.proxy.account_cache import (
     propagate_account_routing_change,
 )
 from app.modules.rate_limit_reset_credits.store import get_rate_limit_reset_credits_store
-from app.modules.usage.additional_quota_keys import (
-    get_additional_display_label_for_quota_key,
-    get_additional_quota_routing_policy,
-)
 from app.modules.usage.repository import AdditionalUsageRepository, UsageRepository
 from app.modules.usage.updater import AdditionalUsageRepositoryPort, UsageUpdater
 
@@ -139,12 +135,19 @@ class AccountsService:
         self._encryptor = TokenEncryptor()
         self._auth_manager = auth_manager
 
-    async def list_accounts(self, *, account_ids: list[str] | None = None) -> list[AccountSummary]:
+    async def list_accounts(
+        self,
+        *,
+        account_ids: list[str] | None = None,
+        provider: ProviderScope = "all",
+    ) -> list[AccountSummary]:
         accounts = (
             await self._repo.list_accounts_by_ids(account_ids)
             if account_ids is not None
             else await self._repo.list_accounts()
         )
+        if provider != "all":
+            accounts = [account for account in accounts if (account.provider or PROVIDER_OPENAI) == provider]
         if not accounts:
             return []
         visible_account_ids = [account.id for account in accounts]
@@ -178,7 +181,8 @@ class AccountsService:
             )
             for account_id, row in request_usage_rows.items()
         }
-        additional_quotas_by_account: dict[str, list[AccountAdditionalQuota]] = {}
+        additional_quota_entries: list[AdditionalQuotaEntries] = []
+        additional_quota_routing_overrides: dict[str, str] = {}
         additional_usage_repo = cast(AdditionalUsageRepository | None, self._additional_usage_repo)
         if additional_usage_repo:
             additional_quota_routing_overrides = await self._repo.additional_quota_routing_policy_overrides()
@@ -194,41 +198,12 @@ class AccountsService:
                     "secondary",
                     account_ids=visible_account_ids,
                 )
-                for account_id in (set(primary_entries) | set(secondary_entries)) & account_id_set:
-                    primary_entry = primary_entries.get(account_id)
-                    secondary_entry = secondary_entries.get(account_id)
-                    reference_entry = primary_entry or secondary_entry
-                    if reference_entry is None:
-                        continue
-                    additional_quotas_by_account.setdefault(account_id, []).append(
-                        AccountAdditionalQuota(
-                            quota_key=quota_key,
-                            limit_name=reference_entry.limit_name,
-                            metered_feature=reference_entry.metered_feature,
-                            display_label=get_additional_display_label_for_quota_key(quota_key)
-                            or reference_entry.limit_name,
-                            routing_policy=get_additional_quota_routing_policy(
-                                quota_key,
-                                overrides=additional_quota_routing_overrides,
-                            ),
-                            primary_window=AccountAdditionalWindow(
-                                used_percent=primary_entry.used_percent,
-                                reset_at=primary_entry.reset_at,
-                                window_minutes=primary_entry.window_minutes,
-                            )
-                            if primary_entry is not None
-                            else None,
-                            secondary_window=AccountAdditionalWindow(
-                                used_percent=secondary_entry.used_percent,
-                                reset_at=secondary_entry.reset_at,
-                                window_minutes=secondary_entry.window_minutes,
-                            )
-                            if secondary_entry is not None
-                            else None,
-                        )
-                    )
-        for account_quota_list in additional_quotas_by_account.values():
-            account_quota_list.sort(key=lambda quota: quota.display_label or quota.quota_key or quota.limit_name)
+                additional_quota_entries.append((quota_key, primary_entries, secondary_entries))
+        additional_quotas_by_account = build_additional_quotas_by_account(
+            additional_quota_entries,
+            account_ids=account_id_set,
+            routing_overrides=additional_quota_routing_overrides,
+        )
 
         return build_account_summaries(
             accounts=accounts,
@@ -267,6 +242,10 @@ class AccountsService:
         account = await self._repo.get_by_id(account_id)
         if account is None:
             return None
+        if (account.provider or PROVIDER_OPENAI) != PROVIDER_OPENAI:
+            raise AccountUsageResetCreditsUnavailableError(
+                f"Usage reset credits are not supported for {account.provider} accounts"
+            )
         if account.status in (AccountStatus.PAUSED, AccountStatus.REAUTH_REQUIRED, AccountStatus.DEACTIVATED):
             raise AccountUsageResetCreditsUnavailableError(
                 f"Account is {account.status.value} and cannot fetch usage reset credits",
@@ -330,6 +309,10 @@ class AccountsService:
         account = await self._repo.get_by_id(account_id)
         if account is None:
             return None
+        if (account.provider or PROVIDER_OPENAI) != PROVIDER_OPENAI:
+            raise AccountUsageResetConsumeUnavailableError(
+                f"Usage reset credits are not supported for {account.provider} accounts"
+            )
         if account.status in (AccountStatus.PAUSED, AccountStatus.REAUTH_REQUIRED, AccountStatus.DEACTIVATED):
             raise AccountUsageResetConsumeUnavailableError(
                 f"Account is {account.status.value} and cannot consume usage reset credits",
@@ -512,13 +495,6 @@ class AccountsService:
 
     async def import_account(self, raw: bytes) -> AccountImportResponse:
         try:
-            probe = json.loads(raw)
-        except (json.JSONDecodeError, UnicodeDecodeError) as exc:
-            raise InvalidAuthJsonError("Invalid auth.json payload") from exc
-        if looks_like_anthropic_payload(probe):
-            return await self._import_anthropic_account(probe)
-
-        try:
             auth = parse_auth_json(raw)
         except (json.JSONDecodeError, ValidationError, UnicodeDecodeError, TypeError) as exc:
             raise InvalidAuthJsonError("Invalid auth.json payload") from exc
@@ -532,6 +508,8 @@ class AccountsService:
 
         account = Account(
             id=account_id,
+            provider=PROVIDER_OPENAI,
+            credential_kind=CREDENTIAL_OPENAI_OAUTH,
             chatgpt_account_id=raw_account_id,
             email=email,
             workspace_id=claims.workspace_id,
@@ -566,6 +544,8 @@ class AccountsService:
         get_account_selection_cache().invalidate()
         return AccountImportResponse(
             account_id=saved.id,
+            provider=PROVIDER_OPENAI,
+            credential_kind=CREDENTIAL_OPENAI_OAUTH,
             email=saved.email,
             workspace_id=saved.workspace_id,
             workspace_label=saved.workspace_label,
@@ -574,47 +554,60 @@ class AccountsService:
             status=saved.status,
         )
 
-    async def _import_anthropic_account(self, data: dict[str, object]) -> AccountImportResponse:
-        try:
-            parsed = parse_anthropic_credential(data)
-        except InvalidAnthropicCredentialError as exc:
-            raise InvalidAuthJsonError(str(exc)) from exc
-
-        # Static console credentials are consumption-based and routed last by
-        # default (operator can flip routing policy in the dashboard); OAuth
-        # accounts route normally.
-        routing_policy = AccountRoutingPolicy.PRESERVE.value if parsed.is_static else AccountRoutingPolicy.NORMAL.value
-        # Static credentials have no refresh token, but the column is non-null;
-        # an encrypted empty string marks "nothing to refresh".
-        refresh_material = parsed.refresh_token if parsed.refresh_token is not None else ""
-
+    async def create_anthropic_api_key(self, *, label: str, api_key: str) -> AccountImportResponse:
+        normalized_label = label.strip()
+        normalized_api_key = api_key.strip()
+        if not normalized_label or not normalized_api_key:
+            raise InvalidAuthJsonError("Claude API-key label and key are required")
+        account_id = f"anthropic-{uuid4().hex}"
         account = Account(
-            id=f"anthropic-{uuid4().hex}",
+            id=account_id,
             provider=PROVIDER_ANTHROPIC,
-            email=parsed.email,
-            plan_type=parsed.plan_type,
-            routing_policy=routing_policy,
-            access_token_encrypted=self._encryptor.encrypt(parsed.access_token),
-            refresh_token_encrypted=self._encryptor.encrypt(refresh_material),
+            credential_kind=CREDENTIAL_ANTHROPIC_API_KEY,
+            email=f"{account_id}@api-key.local",
+            alias=normalized_label,
+            plan_type="claude_api",
+            routing_policy=AccountRoutingPolicy.NORMAL.value,
+            access_token_encrypted=self._encryptor.encrypt(normalized_api_key),
+            refresh_token_encrypted=self._encryptor.encrypt(""),
             id_token_encrypted=None,
-            access_token_expires_at=parsed.access_token_expires_at,
+            access_token_expires_at=None,
             last_refresh=utcnow(),
             status=AccountStatus.ACTIVE,
             deactivation_reason=None,
         )
-
-        saved = await self._repo.upsert_account_slot(account)
+        saved = await self._repo.upsert_account_slot(account, preserve_unknown_workspace_duplicates=True)
         clear_account_routing_unavailable(saved.id)
-        get_account_selection_cache().invalidate()
-        return AccountImportResponse(
-            account_id=saved.id,
-            email=saved.email,
-            workspace_id=saved.workspace_id,
-            workspace_label=saved.workspace_label,
-            seat_type=saved.seat_type,
-            plan_type=saved.plan_type,
-            status=saved.status,
+        await _invalidate_account_routing()
+        return _anthropic_api_key_response(saved)
+
+    async def replace_anthropic_api_key(
+        self,
+        account_id: str,
+        *,
+        label: str,
+        api_key: str,
+    ) -> AccountImportResponse | None:
+        normalized_label = label.strip()
+        normalized_api_key = api_key.strip()
+        if not normalized_label or not normalized_api_key:
+            raise InvalidAuthJsonError("Claude API-key label and key are required")
+        existing = await self._repo.get_by_id(account_id)
+        if existing is None:
+            return None
+        if existing.provider != PROVIDER_ANTHROPIC:
+            raise ProviderActionUnsupportedError("Claude API-key replacement requires an anthropic account")
+        saved = await self._repo.replace_anthropic_api_key(
+            account_id,
+            label=normalized_label,
+            access_token_encrypted=self._encryptor.encrypt(normalized_api_key),
+            empty_refresh_token_encrypted=self._encryptor.encrypt(""),
         )
+        if saved is None:
+            return None
+        clear_account_routing_unavailable(saved.id)
+        await _invalidate_account_routing()
+        return _anthropic_api_key_response(saved)
 
     async def _import_usage_refresh_allowed(self, account: Account) -> bool:
         try:
@@ -708,6 +701,10 @@ class AccountsService:
         return result
 
     async def set_limit_warmup_enabled(self, account_id: str, enabled: bool) -> bool:
+        account = await self._repo.get_by_id(account_id)
+        if account is None:
+            return False
+        _require_openai_provider(account, "limit warm-up")
         result = await self._repo.update_limit_warmup_enabled(account_id, enabled)
         if result:
             get_account_selection_cache().invalidate()
@@ -894,3 +891,26 @@ def _require_openai_provider(account: Account, action: str) -> None:
     # only an explicit non-OpenAI provider blocks the action.
     if account.provider not in (None, PROVIDER_OPENAI):
         raise ProviderActionUnsupportedError(f"{action} is not supported for {account.provider} accounts")
+
+
+def _anthropic_api_key_response(account: Account) -> AccountImportResponse:
+    return AccountImportResponse(
+        account_id=account.id,
+        provider=PROVIDER_ANTHROPIC,
+        credential_kind=CREDENTIAL_ANTHROPIC_API_KEY,
+        email=account.email,
+        workspace_id=account.workspace_id,
+        workspace_label=account.workspace_label,
+        seat_type=account.seat_type,
+        plan_type=account.plan_type,
+        status=account.status,
+    )
+
+
+async def _invalidate_account_routing() -> None:
+    get_account_selection_cache().invalidate()
+    get_api_key_cache().clear()
+    await propagate_account_routing_change()
+    poller = get_cache_invalidation_poller()
+    if poller is not None:
+        await poller.bump(NAMESPACE_API_KEY)

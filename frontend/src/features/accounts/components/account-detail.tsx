@@ -36,6 +36,7 @@ export type AccountDetailProps = {
   onSetAlias: (accountId: string, alias: string | null) => Promise<unknown>;
   onDelete: (accountId: string) => void;
   onReauth: () => void;
+  onReplaceAnthropicApiKey: (accountId: string) => void;
   onExportAuth: (accountId: string) => void;
   onResetCredit: (accountId: string) => void;
   onLimitWarmupChange: (accountId: string, enabled: boolean) => void;
@@ -64,6 +65,7 @@ export function AccountDetail({
   onSetAlias,
   onDelete,
   onReauth,
+  onReplaceAnthropicApiKey,
   onExportAuth,
   onResetCredit,
   onLimitWarmupChange,
@@ -76,7 +78,8 @@ export function AccountDetail({
   resetCreditsLoading = false,
   resetCreditsUnavailable = false,
 }: AccountDetailProps) {
-  const { data: trends } = useAccountTrends(account?.accountId ?? null);
+  const isOpenAiAccount = account?.provider !== "anthropic";
+  const { data: trends } = useAccountTrends(account?.accountId ?? null, isOpenAiAccount);
   const blurred = usePrivacyStore((s) => s.blurred);
 
   if (!account) {
@@ -144,11 +147,13 @@ export function AccountDetail({
           </p>
         ) : null}
         <p className="mt-0.5 text-xs text-muted-foreground">
-          {workspaceLabel} | {formatSlug(account.planType)}{seatLabel}
+          {isOpenAiAccount
+            ? `${workspaceLabel} | ${formatSlug(account.planType)}${seatLabel}`
+            : `Claude | ${formatSlug(account.credentialKind)}`}
         </p>
       </div>
 
-      {onProxyBindingSave ? (
+      {isOpenAiAccount && onProxyBindingSave ? (
         <AccountProxyBinding
           account={account}
           admin={upstreamProxyAdmin}
@@ -167,7 +172,7 @@ export function AccountDetail({
         resetDisabled={usageResetDisabled}
         onReset={onResetUsage}
       />
-      <AccountTokenInfo account={account} />
+      {isOpenAiAccount ? <AccountTokenInfo account={account} /> : null}
       <AccountActions
         account={account}
         busy={busy}
@@ -177,6 +182,7 @@ export function AccountDetail({
         onProbe={onProbe}
         onDelete={onDelete}
         onReauth={onReauth}
+        onReplaceAnthropicApiKey={onReplaceAnthropicApiKey}
         onExportAuth={onExportAuth}
         onResetCredit={onResetCredit}
         onLimitWarmupChange={onLimitWarmupChange}

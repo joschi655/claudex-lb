@@ -9,7 +9,11 @@ from __future__ import annotations
 
 import pytest
 
-from app.core.providers import PROVIDER_ANTHROPIC
+from app.core.providers import (
+    CREDENTIAL_ANTHROPIC_API_KEY,
+    CREDENTIAL_OPENAI_OAUTH,
+    PROVIDER_ANTHROPIC,
+)
 from app.core.utils.time import utcnow
 from app.db.models import Account, AccountStatus
 from app.modules.accounts.repository import (
@@ -31,6 +35,7 @@ def _account(
     return Account(
         id=account_id,
         provider=provider,
+        credential_kind=(CREDENTIAL_ANTHROPIC_API_KEY if provider == PROVIDER_ANTHROPIC else CREDENTIAL_OPENAI_OAUTH),
         email=email,
         plan_type="plus",
         access_token_encrypted=b"access",
@@ -50,11 +55,11 @@ def test_email_fallback_never_crosses_providers():
     assert _can_reuse_email_fallback(incoming_anthropic, existing_openai) is False
 
 
-def test_email_fallback_allows_same_provider():
+def test_email_fallback_never_merges_anthropic_rows():
     existing = _account("anthropic-1", provider=PROVIDER_ANTHROPIC)
     incoming = _account("anthropic-2", provider=PROVIDER_ANTHROPIC)
 
-    assert _can_reuse_email_fallback(existing, incoming) is True
+    assert _can_reuse_email_fallback(existing, incoming) is False
 
 
 def test_apply_account_updates_carries_provider_columns():
@@ -65,14 +70,13 @@ def test_apply_account_updates_carries_provider_columns():
     _apply_account_updates(target, source)
 
     assert target.provider == PROVIDER_ANTHROPIC
+    assert target.credential_kind == CREDENTIAL_ANTHROPIC_API_KEY
     assert target.access_token_expires_at == 1_900_000_000
     assert target.access_token_encrypted == b"rotated-access"
 
 
-def test_slot_lock_keys_for_anthropic_account_key_on_email():
+def test_slot_lock_keys_for_anthropic_account_key_on_local_id():
     account = _account("anthropic-1", provider=PROVIDER_ANTHROPIC, email="claude@example.com")
 
-    assert _slot_lock_keys(account) == ("slot-anthropic:claude@example.com",)
-    assert _slot_lock_keys(account, preserve_unknown_workspace_duplicates=False) == (
-        "slot-anthropic:claude@example.com",
-    )
+    assert _slot_lock_keys(account) == ("slot-local:anthropic-1",)
+    assert _slot_lock_keys(account, preserve_unknown_workspace_duplicates=False) == ("slot-local:anthropic-1",)

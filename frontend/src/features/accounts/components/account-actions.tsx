@@ -1,6 +1,7 @@
 import {
   Activity,
   Download,
+  KeyRound,
   Pause,
   Play,
   RefreshCw,
@@ -35,6 +36,7 @@ export type AccountActionsProps = {
   onProbe: (accountId: string) => void;
   onDelete: (accountId: string) => void;
   onReauth: () => void;
+  onReplaceAnthropicApiKey: (accountId: string) => void;
   onExportAuth: (accountId: string) => void;
   onResetCredit: (accountId: string) => void;
   onSecurityWorkAuthorizedChange: (accountId: string, enabled: boolean) => void;
@@ -54,6 +56,7 @@ export function AccountActions({
   onProbe,
   onDelete,
   onReauth,
+  onReplaceAnthropicApiKey,
   onExportAuth,
   onResetCredit,
   onSecurityWorkAuthorizedChange,
@@ -64,7 +67,7 @@ export function AccountActions({
     account.status === "reauth_required" || account.status === "deactivated";
   // Probe, warm-up, and Codex auth export hit ChatGPT-specific upstream APIs
   // and only apply to OpenAI accounts.
-  const isOpenAiProvider = account.provider !== "anthropic";
+  const isOpenAiProvider = account.provider === "openai";
   const probeDisabled =
     busy || readOnly || account.status === "paused" || showOperatorRecoveryAction;
   const resetCountdown = account.resetCreditNearestExpiresAt
@@ -157,7 +160,7 @@ export function AccountActions({
           </Button>
         )}
 
-        {showOperatorRecoveryAction ? (
+        {showOperatorRecoveryAction && isOpenAiProvider ? (
           <Button
             type="button"
             size="sm"
@@ -168,6 +171,20 @@ export function AccountActions({
           >
             <RefreshCw className="h-3.5 w-3.5" />
             Re-authenticate
+          </Button>
+        ) : null}
+
+        {!isOpenAiProvider ? (
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1.5 text-xs"
+            onClick={() => onReplaceAnthropicApiKey(account.accountId)}
+            disabled={busy || readOnly}
+          >
+            <KeyRound className="h-3.5 w-3.5" />
+            Replace API key
           </Button>
         ) : null}
 
@@ -215,7 +232,7 @@ export function AccountActions({
           </Button>
         ) : null}
 
-        {hasResetCredits ? (
+        {isOpenAiProvider && hasResetCredits ? (
           <Button
             type="button"
             size="sm"

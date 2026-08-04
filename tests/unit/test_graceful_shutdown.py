@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from importlib import import_module
 
 import pytest
@@ -156,6 +157,47 @@ async def test_in_flight_middleware_increments_and_decrements() -> None:
 
     assert in_flight_during_app == 1
     assert shutdown_state.get_in_flight() == 0
+
+
+@pytest.mark.asyncio
+async def test_in_flight_middleware_uses_anthropic_envelope_during_drain() -> None:
+    shutdown_state.set_draining(True)
+    app_called = False
+
+    async def inner_app(scope, receive, send):  # noqa: ANN001, ARG001
+        nonlocal app_called
+        app_called = True
+
+    middleware = InFlightMiddleware(inner_app)
+    scope = {
+        "type": "http",
+        "http_version": "1.1",
+        "method": "POST",
+        "scheme": "http",
+        "path": "/v1/messages",
+        "raw_path": b"/v1/messages",
+        "query_string": b"",
+        "root_path": "",
+        "headers": [],
+        "client": ("testclient", 50000),
+        "server": ("testserver", 80),
+    }
+
+    async def receive():  # noqa: ANN202
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    sent_messages: list[dict] = []
+
+    async def send(msg):  # noqa: ANN001, ANN202
+        sent_messages.append(msg)
+
+    await middleware(scope, receive, send)
+
+    assert app_called is False
+    assert sent_messages[0]["status"] == 503
+    payload = json.loads(sent_messages[1]["body"])
+    assert payload["type"] == "error"
+    assert payload["error"]["type"] == "overloaded_error"
 
 
 @pytest.mark.asyncio
