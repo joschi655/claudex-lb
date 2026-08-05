@@ -42,7 +42,7 @@ def _anthropic_account(
     )
 
 
-def _primary_window(account_id: str, *, reset_at: int, used_percent: float = 96.0) -> UsageHistory:
+def _primary_window(account_id: str, *, reset_at: int | None, used_percent: float = 96.0) -> UsageHistory:
     return UsageHistory(
         account_id=account_id,
         used_percent=used_percent,
@@ -145,6 +145,28 @@ async def test_window_still_open_is_left_alone() -> None:
 
     assert sender.calls == []
     assert repo.rows == []
+
+
+@pytest.mark.asyncio
+async def test_a_window_that_is_not_running_is_warmed() -> None:
+    """The usage API reports a spent window as utilization 0 with no reset.
+
+    That is the state warmup exists to leave, so it must be a candidate --
+    before the poll existed, the only signal was a stale reset in the past.
+    """
+    account = _anthropic_account()
+    sender = RecordingSender()
+    service, repo, _ = _service(sender=sender)
+
+    await _run(
+        service,
+        accounts=[account],
+        settings=_settings(),
+        latest_primary={account.id: _primary_window(account.id, reset_at=None, used_percent=0.0)},
+    )
+
+    assert sender.calls == [(account.id, ANTHROPIC_WARMUP_MODEL, "Say OK.")]
+    assert [row.status for row in repo.rows] == ["succeeded"]
 
 
 @pytest.mark.asyncio

@@ -51,6 +51,9 @@ _RESET_CONFIRMED_MIN_JUMP_SECONDS = 60
 # Persist the upstream value, but treat nearby values as the same staggered-idle
 # cycle. This avoids every boundary inherent in stateless timestamp bucketing.
 _IDLE_RESET_AT_JITTER_TOLERANCE_SECONDS = 5
+# Stands in for the reset timestamp of a window that is not running, so an
+# attempt against that state has a stable dedupe key.
+_NO_WINDOW_RESET_AT = 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -918,15 +921,26 @@ class _WarmupCandidate:
 
 
 def _anthropic_elapsed_window_candidate(entry: UsageHistory | None, *, now: int) -> _WarmupCandidate | None:
-    """A candidate iff the account has a five-hour window and it has closed.
+    """A candidate iff the account has a five-hour window and it is not running.
 
-    ``None`` covers both "never recorded a window" and "still inside it". The
-    first case is what excludes usage-based seats: they bill against a budget
-    and their responses carry no window headers, so no row is ever written and
-    there is no window a ping could open.
+    ``entry is None`` -- "never recorded a window" -- is what excludes
+    usage-based seats: they bill against a budget, report no window either in
+    response headers or from the usage API, so no row is ever written and there
+    is no window a ping could open.
+
+    A row with **no reset** is the opposite case and is a candidate. The usage
+    API answers ``five_hour: {utilization: 0, resets_at: null}`` for an account
+    whose five hours have run out, which is exactly the state warmup exists to
+    leave. Before the usage poll existed this state was invisible -- the stored
+    row kept the spent window's old reset timestamp, and an elapsed timestamp
+    was the only available signal.
     """
-    if entry is None or entry.reset_at is None:
+    if entry is None:
         return None
+    if entry.reset_at is None:
+        # Zero rather than a missing timestamp so the attempt record dedupes on
+        # "the closed-window state", which is what is being acted on.
+        return _WarmupCandidate(reset_at=_NO_WINDOW_RESET_AT, window="primary")
     if entry.reset_at > now:
         return None
     return _WarmupCandidate(reset_at=entry.reset_at, window="primary")
