@@ -32,6 +32,14 @@ export const ROUTING_LABELS = {
   sticky: "sticky",
 } as const;
 
+export const PROVIDER_ANTHROPIC = "anthropic";
+export const PROVIDER_OPENAI = "openai";
+
+export const PROVIDER_LABELS: Record<string, string> = {
+  [PROVIDER_ANTHROPIC]: "Claude",
+  [PROVIDER_OPENAI]: "Codex",
+};
+
 export const KNOWN_PLAN_TYPES = new Set([
   "free",
   "plus",

@@ -15,6 +15,7 @@ const DEFAULT_FILTER_STATE: FilterState = {
   timeframe: "all",
   accountIds: [],
   apiKeyIds: [],
+  providers: [],
   modelOptions: [],
   statuses: [],
   limit: 25,
@@ -26,6 +27,7 @@ const REQUEST_LOG_PARAM_KEYS = [
   "timeframe",
   "accountId",
   "apiKeyId",
+  "provider",
   "modelOption",
   "status",
   "limit",
@@ -46,6 +48,7 @@ function parseFilterState(params: URLSearchParams): FilterState {
     timeframe: params.get("timeframe") ?? "all",
     accountIds: params.getAll("accountId"),
     apiKeyIds: params.getAll("apiKeyId"),
+    providers: params.getAll("provider"),
     modelOptions: params.getAll("modelOption"),
     statuses: params.getAll("status"),
     limit: parseNumber(params.get("limit"), DEFAULT_FILTER_STATE.limit),
@@ -74,6 +77,9 @@ function writeFilterState(state: FilterState, base?: URLSearchParams): URLSearch
   }
   for (const value of state.apiKeyIds) {
     params.append("apiKeyId", value);
+  }
+  for (const value of state.providers) {
+    params.append("provider", value);
   }
   for (const value of state.modelOptions) {
     params.append("modelOption", value);
@@ -111,6 +117,7 @@ export function useRequestLogs() {
       offset: filters.offset,
       accountIds: filters.accountIds,
       apiKeyIds: filters.apiKeyIds,
+      providers: filters.providers,
       statuses: filters.statuses,
       modelOptions: filters.modelOptions,
       since,
@@ -122,9 +129,10 @@ export function useRequestLogs() {
       since,
       accountIds: filters.accountIds,
       apiKeyIds: filters.apiKeyIds,
+      providers: filters.providers,
       modelOptions: filters.modelOptions,
     }),
-    [filters.accountIds, filters.apiKeyIds, filters.modelOptions, since],
+    [filters.accountIds, filters.apiKeyIds, filters.providers, filters.modelOptions, since],
   );
 
   const {

@@ -5,6 +5,7 @@ type ReportsFilterState = {
   startDate: string | undefined;
   endDate: string | undefined;
   accountId: string[];
+  provider?: string | undefined;
   model: string | undefined;
   useragent?: string | undefined;
 };
@@ -20,6 +21,7 @@ export function useReports(
         startDate: filters.startDate,
         endDate: filters.endDate,
         accountId: filters.accountId.length > 0 ? filters.accountId : undefined,
+        provider: filters.provider || undefined,
         model: filters.model || undefined,
         useragent: filters.useragent || undefined,
         timezone: timeZone,

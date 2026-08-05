@@ -29,6 +29,7 @@ class ReportsService:
         account_ids: list[str] | None = None,
         model: str | None = None,
         useragent_group: str | None = None,
+        provider: str | None = None,
     ) -> ReportsResponse:
         timezone_info = _resolve_timezone(report_timezone)
         now = utcnow().replace(tzinfo=timezone.utc).astimezone(timezone_info)
@@ -48,15 +49,20 @@ class ReportsService:
         previous_start_at = _local_midnight_to_utc_naive(previous_start_date, timezone_info)
         previous_end_at = _local_midnight_to_utc_naive(previous_end_date + timedelta(days=1), timezone_info)
 
-        summary = await self._repository.aggregate_summary(start_at, end_at, account_ids, model, useragent_group)
+        summary = await self._repository.aggregate_summary(
+            start_at, end_at, account_ids, model, useragent_group, provider
+        )
         previous_summary = await self._repository.aggregate_summary(
             previous_start_at,
             previous_end_at,
             account_ids,
             model,
             useragent_group,
+            provider,
         )
-        earliest_activity_at = await self._repository.earliest_report_activity_at(account_ids, model, useragent_group)
+        earliest_activity_at = await self._repository.earliest_report_activity_at(
+            account_ids, model, useragent_group, provider
+        )
         daily_rows = await self._repository.aggregate_daily_rows(
             start_date,
             end_date,
@@ -64,6 +70,7 @@ class ReportsService:
             account_ids,
             model,
             useragent_group,
+            provider,
         )
         daily = [
             DailyReportRow(
@@ -81,14 +88,19 @@ class ReportsService:
             )
             for row in daily_rows
         ]
-        by_model = await self._repository.aggregate_by_model(start_at, end_at, account_ids, model, useragent_group)
-        by_account = await self._repository.aggregate_by_account(start_at, end_at, account_ids, model, useragent_group)
+        by_model = await self._repository.aggregate_by_model(
+            start_at, end_at, account_ids, model, useragent_group, provider
+        )
+        by_account = await self._repository.aggregate_by_account(
+            start_at, end_at, account_ids, model, useragent_group, provider
+        )
         by_useragent = await self._repository.aggregate_by_useragent(
             start_at,
             end_at,
             account_ids,
             model,
             useragent_group,
+            provider,
         )
 
         day_count = max((end_at.date() - start_at.date()).days, 1)

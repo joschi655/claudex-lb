@@ -82,6 +82,7 @@ class ReportsRepository:
         account_ids: list[str] | None = None,
         model: str | None = None,
         useragent_group: str | None = None,
+        provider: str | None = None,
     ) -> list[DailyReportAggregateRow]:
         window_days = (end_date - start_date).days + 1
         if window_days > MAX_DAILY_REPORT_DAYS:
@@ -96,7 +97,7 @@ class ReportsRepository:
         for day_ranges_batch in batched(day_ranges, _SQLITE_COMPOUND_SELECT_LIMIT):
             day_ranges_list = list(day_ranges_batch)
             speed_result = await self._session.execute(
-                _daily_speed_medians_stmt(day_ranges_list, account_ids, model, useragent_group)
+                _daily_speed_medians_stmt(day_ranges_list, account_ids, model, useragent_group, provider)
             )
             speed_values = {
                 speed_row.report_date: (
@@ -107,7 +108,9 @@ class ReportsRepository:
                 for speed_row in speed_result.all()
             }
 
-            result = await self._session.execute(_daily_rows_stmt(day_ranges_list, account_ids, model, useragent_group))
+            result = await self._session.execute(
+                _daily_rows_stmt(day_ranges_list, account_ids, model, useragent_group, provider)
+            )
             rows.extend(
                 DailyReportAggregateRow(
                     date=row.report_date,
@@ -133,8 +136,9 @@ class ReportsRepository:
         account_ids: list[str] | None = None,
         model: str | None = None,
         useragent_group: str | None = None,
+        provider: str | None = None,
     ) -> SummaryAggregateRow:
-        conditions = _report_conditions(start_date, end_date, account_ids, model, useragent_group)
+        conditions = _report_conditions(start_date, end_date, account_ids, model, useragent_group, provider)
 
         result = await self._session.execute(
             select(
@@ -168,9 +172,10 @@ class ReportsRepository:
         account_ids: list[str] | None = None,
         model: str | None = None,
         useragent_group: str | None = None,
+        provider: str | None = None,
     ) -> list[ModelAggregateRow]:
         conditions = [
-            *_report_conditions(start_date, end_date, account_ids, model, useragent_group),
+            *_report_conditions(start_date, end_date, account_ids, model, useragent_group, provider),
             RequestLog.model.is_not(None),
         ]
 
@@ -201,8 +206,9 @@ class ReportsRepository:
         account_ids: list[str] | None = None,
         model: str | None = None,
         useragent_group: str | None = None,
+        provider: str | None = None,
     ) -> list[AccountAggregateRow]:
-        conditions = _report_conditions(start_date, end_date, account_ids, model, useragent_group)
+        conditions = _report_conditions(start_date, end_date, account_ids, model, useragent_group, provider)
 
         stmt = (
             select(
@@ -242,10 +248,11 @@ class ReportsRepository:
         account_ids: list[str] | None = None,
         model: str | None = None,
         useragent_group: str | None = None,
+        provider: str | None = None,
     ) -> list[UserAgentAggregateRow]:
         useragent_group_bucket = _useragent_group_bucket_expr()
         conditions = [
-            *_report_conditions(start_date, end_date, account_ids, model, useragent_group),
+            *_report_conditions(start_date, end_date, account_ids, model, useragent_group, provider),
             or_(RequestLog.useragent_group.is_(None), func.trim(RequestLog.useragent_group) != ""),
         ]
 
@@ -276,9 +283,10 @@ class ReportsRepository:
         account_ids: list[str] | None = None,
         model: str | None = None,
         useragent_group: str | None = None,
+        provider: str | None = None,
     ) -> int:
         conditions = [
-            *_report_conditions(start_date, end_date, account_ids, model, useragent_group),
+            *_report_conditions(start_date, end_date, account_ids, model, useragent_group, provider),
             RequestLog.account_id.is_not(None),
         ]
 
@@ -292,6 +300,7 @@ class ReportsRepository:
         account_ids: list[str] | None = None,
         model: str | None = None,
         useragent_group: str | None = None,
+        provider: str | None = None,
     ) -> datetime | None:
         conditions = [_normal_traffic_clause()]
         if account_ids:
@@ -313,6 +322,7 @@ def _report_conditions(
     account_ids: list[str] | None,
     model: str | None,
     useragent_group: str | None,
+    provider: str | None,
 ) -> list:
     conditions = [
         RequestLog.requested_at >= start_date,
@@ -323,6 +333,8 @@ def _report_conditions(
         conditions.append(RequestLog.account_id.in_(account_ids))
     if model:
         conditions.append(RequestLog.model == model)
+    if provider:
+        conditions.append(RequestLog.provider == provider)
     useragent_group_clause = _useragent_group_filter_clause(useragent_group)
     if useragent_group_clause is not None:
         conditions.append(useragent_group_clause)
@@ -372,6 +384,7 @@ def _daily_speed_medians_stmt(
     account_ids: list[str] | None,
     model: str | None,
     useragent_group: str | None,
+    provider: str | None,
 ):
     useragent_group_clause = _useragent_group_filter_clause(useragent_group)
     day_ranges_cte = _day_ranges_cte(day_ranges)
@@ -383,6 +396,7 @@ def _daily_speed_medians_stmt(
             _normal_traffic_clause(),
             *([RequestLog.account_id.in_(account_ids)] if account_ids else []),
             *([RequestLog.model == model] if model else []),
+            *([RequestLog.provider == provider] if provider else []),
             *([useragent_group_clause] if useragent_group_clause is not None else []),
         ),
     )
@@ -516,6 +530,7 @@ def _daily_rows_stmt(
     account_ids: list[str] | None,
     model: str | None,
     useragent_group: str | None,
+    provider: str | None,
 ):
     useragent_group_clause = _useragent_group_filter_clause(useragent_group)
     day_ranges_cte = _day_ranges_cte(day_ranges)
@@ -542,6 +557,7 @@ def _daily_rows_stmt(
                     _normal_traffic_clause(),
                     *([RequestLog.account_id.in_(account_ids)] if account_ids else []),
                     *([RequestLog.model == model] if model else []),
+                    *([RequestLog.provider == provider] if provider else []),
                     *([useragent_group_clause] if useragent_group_clause is not None else []),
                 ),
             )

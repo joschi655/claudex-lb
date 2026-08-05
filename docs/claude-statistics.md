@@ -17,6 +17,24 @@ recorded as `cached_input_tokens`. This matches how the Codex rows are stored, w
 cached tokens are a subset of the input total, so the two providers' numbers can be read
 side by side.
 
+## Reading one provider at a time
+
+Every request row carries the provider of the account that served it, copied at write
+time rather than looked up through the account, so the split survives an account being
+deleted. Claude rows are marked with a badge in the request list; Codex rows are left
+unmarked.
+
+Once both providers have served traffic, a **Providers** filter appears on the request
+list and a **Provider** filter on the reports page. Selecting one narrows every figure on
+the page — totals, the model donut, cost per day, tokens per day, and the latency
+percentiles. A deployment that only serves Codex never sees the control at all.
+
+Two aggregates in particular are worth reading per provider rather than combined. Cost
+per day mixes priced Codex rows with Claude rows that carry no price, so the combined
+line understates nothing but describes two different things at once. The latency
+percentiles average two upstreams with different response characteristics, so a combined
+p95 can describe no request that actually happened.
+
 ## Failover is visible
 
 When an account is rate limited and the request fails over, both attempts are logged:
@@ -42,4 +60,5 @@ that was never spent. Token counts and latency are recorded in full.
 
 ---
 
-*Spec: [anthropic-provider](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/anthropic-provider)*
+*Specs: [anthropic-provider](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/anthropic-provider),
+[proxy-runtime-observability](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/proxy-runtime-observability)*

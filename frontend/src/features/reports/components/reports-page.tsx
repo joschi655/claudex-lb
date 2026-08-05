@@ -4,8 +4,10 @@ import { useQuery } from "@tanstack/react-query";
 import { AlertMessage } from "@/components/alert-message";
 import { Button } from "@/components/ui/button";
 import { listAccounts } from "@/features/accounts/api";
+import { getRequestLogOptions } from "@/features/dashboard/api";
 import { useReports } from "@/features/reports/hooks/use-reports";
 import { getErrorMessageOrNull } from "@/utils/errors";
+import { formatProviderLabel } from "@/utils/formatters";
 import { ReportsFilters, type ReportsFiltersState } from "./reports-filters";
 import { ReportsSummaryCards } from "./reports-summary-cards";
 import type { CostPerDayChartProps } from "./cost-per-day-chart";
@@ -63,6 +65,7 @@ const createDefaultFilters = (): ReportsFiltersState => ({
   startDate: daysAgoLocalISO(6),
   endDate: localDateISO(),
   accountId: [],
+  provider: "",
   model: "",
   useragent: "",
 });
@@ -120,6 +123,23 @@ export function ReportsPage({ initialFilters }: ReportsPageProps = {}) {
     queryKey: ["accounts", "reports-filter"],
     queryFn: listAccounts,
   });
+
+  // Sourced from the request-log facets rather than the reports response: the
+  // control only needs to know which providers exist before it can offer the
+  // dimension, and the aggregates answer the date-range question themselves.
+  const { data: requestLogOptions } = useQuery({
+    queryKey: ["request-log-options", "reports-provider-filter"],
+    queryFn: () => getRequestLogOptions(),
+  });
+
+  const providerOptions = useMemo(
+    () =>
+      (requestLogOptions?.providers ?? []).map((provider) => ({
+        value: provider,
+        label: formatProviderLabel(provider),
+      })),
+    [requestLogOptions?.providers],
+  );
 
   const accountOptions = useMemo(
     () =>
@@ -203,6 +223,7 @@ export function ReportsPage({ initialFilters }: ReportsPageProps = {}) {
         filters={filters}
         selectedPresetDays={selectedPresetDays}
         accountOptions={accountOptions}
+        providerOptions={providerOptions}
         modelOptions={modelOptions}
         useragentOptions={useragentOptions}
         onPresetSelect={handlePresetSelect}

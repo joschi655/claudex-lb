@@ -27,6 +27,15 @@ class _RequestLogFilters:
     needs_related_search_joins: bool
 
 
+@dataclass(frozen=True, slots=True)
+class RequestLogFilterFacets:
+    account_ids: list[str]
+    model_options: list[tuple[str, str | None]]
+    api_key_ids: list[str]
+    statuses: list[tuple[str, str | None]]
+    providers: list[str]
+
+
 # The exact COUNT(*) behind the request-log listing's "X-Y of N" scans the
 # whole filtered set on PostgreSQL; the dashboard re-runs it on every 30s
 # poll and every pagination click even though the displayed total is
@@ -363,6 +372,7 @@ class RequestLogsRepository:
         api_key_id: str | None = None,
         session_id: str | None = None,
         plan_type: str | None = None,
+        provider: str | None = None,
         source: str | None = None,
         useragent: str | None = None,
         useragent_group: str | None = None,
@@ -388,8 +398,13 @@ class RequestLogsRepository:
             resolved_request_id = ensure_request_id(request_id)
             resolved_archive_request_id = (archive_request_id or "").strip() or resolved_request_id
             resolved_plan_type = plan_type
-            if resolved_plan_type is None and account_id:
-                resolved_plan_type = await self._resolve_account_plan_type(account_id)
+            resolved_provider = provider
+            if account_id and (resolved_plan_type is None or resolved_provider is None):
+                account_plan_type, account_provider = await self._resolve_account_denormalized(account_id)
+                if resolved_plan_type is None:
+                    resolved_plan_type = account_plan_type
+                if resolved_provider is None:
+                    resolved_provider = account_provider
             resolved_useragent = useragent if not isinstance(useragent, str) or useragent.strip() else None
             resolved_useragent_group = (
                 useragent_group if not isinstance(useragent_group, str) or useragent_group.strip() else None
@@ -404,6 +419,7 @@ class RequestLogsRepository:
                 request_id=resolved_request_id,
                 archive_request_id=resolved_archive_request_id,
                 model=model,
+                provider=resolved_provider,
                 plan_type=resolved_plan_type,
                 source=source,
                 transport=transport,
@@ -513,6 +529,7 @@ class RequestLogsRepository:
         until: datetime | None = None,
         account_ids: list[str] | None = None,
         api_key_ids: list[str] | None = None,
+        providers: list[str] | None = None,
         model_options: list[tuple[str, str | None]] | None = None,
         models: list[str] | None = None,
         reasoning_efforts: list[str] | None = None,
@@ -527,6 +544,7 @@ class RequestLogsRepository:
             until=until,
             account_ids=account_ids,
             api_key_ids=api_key_ids,
+            providers=providers,
             model_options=model_options,
             models=models,
             reasoning_efforts=reasoning_efforts,
@@ -557,6 +575,7 @@ class RequestLogsRepository:
             until,
             tuple(account_ids or ()),
             tuple(api_key_ids or ()),
+            tuple(providers or ()),
             tuple(model_options or ()),
             tuple(models or ()),
             tuple(reasoning_efforts or ()),
@@ -579,9 +598,15 @@ class RequestLogsRepository:
         result = await self._session.execute(count_stmt)
         return int(result.scalar_one())
 
-    async def _resolve_account_plan_type(self, account_id: str) -> str | None:
-        result = await self._session.execute(select(Account.plan_type).where(Account.id == account_id).limit(1))
-        return result.scalar_one_or_none()
+    async def _resolve_account_denormalized(self, account_id: str) -> tuple[str | None, str | None]:
+        """Return the account's ``(plan_type, provider)`` in a single lookup."""
+        result = await self._session.execute(
+            select(Account.plan_type, Account.provider).where(Account.id == account_id).limit(1)
+        )
+        row = result.first()
+        if row is None:
+            return None, None
+        return row[0], row[1]
 
     async def list_filter_options(
         self,
@@ -589,15 +614,17 @@ class RequestLogsRepository:
         until: datetime | None = None,
         account_ids: list[str] | None = None,
         api_key_ids: list[str] | None = None,
+        providers: list[str] | None = None,
         model_options: list[tuple[str, str | None]] | None = None,
         models: list[str] | None = None,
         reasoning_efforts: list[str] | None = None,
-    ) -> tuple[list[str], list[tuple[str, str | None]], list[str], list[tuple[str, str | None]]]:
+    ) -> RequestLogFilterFacets:
         filters = self._build_filters(
             since=since,
             until=until,
             account_ids=account_ids,
             api_key_ids=api_key_ids,
+            providers=providers,
             model_options=model_options,
             models=models,
             reasoning_efforts=reasoning_efforts,
@@ -612,6 +639,24 @@ class RequestLogsRepository:
             until=until,
             account_ids=account_ids,
             api_key_ids=None,
+            providers=providers,
+            model_options=model_options,
+            models=models,
+            reasoning_efforts=reasoning_efforts,
+            include_success=True,
+            include_error_other=True,
+            error_codes_in=None,
+            error_codes_excluding=None,
+            exclude_soft_deleted=True,
+        )
+        # The provider facet must not filter by provider: selecting one provider
+        # would otherwise remove every other provider from the control that set it.
+        provider_facet_filters = self._build_filters(
+            since=since,
+            until=until,
+            account_ids=account_ids,
+            api_key_ids=api_key_ids,
+            providers=None,
             model_options=model_options,
             models=models,
             reasoning_efforts=reasoning_efforts,
@@ -622,21 +667,34 @@ class RequestLogsRepository:
             exclude_soft_deleted=True,
         )
 
-        unfiltered = not any((since, until, account_ids, api_key_ids, model_options, models, reasoning_efforts))
+        unfiltered = not any(
+            (since, until, account_ids, api_key_ids, providers, model_options, models, reasoning_efforts)
+        )
         if unfiltered:
             # PostgreSQL has no loose index scan: with no user filters each
             # DISTINCT below is a full pass over request_logs, four times per
             # filter-panel load. Emulate the skip scan instead — one indexed
             # probe per distinct value.
-            return (
-                [value for value in await self._distinct_skip_scan(RequestLog.account_id, filters.conditions) if value],
-                await self._pair_facet_skip_scan(RequestLog.model, RequestLog.reasoning_effort, filters.conditions),
-                [
+            return RequestLogFilterFacets(
+                account_ids=[
+                    value
+                    for value in await self._distinct_skip_scan(RequestLog.account_id, filters.conditions)
+                    if value
+                ],
+                model_options=await self._pair_facet_skip_scan(
+                    RequestLog.model, RequestLog.reasoning_effort, filters.conditions
+                ),
+                api_key_ids=[
                     value
                     for value in await self._distinct_skip_scan(RequestLog.api_key_id, api_key_facet_filters.conditions)
                     if value
                 ],
-                await self._pair_facet_skip_scan(RequestLog.status, RequestLog.error_code, filters.conditions),
+                statuses=await self._pair_facet_skip_scan(RequestLog.status, RequestLog.error_code, filters.conditions),
+                providers=[
+                    value
+                    for value in await self._distinct_skip_scan(RequestLog.provider, provider_facet_filters.conditions)
+                    if value
+                ],
             )
 
         account_stmt = select(RequestLog.account_id).distinct().order_by(RequestLog.account_id.asc())
@@ -651,6 +709,7 @@ class RequestLogsRepository:
             .distinct()
             .order_by(RequestLog.status.asc(), RequestLog.error_code.asc())
         )
+        provider_stmt = select(RequestLog.provider).distinct().order_by(RequestLog.provider.asc())
         if filters.conditions:
             clause = and_(*filters.conditions)
             account_stmt = account_stmt.where(clause)
@@ -658,17 +717,22 @@ class RequestLogsRepository:
             status_stmt = status_stmt.where(clause)
         if api_key_facet_filters.conditions:
             api_key_stmt = api_key_stmt.where(and_(*api_key_facet_filters.conditions))
+        if provider_facet_filters.conditions:
+            provider_stmt = provider_stmt.where(and_(*provider_facet_filters.conditions))
 
         account_rows = await self._session.execute(account_stmt)
         model_rows = await self._session.execute(model_stmt)
         api_key_rows = await self._session.execute(api_key_stmt)
         status_rows = await self._session.execute(status_stmt)
+        provider_rows = await self._session.execute(provider_stmt)
 
-        account_ids = [row[0] for row in account_rows.all() if row[0]]
-        model_options = [(row[0], row[1]) for row in model_rows.all() if row[0]]
-        api_key_ids = [row[0] for row in api_key_rows.all() if row[0]]
-        status_values = [(row[0], row[1]) for row in status_rows.all() if row[0]]
-        return account_ids, model_options, api_key_ids, status_values
+        return RequestLogFilterFacets(
+            account_ids=[row[0] for row in account_rows.all() if row[0]],
+            model_options=[(row[0], row[1]) for row in model_rows.all() if row[0]],
+            api_key_ids=[row[0] for row in api_key_rows.all() if row[0]],
+            statuses=[(row[0], row[1]) for row in status_rows.all() if row[0]],
+            providers=[row[0] for row in provider_rows.all() if row[0]],
+        )
 
     async def _distinct_skip_scan(
         self,
@@ -739,6 +803,7 @@ class RequestLogsRepository:
         until: datetime | None = None,
         account_ids: list[str] | None = None,
         api_key_ids: list[str] | None = None,
+        providers: list[str] | None = None,
         model_options: list[tuple[str, str | None]] | None = None,
         models: list[str] | None = None,
         reasoning_efforts: list[str] | None = None,
@@ -759,6 +824,8 @@ class RequestLogsRepository:
             conditions.append(RequestLog.account_id.in_(account_ids))
         if api_key_ids:
             conditions.append(RequestLog.api_key_id.in_(api_key_ids))
+        if providers:
+            conditions.append(RequestLog.provider.in_(providers))
 
         if model_options:
             pair_conditions = []
