@@ -267,6 +267,34 @@ export CODEX_LB_API_KEY="sk-clb-..."   # key from dashboard
 hermes
 ```
 
+### Claude accounts
+
+Add a second provider in `anthropic_messages` mode to reach the pooled Claude accounts.
+The Anthropic SDK appends `/v1/messages` itself, so this `base_url` carries no `/v1`
+suffix:
+
+```yaml
+custom_providers:
+  - name: claudex-lb
+    base_url: http://127.0.0.1:2455
+    key_env: CODEX_LB_API_KEY
+    api_mode: anthropic_messages
+    default_model: claude-sonnet-5
+    models:
+      claude-opus-5: {}
+      claude-sonnet-5: {}
+```
+
+```text
+/model custom:claudex-lb:claude-sonnet-5
+```
+
+Hermes sends its own key with `x-api-key` and does not disguise itself as Claude Code —
+the proxy applies the Claude Code identity to the upstream leg on its own behalf, and
+records the calling client in the request log so the traffic stays separable in reports.
+See [Claude traffic in statistics](claude-statistics.md#clients-other-than-claude-code)
+for how the rows are grouped.
+
 ## OpenAI Python SDK
 
 ```python

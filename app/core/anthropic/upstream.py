@@ -5,6 +5,12 @@ from collections.abc import AsyncIterator, Mapping
 
 import aiohttp
 
+from app.core.anthropic.client_identity import (
+    CLAUDE_CODE_APP,
+    CLAUDE_CODE_BETA,
+    CLAUDE_CODE_USER_AGENT,
+    client_presents_as_claude_code,
+)
 from app.core.anthropic.oauth import ANTHROPIC_OAUTH_BETA
 from app.core.clients.http import HttpClientLease, acquire_http_client
 
@@ -66,11 +72,15 @@ def credential_is_static_api_key(credential: str) -> bool:
 def build_upstream_headers(client_headers: Mapping[str, str], credential: str) -> dict[str, str]:
     """Rewrite client request headers for the upstream Anthropic request.
 
-    Strips client auth and hop-by-hop headers, injects the account credential,
-    and (for OAuth credentials) ensures the ``oauth-2025-04-20`` beta flag is
-    present. All other client headers -- ``anthropic-version``, other
-    ``anthropic-*``, ``content-type``, ``accept``, the client ``user-agent`` --
-    pass through so the upstream sees Claude Code's own fingerprint.
+    Strips client auth and hop-by-hop headers and injects the account
+    credential. OAuth credentials additionally get the Claude Code fingerprint
+    the pool's tokens are issued against: the ``oauth-2025-04-20`` and
+    ``claude-code-20250219`` beta flags, ``x-app``, and a ``claude-cli``
+    user-agent for callers that are not already Claude Code. Static console keys
+    are relayed with the caller's own headers untouched.
+
+    Everything else -- ``anthropic-version``, other ``anthropic-*``,
+    ``content-type``, ``accept`` -- passes through as sent.
     """
     headers: dict[str, str] = {}
     client_beta: str | None = None
@@ -89,19 +99,43 @@ def build_upstream_headers(client_headers: Mapping[str, str], credential: str) -
             headers["anthropic-beta"] = client_beta
     else:
         headers["Authorization"] = f"Bearer {credential}"
-        headers["anthropic-beta"] = _merge_beta(client_beta, ANTHROPIC_OAUTH_BETA)
+        headers["anthropic-beta"] = _merge_beta(client_beta, ANTHROPIC_OAUTH_BETA, CLAUDE_CODE_BETA)
+        _apply_claude_code_headers(headers, client_headers)
 
     return headers
+
+
+def _apply_claude_code_headers(headers: dict[str, str], client_headers: Mapping[str, str]) -> None:
+    """Stamp the Claude Code client headers onto an OAuth upstream request.
+
+    A caller that already presents as Claude Code keeps its own user-agent --
+    its version is real, and the pinned one is not.
+    """
+    _set_header(headers, "x-app", CLAUDE_CODE_APP)
+    if not client_presents_as_claude_code(client_headers):
+        _set_header(headers, "user-agent", CLAUDE_CODE_USER_AGENT)
+
+
+def _set_header(headers: dict[str, str], name: str, value: str) -> None:
+    """Set a header, replacing any existing spelling of it.
+
+    Client headers are copied through with their original casing, so a caller's
+    ``User-Agent`` would otherwise survive alongside the one being written.
+    """
+    for existing in [key for key in headers if key.lower() == name]:
+        del headers[existing]
+    headers[name] = value
 
 
 def filter_response_headers(response_headers: Mapping[str, str]) -> list[tuple[str, str]]:
     return [(key, value) for key, value in response_headers.items() if key.lower() not in _STRIPPED_RESPONSE_HEADERS]
 
 
-def _merge_beta(client_beta: str | None, required: str) -> str:
+def _merge_beta(client_beta: str | None, *required: str) -> str:
     flags = [flag.strip() for flag in (client_beta or "").split(",") if flag.strip()]
-    if required not in flags:
-        flags.append(required)
+    for flag in required:
+        if flag not in flags:
+            flags.append(flag)
     return ", ".join(flags)
 
 

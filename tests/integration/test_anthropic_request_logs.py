@@ -13,6 +13,7 @@ from collections.abc import AsyncIterator, Mapping
 import pytest
 from sqlalchemy import select
 
+from app.core.anthropic.client_identity import CLAUDE_CODE_USER_AGENT
 from app.db.models import RequestLog
 from app.db.session import SessionLocal
 from app.modules.anthropic_proxy import api as anthropic_api_module
@@ -198,6 +199,40 @@ async def test_streaming_completion_records_first_token_latency(async_client, mo
     assert log.input_tokens == 100
     assert log.output_tokens == 250
     assert log.latency_first_token_ms is not None
+
+
+@pytest.mark.asyncio
+async def test_log_records_the_caller_while_upstream_sees_claude_code(async_client, monkeypatch):
+    """The two legs deliberately disagree: upstream must see Claude Code for the
+    OAuth token to be honoured, and the log must see the caller so reports can
+    still separate a non-Claude-Code client's traffic."""
+    await _import_claude_account(async_client, "logs-hermes@example.com")
+    sent: list[Mapping[str, str]] = []
+
+    async def _fake_open_messages(url: str, *, body: bytes, headers: Mapping[str, str], idle_timeout_seconds: float):
+        del url, body, idle_timeout_seconds
+        sent.append(dict(headers))
+        return _FakeUpstreamResponse(
+            200,
+            headers={"content-type": "application/json"},
+            body=b'{"type":"message","model":"claude-opus-5","usage":{"input_tokens":1,"output_tokens":2}}',
+        )
+
+    monkeypatch.setattr(anthropic_service_module, "open_messages", _fake_open_messages)
+
+    response = await async_client.post(
+        "/v1/messages",
+        headers={"content-type": "application/json", "user-agent": "hermes-agent/1.0"},
+        content=b'{"model":"claude-sonnet-5"}',
+    )
+    assert response.status_code == 200
+
+    assert sent[0]["user-agent"] == CLAUDE_CODE_USER_AGENT
+    assert sent[0]["x-app"] == "cli"
+
+    (log,) = await _wait_for_logs(1)
+    assert log.useragent == "hermes-agent/1.0"
+    assert log.useragent_group == "hermes-agent"
 
 
 @pytest.mark.asyncio
