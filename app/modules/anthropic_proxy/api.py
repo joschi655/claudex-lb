@@ -9,6 +9,7 @@ from app.core.auth.dependencies import validate_proxy_api_key_authorization
 from app.core.exceptions import ProxyAuthError
 from app.dependencies import get_anthropic_proxy_service_for_app
 from app.modules.anthropic_proxy.schemas import anthropic_error_body
+from app.modules.api_keys.service import ApiKeyData
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ _MAX_BODY_BYTES = 32 * 1024 * 1024
 
 async def _relay(request: Request, upstream_path: str) -> Response:
     try:
-        await _authenticate(request)
+        api_key = await _authenticate(request)
     except ProxyAuthError as exc:
         return Response(
             content=anthropic_error_body("authentication_error", str(exc)),
@@ -39,10 +40,16 @@ async def _relay(request: Request, upstream_path: str) -> Response:
         )
 
     service = get_anthropic_proxy_service_for_app(request.app)
-    return await service.relay(upstream_path=upstream_path, client_headers=request.headers, body=body)
+    return await service.relay(
+        upstream_path=upstream_path,
+        client_headers=request.headers,
+        body=body,
+        api_key_id=api_key.id if api_key is not None else None,
+        client_ip=request.client.host if request.client is not None else None,
+    )
 
 
-async def _authenticate(request: Request) -> None:
+async def _authenticate(request: Request) -> ApiKeyData | None:
     # Claude Code sends the proxy key as either Authorization: Bearer (when
     # ANTHROPIC_AUTH_TOKEN is set) or x-api-key. Synthesize a Bearer string and
     # reuse the shared proxy-API-key validation.
@@ -51,7 +58,7 @@ async def _authenticate(request: Request) -> None:
         api_key = request.headers.get("x-api-key")
         if api_key:
             authorization = f"Bearer {api_key}"
-    await validate_proxy_api_key_authorization(authorization, request=request)
+    return await validate_proxy_api_key_authorization(authorization, request=request)
 
 
 @router.post("/v1/messages")

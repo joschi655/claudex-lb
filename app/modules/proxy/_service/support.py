@@ -23,6 +23,7 @@ from app.core.openai.models import OpenAIEvent
 from app.core.plan_types import account_plan_matches_allowed
 from app.core.types import JsonValue
 from app.core.upstream_proxy import ResolvedUpstreamRoute
+from app.core.usage.useragent import request_log_useragent_fields
 from app.db.models import Account
 from app.modules.api_keys.service import (
     ApiKeyData,
@@ -264,16 +265,10 @@ def _supported_optional_kwargs(
     return kwargs
 
 
-def _request_log_useragent_fields(headers: Mapping[str, str]) -> tuple[str | None, str | None]:
-    raw_useragent = next((value for key, value in headers.items() if key.lower() == "user-agent"), None)
-    if raw_useragent is None:
-        return None, None
-    useragent = raw_useragent.strip()
-    if not useragent:
-        return None, None
-    first_token = useragent.split(maxsplit=1)[0]
-    useragent_group = first_token.split("/", 1)[0].strip() or None
-    return useragent, useragent_group
+# Canonical implementation lives in app.core.usage.useragent so the Anthropic
+# relay records the same fields; kept under the private name its many call sites
+# already import.
+_request_log_useragent_fields = request_log_useragent_fields
 
 
 class _RetryableStreamError(Exception):
