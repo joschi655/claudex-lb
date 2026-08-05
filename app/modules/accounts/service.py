@@ -46,7 +46,7 @@ from app.modules.accounts.anthropic_import import (
 )
 from app.modules.accounts.auth_manager import AuthManager
 from app.modules.accounts.mappers import build_account_summaries, build_account_usage_trends
-from app.modules.accounts.repository import AccountsRepository
+from app.modules.accounts.repository import AccountsRepository, PaceGateUpdate
 from app.modules.accounts.schemas import (
     AccountAdditionalQuota,
     AccountAdditionalWindow,
@@ -718,6 +718,12 @@ class AccountsService:
         if result:
             get_account_selection_cache().invalidate()
         return result
+
+    async def set_pace_gates(self, account_id: str, gates: PaceGateUpdate) -> Account | None:
+        account = await self._repo.update_pace_gates(account_id, gates)
+        if account is not None:
+            get_account_selection_cache().invalidate()
+        return account
 
     async def delete_account(self, account_id: str, *, delete_history: bool = False) -> bool:
         result = await self._repo.delete(account_id, delete_history=delete_history)

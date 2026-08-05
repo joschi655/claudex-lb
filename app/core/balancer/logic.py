@@ -100,6 +100,10 @@ PRESERVE_MIN_WEEKLY_FLOOR_PCT = 5.0
 PRESERVE_MIN_SHORT_WINDOW_FLOOR_PCT = 10.0
 NORMAL_LAST_ACCOUNT_EMERGENCY_FLOOR_PCT = 5.0
 RECENT_FOREGROUND_ACTIVITY_SECONDS = 30 * 60
+# Weekly quota window. Upstream reports the reset timestamp but not the window
+# length, so the pace line needs a length from somewhere; both providers bill
+# the secondary window over 7 days.
+SECONDARY_WINDOW_MINUTES = 7 * 24 * 60
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +141,10 @@ class AccountState:
     leased_tokens: float = 0.0
     routing_policy: str = ROUTING_POLICY_NORMAL
     ignore_standard_quota: bool = False
+    pace_margin_primary_pct: float | None = None
+    pace_margin_secondary_pct: float | None = None
+    pre_reset_window_minutes: int | None = None
+    secondary_window_minutes: int = SECONDARY_WINDOW_MINUTES
 
 
 @dataclass
@@ -322,6 +330,68 @@ def _filter_opportunistic_candidates(
     return [], "no expendable account has emergency foreground reserve"
 
 
+def _even_pace_pct(reset_at: float | None, window_minutes: int | None, current: float) -> float | None:
+    """Usage a window would show now if its quota were spent at a constant rate.
+
+    Returns ``None`` when the window bounds are unknown, which callers must read
+    as "gate not evaluable" rather than as a failing gate.
+    """
+    if reset_at is None or window_minutes is None or window_minutes <= 0:
+        return None
+    length_seconds = float(window_minutes) * 60.0
+    elapsed = length_seconds - (float(reset_at) - current)
+    if elapsed <= 0.0:
+        return 0.0
+    if elapsed >= length_seconds:
+        return 100.0
+    return 100.0 * elapsed / length_seconds
+
+
+def _pace_gate_failure(
+    *,
+    margin_pct: float | None,
+    used_pct: float | None,
+    reset_at: float | None,
+    window_minutes: int | None,
+    current: float,
+) -> bool:
+    if margin_pct is None:
+        return False
+    expected_pct = _even_pace_pct(reset_at, window_minutes, current)
+    if expected_pct is None:
+        return False
+    return (used_pct or 0.0) > expected_pct - margin_pct
+
+
+def evaluate_pace_gates(state: AccountState, current: float) -> str | None:
+    """Return the name of the first pace gate the account fails, else ``None``.
+
+    Gates are conjunctive and act as hard eligibility filters. An unset gate and
+    a gate whose window bounds are unknown both pass; see
+    ``openspec/specs/account-routing/spec.md``.
+    """
+    if _pace_gate_failure(
+        margin_pct=state.pace_margin_primary_pct,
+        used_pct=state.used_percent,
+        reset_at=state.primary_reset_at,
+        window_minutes=state.primary_window_minutes,
+        current=current,
+    ):
+        return "primary_pace"
+    if _pace_gate_failure(
+        margin_pct=state.pace_margin_secondary_pct,
+        used_pct=state.secondary_used_percent,
+        reset_at=state.secondary_reset_at,
+        window_minutes=state.secondary_window_minutes,
+        current=current,
+    ):
+        return "secondary_pace"
+    if state.pre_reset_window_minutes is not None and state.primary_reset_at is not None:
+        if float(state.primary_reset_at) - current > float(state.pre_reset_window_minutes) * 60.0:
+            return "pre_reset_window"
+    return None
+
+
 def _reset_preference_bucket(state: AccountState, current: float, window: ResetPreferenceWindow) -> int:
     if window == "primary":
         reset_at = state.primary_reset_at
@@ -439,10 +509,18 @@ def select_account(
     current = now or time.time()
     available: list[AccountState] = []
     in_error_backoff: list[AccountState] = []
+    pace_gated: dict[str, str] = {}
     all_states = list(states)
     bypass_account_ids = None if bypass_quota_exceeded_account_ids is None else set(bypass_quota_exceeded_account_ids)
 
     for state in all_states:
+        # Applied before every other check so a gated account cannot be
+        # re-admitted by a later tier (burn-first, budget-safe, or backoff
+        # fallback). Gating is an operator promise about someone else's quota.
+        failed_gate = evaluate_pace_gates(state, current)
+        if failed_gate is not None:
+            pace_gated[state.account_id] = failed_gate
+            continue
         bypass_standard_quota = (
             ignore_standard_quota
             or state.ignore_standard_quota
@@ -497,6 +575,19 @@ def select_account(
         available = opportunistic_available
 
     if not available:
+        if pace_gated:
+            gates = ", ".join(sorted(set(pace_gated.values())))
+            if len(pace_gated) == len(all_states):
+                return SelectionResult(None, f"All accounts are excluded by pace gates ({gates})")
+            logger.info(
+                "Pace gates excluded %d of %d candidate accounts (%s)",
+                len(pace_gated),
+                len(all_states),
+                gates,
+            )
+        # Gated accounts are not a blocker an operator can clear by unpausing or
+        # re-authenticating, so they must not colour the diagnostic message.
+        diagnostic_states = [state for state in all_states if state.account_id not in pace_gated]
         in_error_backoff_ids = {state.account_id for state in in_error_backoff}
         hard_blocked_exists = any(
             state.status
@@ -508,7 +599,7 @@ def select_account(
                 AccountStatus.QUOTA_EXCEEDED,
             )
             and state.account_id not in in_error_backoff_ids
-            for state in all_states
+            for state in diagnostic_states
         )
         if allow_backoff_fallback and (len(in_error_backoff) > 1 or (in_error_backoff and hard_blocked_exists)):
 
@@ -523,11 +614,11 @@ def select_account(
                     return SelectionResult(None, f"opportunistic burn window closed: {reason}")
                 available = opportunistic_available
         else:
-            reauth_required = [s for s in all_states if s.status == AccountStatus.REAUTH_REQUIRED]
-            deactivated = [s for s in all_states if s.status == AccountStatus.DEACTIVATED]
-            paused = [s for s in all_states if s.status == AccountStatus.PAUSED]
-            rate_limited = [s for s in all_states if s.status == AccountStatus.RATE_LIMITED]
-            quota_exceeded = [s for s in all_states if s.status == AccountStatus.QUOTA_EXCEEDED]
+            reauth_required = [s for s in diagnostic_states if s.status == AccountStatus.REAUTH_REQUIRED]
+            deactivated = [s for s in diagnostic_states if s.status == AccountStatus.DEACTIVATED]
+            paused = [s for s in diagnostic_states if s.status == AccountStatus.PAUSED]
+            rate_limited = [s for s in diagnostic_states if s.status == AccountStatus.RATE_LIMITED]
+            quota_exceeded = [s for s in diagnostic_states if s.status == AccountStatus.QUOTA_EXCEEDED]
 
             if not rate_limited and not quota_exceeded:
                 if paused and reauth_required and deactivated:
@@ -549,7 +640,7 @@ def select_account(
                 if reset_candidates:
                     wait_seconds = max(0, min(reset_candidates) - int(current))
                     return SelectionResult(None, _format_retry_hint(wait_seconds))
-            cooldowns = [s.cooldown_until for s in all_states if s.cooldown_until and s.cooldown_until > current]
+            cooldowns = [s.cooldown_until for s in diagnostic_states if s.cooldown_until and s.cooldown_until > current]
             if cooldowns:
                 wait_seconds = max(0.0, min(cooldowns) - current)
                 return SelectionResult(None, _format_retry_hint(wait_seconds))

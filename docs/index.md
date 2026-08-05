@@ -22,6 +22,7 @@ Load balancer for ChatGPT accounts. Pool multiple accounts, track usage, manage 
 - [Authentication](authentication.md) — dashboard auth modes
 - [API Keys](api-keys.md) — protecting proxy routes
 - [Routing](routing.md) — routing strategy guide
+- [Pace Gates](pace-gates.md) — bounding how fast a shared account is drawn from
 - [Database](database.md) — SQLite / PostgreSQL, data paths, Postgres upgrades
 - [Deployment](deployment/docker.md) — Docker, [Kubernetes](deployment/kubernetes.md), [remote access](deployment/remote.md)
 - [Troubleshooting](troubleshooting.md)

@@ -52,6 +52,30 @@ class AccountRequestUsageSummary:
     total_cost_usd: float
 
 
+@dataclass(frozen=True, slots=True)
+class PaceGateUpdate:
+    """A partial update of one account's pace gates.
+
+    Each gate is carried as a one-tuple when the caller supplied it and as
+    ``None`` when it was omitted, so that clearing a gate (writing SQL NULL) is
+    distinguishable from leaving it alone.
+    """
+
+    pace_margin_primary_pct: tuple[float | None] | None = None
+    pace_margin_secondary_pct: tuple[float | None] | None = None
+    pre_reset_window_minutes: tuple[int | None] | None = None
+
+    def as_column_values(self) -> dict[str, float | int | None]:
+        values: dict[str, float | int | None] = {}
+        if self.pace_margin_primary_pct is not None:
+            values["pace_margin_primary_pct"] = self.pace_margin_primary_pct[0]
+        if self.pace_margin_secondary_pct is not None:
+            values["pace_margin_secondary_pct"] = self.pace_margin_secondary_pct[0]
+        if self.pre_reset_window_minutes is not None:
+            values["pre_reset_window_minutes"] = self.pre_reset_window_minutes[0]
+        return values
+
+
 class AccountIdentityConflictError(Exception):
     def __init__(self, email: str) -> None:
         self.email = email
@@ -653,6 +677,25 @@ class AccountsRepository:
             )
             await self._session.commit()
             return result.scalar_one_or_none() is not None
+
+    async def update_pace_gates(self, account_id: str, gates: PaceGateUpdate) -> Account | None:
+        """Apply only the gates the caller actually supplied.
+
+        ``None`` is a meaningful value (it clears a gate), so the set of fields
+        to write is carried explicitly rather than inferred from the values.
+        """
+        values = gates.as_column_values()
+        if not values:
+            return await self.get_by_id_fresh(account_id)
+        async with sqlite_writer_section():
+            result = await self._session.execute(
+                update(Account).where(Account.id == account_id).values(**values).returning(Account.id)
+            )
+            updated = result.scalar_one_or_none() is not None
+            await self._session.commit()
+        if not updated:
+            return None
+        return await self.get_by_id_fresh(account_id)
 
     async def delete(self, account_id: str, *, delete_history: bool = False) -> bool:
         async with sqlite_writer_section():

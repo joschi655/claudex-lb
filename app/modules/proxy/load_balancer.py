@@ -1638,6 +1638,9 @@ class LoadBalancer:
             capacity_credits=usage_core.capacity_for_plan(account.plan_type, "secondary"),
             routing_policy=routing_policy,
             ignore_standard_quota=False,
+            pace_margin_primary_pct=account.pace_margin_primary_pct,
+            pace_margin_secondary_pct=account.pace_margin_secondary_pct,
+            pre_reset_window_minutes=account.pre_reset_window_minutes,
         )
 
     def _sync_runtime_state(
@@ -2301,6 +2304,9 @@ def _state_from_account(
         inflight_streams=runtime.inflight_streams,
         leased_tokens=runtime.leased_tokens,
         routing_policy=routing_policy,
+        pace_margin_primary_pct=account.pace_margin_primary_pct,
+        pace_margin_secondary_pct=account.pace_margin_secondary_pct,
+        pre_reset_window_minutes=account.pre_reset_window_minutes,
     )
 
 

@@ -102,6 +102,12 @@ class Account(Base):
         server_default=text("'normal'"),
         nullable=False,
     )
+    # Pace gates. NULL means the gate is off, which is the default for every
+    # account: an install that never sets them keeps the previous selection
+    # behavior. See openspec/specs/account-routing/spec.md.
+    pace_margin_primary_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pace_margin_secondary_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pre_reset_window_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
     access_token_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     refresh_token_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)

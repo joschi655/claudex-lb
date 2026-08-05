@@ -91,6 +91,9 @@ class AccountSummary(DashboardModel):
     seat_type: str | None = None
     plan_type: str
     routing_policy: str = Field(default="normal", pattern=r"^(normal|burn_first|preserve)$")
+    pace_margin_primary_pct: float | None = None
+    pace_margin_secondary_pct: float | None = None
+    pre_reset_window_minutes: int | None = None
     status: str
     security_work_authorized: bool = False
     usage: AccountUsage | None = None
@@ -201,6 +204,26 @@ class AccountRoutingPolicyUpdateRequest(DashboardModel):
 class AccountRoutingPolicyUpdateResponse(DashboardModel):
     account_id: str
     routing_policy: str
+
+
+class AccountPaceGatesUpdateRequest(DashboardModel):
+    """Pace gates for one account.
+
+    Every field is nullable. Omitting a field leaves the stored value untouched;
+    sending an explicit null clears that gate. Callers must therefore consult
+    ``model_fields_set`` rather than testing for ``None``.
+    """
+
+    pace_margin_primary_pct: float | None = Field(default=None, ge=0.0, le=100.0)
+    pace_margin_secondary_pct: float | None = Field(default=None, ge=0.0, le=100.0)
+    pre_reset_window_minutes: int | None = Field(default=None, ge=0)
+
+
+class AccountPaceGatesUpdateResponse(DashboardModel):
+    account_id: str
+    pace_margin_primary_pct: float | None = None
+    pace_margin_secondary_pct: float | None = None
+    pre_reset_window_minutes: int | None = None
 
 
 class AccountDeleteResponse(DashboardModel):

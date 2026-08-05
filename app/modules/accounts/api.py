@@ -18,7 +18,7 @@ from app.core.exceptions import (
 )
 from app.core.upstream_proxy import UpstreamProxyRouteError
 from app.dependencies import AccountsContext, get_accounts_context
-from app.modules.accounts.repository import AccountIdentityConflictError
+from app.modules.accounts.repository import AccountIdentityConflictError, PaceGateUpdate
 from app.modules.accounts.schemas import (
     AccountAliasRequest,
     AccountAliasResponse,
@@ -29,6 +29,8 @@ from app.modules.accounts.schemas import (
     AccountLimitWarmupUpdateRequest,
     AccountLimitWarmupUpdateResponse,
     AccountOpenCodeAuthExportResponse,
+    AccountPaceGatesUpdateRequest,
+    AccountPaceGatesUpdateResponse,
     AccountPauseResponse,
     AccountProbeRequest,
     AccountProbeResponse,
@@ -374,6 +376,41 @@ async def update_account_routing_policy(
     if not success:
         raise DashboardNotFoundError("Account not found", code="account_not_found")
     return AccountRoutingPolicyUpdateResponse(account_id=account_id, routing_policy=payload.routing_policy)
+
+
+@router.put("/{account_id}/pace-gates", response_model=AccountPaceGatesUpdateResponse)
+async def update_account_pace_gates(
+    account_id: str,
+    payload: AccountPaceGatesUpdateRequest,
+    _write_access=Depends(require_dashboard_write_access),
+    context: AccountsContext = Depends(get_accounts_context),
+) -> AccountPaceGatesUpdateResponse:
+    # An omitted field must leave the stored gate alone while an explicit null
+    # clears it, so the supplied set comes from the payload rather than from
+    # testing values against None.
+    supplied = payload.model_fields_set
+    account = await context.service.set_pace_gates(
+        account_id,
+        PaceGateUpdate(
+            pace_margin_primary_pct=(
+                (payload.pace_margin_primary_pct,) if "pace_margin_primary_pct" in supplied else None
+            ),
+            pace_margin_secondary_pct=(
+                (payload.pace_margin_secondary_pct,) if "pace_margin_secondary_pct" in supplied else None
+            ),
+            pre_reset_window_minutes=(
+                (payload.pre_reset_window_minutes,) if "pre_reset_window_minutes" in supplied else None
+            ),
+        ),
+    )
+    if account is None:
+        raise DashboardNotFoundError("Account not found", code="account_not_found")
+    return AccountPaceGatesUpdateResponse(
+        account_id=account_id,
+        pace_margin_primary_pct=account.pace_margin_primary_pct,
+        pace_margin_secondary_pct=account.pace_margin_secondary_pct,
+        pre_reset_window_minutes=account.pre_reset_window_minutes,
+    )
 
 
 @router.delete("/{account_id}", response_model=AccountDeleteResponse)

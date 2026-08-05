@@ -265,6 +265,9 @@ def _account_to_summary(
         plan_type=plan_type,
         status=effective_status.value,
         routing_policy=_normalize_account_routing_policy(account.routing_policy),
+        pace_margin_primary_pct=account.pace_margin_primary_pct,
+        pace_margin_secondary_pct=account.pace_margin_secondary_pct,
+        pre_reset_window_minutes=account.pre_reset_window_minutes,
         security_work_authorized=bool(account.security_work_authorized),
         usage=AccountUsage(
             primary_remaining_percent=primary_remaining_percent,
