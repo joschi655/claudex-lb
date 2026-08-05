@@ -5,7 +5,7 @@ import json
 import logging
 import time
 import uuid
-from collections.abc import AsyncIterator, Callable, Mapping
+from collections.abc import AsyncIterator, Callable, Collection, Mapping
 from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 
@@ -140,6 +140,7 @@ class AnthropicProxyService:
         client_headers: Mapping[str, str],
         body: bytes,
         api_key_id: str | None = None,
+        scoped_account_ids: Collection[str] | None = None,
         client_ip: str | None = None,
     ) -> Response:
         settings = get_settings()
@@ -166,6 +167,7 @@ class AnthropicProxyService:
         for _ in range(_MAX_ACCOUNT_ATTEMPTS):
             selection = await self._load_balancer.select_account(
                 provider=PROVIDER_ANTHROPIC,
+                account_ids=scoped_account_ids,
                 exclude_account_ids=tried,
                 routing_strategy=routing_strategy,
             )

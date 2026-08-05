@@ -52,7 +52,11 @@ class _FakeLoadBalancer:
         assert kwargs["provider"] == PROVIDER_ANTHROPIC
         self.selection_kwargs.append(dict(kwargs))
         excluded = set(kwargs.get("exclude_account_ids") or ())
+        allowed = kwargs.get("account_ids")
+        allowed = set(allowed) if allowed else None
         for account in self._accounts:
+            if allowed is not None and account.id not in allowed:
+                continue
             if account.id not in excluded and account.status == AccountStatus.ACTIVE:
                 return AccountSelection(account=account, error_message=None)
         return AccountSelection(account=None, error_message="No accounts available")
@@ -148,6 +152,7 @@ async def _relay(
     *,
     client_headers: Mapping[str, str] | None = None,
     body: bytes = b'{"model": "claude-sonnet-5"}',
+    scoped_account_ids: list[str] | None = None,
 ) -> Any:
     return await service.relay(
         upstream_path="/v1/messages",
@@ -155,6 +160,7 @@ async def _relay(
             client_headers or {"content-type": "application/json", "authorization": "Bearer proxy-key"}
         ),
         body=body,
+        scoped_account_ids=scoped_account_ids,
     )
 
 
@@ -292,6 +298,61 @@ async def test_spent_subscription_usage_reaches_the_caller_once_the_pool_is_dry(
     assert response.status_code == 400
     assert response.body == _SPENT_USAGE_BODY
     assert [entry[0] for entry in balancer.rate_limited] == ["acc-1", "acc-2"]
+
+
+@pytest.mark.asyncio
+async def test_scoped_key_reaches_only_its_assigned_account(monkeypatch):
+    """A pinned key must not spend an account it was not pinned to -- that is the
+    whole point of pinning it to a seat that can carry its traffic."""
+    upstream = _FakeUpstreamResponse(200, headers={"content-type": "application/json"}, body=b'{"id":"msg_ok"}')
+    accounts = [_make_account("acc-1"), _make_account("acc-2")]
+    service, balancer, _ = _build_service(monkeypatch, accounts, [upstream])
+
+    await _relay(service, scoped_account_ids=["acc-2"])
+
+    assert balancer.selection_kwargs[0]["account_ids"] == ["acc-2"]
+    assert balancer.successes == ["acc-2"]
+
+
+@pytest.mark.asyncio
+async def test_scoped_key_fails_over_inside_its_scope(monkeypatch):
+    outcomes = [
+        _FakeUpstreamResponse(429, body=b'{"type":"error","error":{"type":"rate_limit_error","message":"limit"}}'),
+        _FakeUpstreamResponse(200, headers={"content-type": "application/json"}, body=b'{"id":"msg_ok"}'),
+    ]
+    accounts = [_make_account("acc-1"), _make_account("acc-2"), _make_account("acc-3")]
+    service, balancer, _ = _build_service(monkeypatch, accounts, outcomes)
+
+    response = await _relay(service, scoped_account_ids=["acc-1", "acc-2"])
+
+    assert response.status_code == 200
+    assert balancer.successes == ["acc-2"]
+    # The unassigned account was never a candidate, on either attempt.
+    assert all(kwargs["account_ids"] == ["acc-1", "acc-2"] for kwargs in balancer.selection_kwargs)
+
+
+@pytest.mark.asyncio
+async def test_scope_does_not_widen_when_its_accounts_are_gone(monkeypatch):
+    """Falling back to the whole pool would make a pin stop being a pin exactly
+    when it matters."""
+    accounts = [_make_account("acc-1"), _make_account("acc-2")]
+    accounts[1].status = AccountStatus.RATE_LIMITED
+    service, balancer, _ = _build_service(monkeypatch, accounts, [])
+
+    response = await _relay(service, scoped_account_ids=["acc-2"])
+
+    assert response.status_code == 429
+    assert balancer.successes == []
+
+
+@pytest.mark.asyncio
+async def test_unscoped_relay_leaves_selection_open(monkeypatch):
+    upstream = _FakeUpstreamResponse(200, headers={"content-type": "application/json"}, body=b'{"id":"msg_ok"}')
+    service, balancer, _ = _build_service(monkeypatch, [_make_account("acc-1")], [upstream])
+
+    await _relay(service)
+
+    assert balancer.selection_kwargs[0]["account_ids"] is None
 
 
 @pytest.mark.asyncio

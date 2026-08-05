@@ -45,8 +45,22 @@ async def _relay(request: Request, upstream_path: str) -> Response:
         client_headers=request.headers,
         body=body,
         api_key_id=api_key.id if api_key is not None else None,
+        scoped_account_ids=_scoped_account_ids(api_key),
         client_ip=request.client.host if request.client is not None else None,
     )
+
+
+def _scoped_account_ids(api_key: ApiKeyData | None) -> list[str] | None:
+    """The accounts an API key is pinned to, or ``None`` for the whole pool.
+
+    An armed scope with an empty assignment set is treated as no scope rather than
+    as a pool of nothing: the same reading the Codex path takes, and the only one
+    that cannot lock a key out of every account by way of a half-finished edit.
+    """
+    if api_key is None or not api_key.account_assignment_scope_enabled:
+        return None
+    assigned = [account_id for account_id in api_key.assigned_account_ids if account_id]
+    return assigned or None
 
 
 async def _authenticate(request: Request) -> ApiKeyData | None:
