@@ -18,8 +18,8 @@
 //
 // The password may alternatively live in menubar.json as "password" (keychain wins if both).
 // Subcommands (invoked by the menu itself):
-//   switch <account_id>            pin one account, pause the rest of its provider
-//   auto [openai|anthropic]        reactivate every paused account (again)
+//   switch <account_id>            make the pool serve this account first
+//   auto [openai|anthropic]        back to balancing: un-pause + clear burn-first
 //   warmup <account_id>            open a fresh Claude 5h window now (one-token ping)
 //   warmup-all                     same, for every eligible Claude account
 //   autowarm <account_id> <on|off> per-account automatic restart when a window ends
@@ -652,13 +652,13 @@ function titlePart(s: Section): string {
 // Menu bar text for the embedded block: the remaining percentage on the account
 // that is serving, plus 📌 when the pool is pinned to one account. Falls back to
 // the status when a usage-based seat reports no percentage at all.
+// Menu bar text: how much of the serving account's 5h window is still available.
+// A usage-based seat has no window at all, so fall back to the most headroom left
+// in the pool — that is what decides how much longer work can continue.
 function menuBarTitle(s: Section): string {
   const pin = s.manual ? "📌" : "";
   const own = remainingPercent(s.current);
   if (own != null) return `${pct(own)}${pin}`;
-  // A usage-based seat reports no window percentage at all. Rather than drop the
-  // number he reads the menu bar for, fall back to the best headroom left in the
-  // pool — that is what decides whether work can continue.
   const pool = s.accounts
     .filter((a) => a.status !== "reauth_required" && a.status !== "deactivated")
     .map(remainingPercent)
@@ -856,11 +856,13 @@ async function renderMenuBlocks(cfg: Config): Promise<void> {
 
   // The 5h window headline for whichever account is serving.
   console.log("#BEGIN:window");
-  const used = usedPercent(cur);
+  const left = cur?.usage?.primaryRemainingPercent;
   const resetIn = remaining(cur?.resetAtPrimary);
-  if (used != null) {
+  if (left != null) {
     const at = clockTime(cur?.resetAtPrimary);
-    console.log(`⏱ 5h Window: ${pct(used)}${resetIn ? ` — resets in ${resetIn}${at ? ` → ${at}` : ""}` : ""} | size=12`);
+    console.log(
+      `⏱ 5h Window: ${pct(left)} left${resetIn ? ` — resets in ${resetIn}${at ? ` → ${at}` : ""}` : ""} | size=12`,
+    );
   } else {
     console.log(`⏱ 5h Window: usage-based seat (no window) | size=12`);
   }
@@ -893,6 +895,9 @@ async function renderMenuBlocks(cfg: Config): Promise<void> {
   // One line per account, click switches the proxy; settings sit underneath.
   console.log("#BEGIN:accounts");
   for (const acc of s.accounts) renderAccountLine(acc, cur, s);
+  // The way back out of a manual choice: un-pause everything and drop the
+  // burn-first marking so quota and pace decide again.
+  console.log(`--${action("⚖️ Auto: balance across all accounts", [SELF, "auto", "anthropic"])}`);
 
   console.log("#BEGIN:end");
 }
@@ -936,27 +941,23 @@ function renderAccountLine(acc: Account, cur: Account | null, s: Section): void 
   }
 }
 
-// Badge in the shape the menu used before: 5h used · 5h left · 7d used (7d left).
+// Badge in the shape the menu used before, but stated as headroom: 5h left ·
+// when it resets · 7d left (when that resets).
 function accountBadge(acc: Account): string {
   const parts: string[] = [];
-  const p = usedPercent(acc);
+  const p = acc.usage?.primaryRemainingPercent;
   if (p != null) {
-    parts.push(pct(p));
-    const left = remaining(acc.resetAtPrimary);
-    if (left) parts.push(left);
+    parts.push(`${pct(p)} left`);
+    const resets = remaining(acc.resetAtPrimary);
+    if (resets) parts.push(resets);
   }
-  const weeklyRemaining = acc.usage?.secondaryRemainingPercent;
-  if (weeklyRemaining != null) {
-    const left = remaining(acc.resetAtSecondary);
-    parts.push(`${pct(100 - weeklyRemaining)} 7d${left ? ` (${left})` : ""}`);
+  const weekly = acc.usage?.secondaryRemainingPercent;
+  if (weekly != null) {
+    const resets = remaining(acc.resetAtSecondary);
+    parts.push(`${pct(weekly)} 7d${resets ? ` (${resets})` : ""}`);
   }
   if (parts.length === 0) return acc.status === "active" ? "usage-based" : sane(acc.status).replace(/_/g, " ");
   return parts.join(" · ");
-}
-
-function usedPercent(acc: Account | null | undefined): number | null {
-  const left = acc?.usage?.primaryRemainingPercent;
-  return left == null ? null : 100 - left;
 }
 
 function clockTime(iso: string | null | undefined): string {
