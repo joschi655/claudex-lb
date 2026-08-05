@@ -57,6 +57,25 @@ consume the same budget.
 - **THEN** the remaining accounts are still polled
 - **AND** limit warmup still runs in the same tick
 
+### Requirement: A window reported as not running is warmable
+
+The usage API reports a five-hour window that has run out as `utilization: 0` with a null
+`resets_at`. An account in that state SHALL be treated as having an elapsed window for the
+purposes of limit warmup, so a ping opens a fresh one. An account that reports no
+five-hour window at all — a usage-based seat — SHALL remain excluded, because there is no
+window for a ping to open.
+
+#### Scenario: A spent window with no reset is warmed
+
+- **GIVEN** an account whose stored five-hour row carries no reset timestamp
+- **WHEN** the warmup pass evaluates it
+- **THEN** it is a warmup candidate
+
+#### Scenario: A usage-based seat is still never warmed
+
+- **WHEN** an account has no five-hour usage row at all
+- **THEN** it is not a warmup candidate
+
 ### Requirement: Unchanged polls are not rewritten every tick
 
 A polled snapshot identical to the one last written for that account SHALL NOT be
