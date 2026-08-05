@@ -42,7 +42,12 @@ CLAUDE_CODE_APP = "cli"
 # host to read a version from. A caller that is genuinely Claude Code keeps its
 # own version (see ``client_presents_as_claude_code``), so this value is only
 # ever sent for a client that had no Claude Code version to begin with.
-CLAUDE_CODE_VERSION = "2.1.0"
+#
+# Keep it a version that real Claude Code clients actually report. Upstream is
+# free to treat an unknown build differently, and a synthesized identity that
+# names a version nobody runs is the one part of the fingerprint that cannot be
+# defended as accurate. Worth re-pinning when the pool's clients move on.
+CLAUDE_CODE_VERSION = "2.1.220"
 CLAUDE_CODE_USER_AGENT = f"claude-cli/{CLAUDE_CODE_VERSION} (external, cli)"
 
 _CLAUDE_CODE_PRODUCT_TOKEN = "claude-cli"
