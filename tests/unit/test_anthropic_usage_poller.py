@@ -314,3 +314,55 @@ def _fetch_raising(error: Exception):
         raise error
 
     return fetch
+
+
+@pytest.mark.asyncio
+async def test_an_unchanged_snapshot_is_not_rewritten_every_tick(monkeypatch):
+    """Most accounts are idle most of the time; restating their row is waste."""
+    repo = FakeUsageRepo()
+    monkeypatch.setattr(usage_poller, "fetch_anthropic_usage", _fetch_returning(_windows_snapshot()))
+
+    for _ in range(3):
+        await poll_anthropic_usage(
+            [_account()],
+            encryptor=FakeEncryptor(),
+            usage_repo_factory=_repo_factory(repo),
+        )
+
+    assert [(w.window, w.used_percent) for w in repo.writes] == [("primary", 100.0), ("secondary", 27.0)]
+
+
+@pytest.mark.asyncio
+async def test_a_changed_snapshot_is_written_immediately(monkeypatch):
+    """The throttle must never defer news -- that is the whole point of polling."""
+    repo = FakeUsageRepo()
+    snapshots = iter([_windows_snapshot(primary=100.0), _windows_snapshot(primary=3.0)])
+
+    async def fetch(credential: str) -> AnthropicUsageApiSnapshot:
+        return next(snapshots)
+
+    monkeypatch.setattr(usage_poller, "fetch_anthropic_usage", fetch)
+
+    for _ in range(2):
+        await poll_anthropic_usage(
+            [_account()],
+            encryptor=FakeEncryptor(),
+            usage_repo_factory=_repo_factory(repo),
+        )
+
+    assert [w.used_percent for w in repo.writes if w.window == "primary"] == [100.0, 3.0]
+
+
+@pytest.mark.asyncio
+async def test_an_unchanged_snapshot_is_rewritten_once_the_interval_lapses(monkeypatch):
+    """Consumers read `recorded_at` as proof the account is still reporting."""
+    repo = FakeUsageRepo()
+    monkeypatch.setattr(usage_poller, "fetch_anthropic_usage", _fetch_returning(_windows_snapshot()))
+    clock = [1000.0]
+    monkeypatch.setattr(usage_poller.time, "monotonic", lambda: clock[0])
+
+    await poll_anthropic_usage([_account()], encryptor=FakeEncryptor(), usage_repo_factory=_repo_factory(repo))
+    clock[0] += usage_poller.UNCHANGED_WRITE_INTERVAL_SECONDS + 1
+    await poll_anthropic_usage([_account()], encryptor=FakeEncryptor(), usage_repo_factory=_repo_factory(repo))
+
+    assert len([w for w in repo.writes if w.window == "primary"]) == 2

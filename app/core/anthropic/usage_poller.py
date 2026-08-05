@@ -21,7 +21,11 @@ from contextlib import AbstractAsyncContextManager
 from dataclasses import dataclass
 from typing import TypeAlias
 
-from app.core.anthropic.usage_api import AnthropicUsageFetchError, fetch_anthropic_usage
+from app.core.anthropic.usage_api import (
+    AnthropicUsageApiSnapshot,
+    AnthropicUsageFetchError,
+    fetch_anthropic_usage,
+)
 from app.core.anthropic.usage_ingest import persist_usage_api_snapshot
 from app.core.crypto import TokenEncryptor
 from app.core.providers import is_anthropic_provider
@@ -37,10 +41,15 @@ THROTTLED_COOLDOWN_SECONDS = 15 * 60
 # An auth failure will not fix itself on the next tick; the credential has to be
 # repaired first, and the refresh path already reports on that.
 UNAUTHORIZED_COOLDOWN_SECONDS = 60 * 60
+# An unchanged snapshot is still written this often, so consumers that treat a
+# stale ``recorded_at`` as "no longer reporting" keep seeing a live account. The
+# same shape as the live-ingest throttle: changed writes are never deferred.
+UNCHANGED_WRITE_INTERVAL_SECONDS = 10 * 60
 
 _NOT_POLLABLE_STATUSES = frozenset({AccountStatus.DEACTIVATED, AccountStatus.REAUTH_REQUIRED})
 
 _cooldowns: dict[str, float] = {}
+_last_write: dict[str, tuple[tuple[object, ...], float]] = {}
 
 # Each write gets its own short-lived session: the caller owns session scope, and
 # one session must not be shared across the sequence of per-account writes.
@@ -117,16 +126,44 @@ async def poll_anthropic_usage(
             logger.warning("Anthropic usage poll raised account_id=%s", account.id, exc_info=True)
             continue
         polled += 1
-        if not snapshot.has_any:
+        if not snapshot.has_any or _should_skip_write(account.id, snapshot):
             continue
         try:
             async with usage_repo_factory() as usage_repo:
                 if await persist_usage_api_snapshot(usage_repo, account.id, snapshot):
                     written += 1
+                    _last_write[account.id] = (_fingerprint(snapshot), time.monotonic())
         except Exception:
             failed += 1
             logger.warning("Anthropic usage poll could not persist account_id=%s", account.id, exc_info=True)
     return AnthropicUsagePollOutcome(polled=polled, written=written, throttled=throttled, failed=failed)
+
+
+def _fingerprint(snapshot: AnthropicUsageApiSnapshot) -> tuple[object, ...]:
+    return (
+        snapshot.primary.used_percent if snapshot.primary else None,
+        snapshot.primary.reset_at if snapshot.primary else None,
+        snapshot.secondary.used_percent if snapshot.secondary else None,
+        snapshot.secondary.reset_at if snapshot.secondary else None,
+        snapshot.budget.used_percent if snapshot.budget else None,
+        snapshot.budget.remaining_dollars if snapshot.budget else None,
+        snapshot.budget.reset_at if snapshot.budget else None,
+    )
+
+
+def _should_skip_write(account_id: str, snapshot: AnthropicUsageApiSnapshot) -> bool:
+    """Skip a write that would only restate the row already stored.
+
+    A poll every refresh interval otherwise appends an identical row for an
+    account nobody is using, which is most of them most of the time.
+    """
+    last = _last_write.get(account_id)
+    if last is None:
+        return False
+    fingerprint, written_at = last
+    if fingerprint != _fingerprint(snapshot):
+        return False
+    return time.monotonic() - written_at < UNCHANGED_WRITE_INTERVAL_SECONDS
 
 
 def _in_cooldown(account_id: str) -> bool:
@@ -147,3 +184,4 @@ def _set_cooldown(account_id: str, seconds: float) -> None:
 
 def clear_anthropic_usage_poll_cooldowns() -> None:
     _cooldowns.clear()
+    _last_write.clear()
