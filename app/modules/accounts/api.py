@@ -26,6 +26,7 @@ from app.modules.accounts.schemas import (
     AccountDeleteResponse,
     AccountExportResponse,
     AccountImportResponse,
+    AccountLimitWarmupTriggerResponse,
     AccountLimitWarmupUpdateRequest,
     AccountLimitWarmupUpdateResponse,
     AccountOpenCodeAuthExportResponse,
@@ -47,6 +48,7 @@ from app.modules.accounts.schemas import (
 )
 from app.modules.accounts.service import (
     AccountNotProbableError,
+    AccountNotWarmableError,
     AccountStateTransitionError,
     AccountUsageResetConsumeUnavailableError,
     AccountUsageResetCreditsUnavailableError,
@@ -362,6 +364,31 @@ async def update_account_limit_warmup(
     return AccountLimitWarmupUpdateResponse(
         status="enabled" if payload.enabled else "disabled",
         enabled=payload.enabled,
+    )
+
+
+@router.post("/{account_id}/limit-warmup/trigger", response_model=AccountLimitWarmupTriggerResponse)
+async def trigger_account_limit_warmup(
+    account_id: str,
+    _write_access=Depends(require_dashboard_write_access),
+    context: AccountsContext = Depends(get_accounts_context),
+) -> AccountLimitWarmupTriggerResponse:
+    try:
+        result = await context.service.trigger_limit_warmup(account_id)
+    except ProviderActionUnsupportedError as exc:
+        raise DashboardBadRequestError(str(exc), code="account_provider_unsupported") from exc
+    except AccountNotWarmableError as exc:
+        raise DashboardConflictError(str(exc), code="account_not_warmable") from exc
+    if result is None:
+        raise DashboardNotFoundError("Account not found", code="account_not_found")
+    return AccountLimitWarmupTriggerResponse(
+        account_id=account_id,
+        sent=result.sent,
+        success=result.success,
+        model=result.model,
+        latency_ms=result.latency_ms,
+        error_code=result.error_code,
+        error_message=result.error_message,
     )
 
 

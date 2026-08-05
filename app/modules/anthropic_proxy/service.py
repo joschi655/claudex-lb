@@ -26,6 +26,7 @@ from app.core.anthropic.upstream import (
     open_messages,
 )
 from app.core.anthropic.usage_headers import AnthropicUsageSnapshot, parse_unified_usage
+from app.core.anthropic.usage_ingest import persist_usage_snapshot
 from app.core.auth.refresh import (
     RefreshError,
     is_transient_refresh_contention,
@@ -63,8 +64,6 @@ _REVOCATION_MARKERS = ("oauth", "revoked", "token has expired", "authentication_
 # burst of requests does not flood usage_history.
 _USAGE_WRITE_MIN_DELTA_PCT = 1.0
 _USAGE_WRITE_MIN_INTERVAL_SECONDS = 60.0
-_PRIMARY_WINDOW_MINUTES = 5 * 60
-_SECONDARY_WINDOW_MINUTES = 7 * 24 * 60
 
 # Only completions are logged. count_tokens returns no completion and burns no
 # quota, and Claude Code issues it constantly, so logging it would swamp the
@@ -498,23 +497,7 @@ class AnthropicProxyService:
     async def _write_usage(self, account_id: str, snapshot: AnthropicUsageSnapshot) -> None:
         try:
             async with get_background_session() as session:
-                repo = UsageRepository(session)
-                if snapshot.primary_used_percent is not None:
-                    await repo.add_entry(
-                        account_id,
-                        used_percent=snapshot.primary_used_percent,
-                        window="primary",
-                        reset_at=snapshot.primary_reset_at,
-                        window_minutes=_PRIMARY_WINDOW_MINUTES,
-                    )
-                if snapshot.secondary_used_percent is not None:
-                    await repo.add_entry(
-                        account_id,
-                        used_percent=snapshot.secondary_used_percent,
-                        window="secondary",
-                        reset_at=snapshot.secondary_reset_at,
-                        window_minutes=_SECONDARY_WINDOW_MINUTES,
-                    )
+                await persist_usage_snapshot(UsageRepository(session), account_id, snapshot)
             get_account_selection_cache().invalidate()
         except Exception:
             logger.warning("Failed to ingest anthropic usage for account_id=%s", account_id, exc_info=True)
