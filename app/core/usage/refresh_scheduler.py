@@ -18,7 +18,8 @@ from app.db.session import detach_session_objects, get_background_session
 from app.modules.accounts.background_repository import BackgroundAccountsRepository
 from app.modules.accounts.repository import AccountsRepository
 from app.modules.limit_warmup.repository import LimitWarmupRepository
-from app.modules.limit_warmup.service import LimitWarmupService, StreamingLimitWarmupSender
+from app.modules.limit_warmup.service import LimitWarmupService, build_provider_warmup_sender
+from app.modules.limit_warmup.window_ingest import ingest_warmup_window
 from app.modules.proxy.account_cache import get_account_selection_cache
 from app.modules.proxy.load_balancer import background_recovery_state_from_account
 from app.modules.proxy.rate_limit_cache import get_rate_limit_headers_cache
@@ -180,6 +181,11 @@ class UsageRefreshScheduler:
                     selected_account, cycle_complete = self._select_next_account(accounts)
                     detach_session_objects(session)
                 account_count = len(accounts)
+                # Anthropic accounts are not in `accounts` -- this loop polls the
+                # ChatGPT usage API and they have no equivalent to poll. Their
+                # warmup runs off stored window state instead, on every tick, so
+                # it stays alive even when there is no OpenAI account to refresh.
+                await self._refresh_anthropic_windows()
                 if selected_account is None:
                     await _invalidate_usage_refresh_caches()
                     return float(self.interval_seconds)
@@ -197,14 +203,7 @@ class UsageRefreshScheduler:
                         dashboard_settings = await settings_repo.get_or_create()
                         refreshed_accounts = await accounts_repo.list_accounts(refresh_existing=True)
                         detach_session_objects(session)
-                    warmup_service = LimitWarmupService(
-                        cast(Any, _BackgroundLimitWarmupRepository()),
-                        cast(Any, _BackgroundRequestLogsRepository()),
-                        sender=StreamingLimitWarmupSender(
-                            cast(AccountsRepository, BackgroundAccountsRepository()),
-                            accounts_repo_factory=_background_accounts_repo,
-                        ),
-                    )
+                    warmup_service = build_background_limit_warmup_service()
                     await warmup_service.run_after_usage_refresh(
                         accounts=refreshed_accounts,
                         settings=dashboard_settings,
@@ -229,6 +228,35 @@ class UsageRefreshScheduler:
                 logger.exception("Usage refresh loop failed")
                 return float(self.interval_seconds)
         return _usage_refresh_slice_seconds(self.interval_seconds, account_count)
+
+    async def _refresh_anthropic_windows(self) -> None:
+        """Warm any Claude account whose five-hour window has already closed.
+
+        Failures are swallowed: this is discretionary traffic sharing a loop with
+        the OpenAI usage refresh, and it must not be able to abort that refresh.
+        """
+        try:
+            async with get_background_session() as session:
+                accounts_repo = AccountsRepository(session)
+                usage_repo = UsageRepository(session)
+                settings_repo = SettingsRepository(session)
+                accounts = [
+                    account
+                    for account in await accounts_repo.list_accounts()
+                    if account.provider == PROVIDER_ANTHROPIC
+                ]
+                if not accounts:
+                    return
+                latest_primary = await usage_repo.latest_by_account(window="primary")
+                dashboard_settings = await settings_repo.get_or_create()
+                detach_session_objects(session)
+            await build_background_limit_warmup_service().run_anthropic_window_refresh(
+                accounts=accounts,
+                settings=dashboard_settings,
+                latest_primary=latest_primary,
+            )
+        except Exception:
+            logger.exception("Anthropic window refresh failed")
 
     def _select_next_account(self, accounts: list[Account]) -> tuple[Account | None, bool]:
         if not accounts:
@@ -278,6 +306,23 @@ async def _invalidate_usage_refresh_caches() -> None:
 async def _background_accounts_repo() -> AsyncIterator[AccountsRepository]:
     async with get_background_session() as session:
         yield AccountsRepository(session)
+
+
+def build_background_limit_warmup_service() -> LimitWarmupService:
+    """A warmup service that owns its own short-lived sessions per write.
+
+    Used from the refresh loop and from the on-demand trigger, so both paths get
+    the same provider dispatch and the same window write-back.
+    """
+    return LimitWarmupService(
+        cast(Any, _BackgroundLimitWarmupRepository()),
+        cast(Any, _BackgroundRequestLogsRepository()),
+        sender=build_provider_warmup_sender(
+            cast(AccountsRepository, BackgroundAccountsRepository()),
+            accounts_repo_factory=_background_accounts_repo,
+        ),
+        window_ingestor=ingest_warmup_window,
+    )
 
 
 async def reconcile_recoverable_account_statuses(

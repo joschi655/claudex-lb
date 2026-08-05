@@ -197,6 +197,18 @@ class AccountLimitWarmupUpdateResponse(DashboardModel):
     enabled: bool
 
 
+class AccountLimitWarmupTriggerResponse(DashboardModel):
+    account_id: str
+    # False only when another warm-up for this account is already in flight;
+    # a request that went out and failed reports sent=True, success=False.
+    sent: bool
+    success: bool
+    model: str
+    latency_ms: int | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+
 class AccountRoutingPolicyUpdateRequest(DashboardModel):
     routing_policy: str = Field(pattern=r"^(normal|burn_first|preserve)$")
 

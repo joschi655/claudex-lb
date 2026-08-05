@@ -30,12 +30,14 @@ from app.core.clients.usage import (
     fetch_usage,
 )
 from app.core.config.settings import get_settings
+from app.core.config.settings_cache import get_settings_cache
 from app.core.crypto import TokenEncryptor
 from app.core.plan_types import coerce_account_plan_type
 from app.core.providers import PROVIDER_ANTHROPIC, PROVIDER_OPENAI
 from app.core.upstream_proxy import ResolvedUpstreamRoute, UpstreamProxyRouteError, resolve_upstream_route
 from app.core.upstream_proxy.resolver import _is_missing_upstream_proxy_schema
 from app.core.usage.models import UsagePayload
+from app.core.usage.refresh_scheduler import build_background_limit_warmup_service
 from app.core.utils.time import naive_utc_to_epoch, to_utc_naive, utcnow
 from app.db.models import Account, AccountRoutingPolicy, AccountStatus, DashboardSettings
 from app.db.session import get_background_session
@@ -69,6 +71,7 @@ from app.modules.accounts.schemas import (
     OpenCodeOAuthAuth,
 )
 from app.modules.limit_warmup.repository import LimitWarmupRepository
+from app.modules.limit_warmup.service import ManualWarmupResult
 from app.modules.proxy.account_cache import (
     clear_account_routing_unavailable,
     get_account_selection_cache,
@@ -104,6 +107,10 @@ class InvalidAuthJsonError(Exception):
 
 class AccountNotProbableError(Exception):
     """Raised when an account is in a status that disallows probing."""
+
+
+class AccountNotWarmableError(Exception):
+    """Raised when an account cannot have a limit warm-up opened for it."""
 
 
 class AccountStateTransitionError(Exception):
@@ -712,6 +719,44 @@ class AccountsService:
         if result:
             get_account_selection_cache().invalidate()
         return result
+
+    async def trigger_limit_warmup(self, account_id: str) -> ManualWarmupResult | None:
+        """Open one Claude five-hour window on demand.
+
+        Independent of the scheduled-warmup setting: an operator asking for a
+        window now is a different decision from asking the scheduler to manage
+        windows. The guards below are only the ones that protect the upstream --
+        a ping that cannot open a window is refused instead of being spent.
+        """
+        account = await self._repo.get_by_id(account_id)
+        if account is None:
+            return None
+        if account.provider != PROVIDER_ANTHROPIC:
+            raise ProviderActionUnsupportedError(
+                f"limit warm-up trigger is not supported for {account.provider or PROVIDER_OPENAI} accounts"
+            )
+        # Paused is allowed: the operator parks an account to keep it out of
+        # rotation, and its five-hour window still has to be kept alive.
+        if account.status not in (AccountStatus.ACTIVE, AccountStatus.PAUSED):
+            raise AccountNotWarmableError(f"Account is {account.status.value} and cannot be warmed")
+        if not await self._has_five_hour_window(account_id):
+            # No recorded five-hour window means the seat has none to open --
+            # a usage-based seat, or an account that has never served a request.
+            raise AccountNotWarmableError(
+                "Account has no recorded five-hour window, so there is no window to open"
+            )
+        settings = await get_settings_cache().get()
+        return await build_background_limit_warmup_service().warm_account_now(
+            account=account,
+            settings=settings,
+        )
+
+    async def _has_five_hour_window(self, account_id: str) -> bool:
+        if self._usage_repo is None:
+            return False
+        latest = await self._usage_repo.latest_by_account(window="primary", account_ids=[account_id])
+        entry = latest.get(account_id)
+        return entry is not None and entry.reset_at is not None
 
     async def set_routing_policy(self, account_id: str, routing_policy: str) -> bool:
         result = await self._repo.update_routing_policy(account_id, routing_policy)

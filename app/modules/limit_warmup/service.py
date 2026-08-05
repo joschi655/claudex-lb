@@ -4,11 +4,13 @@ import asyncio
 import logging
 import time
 import uuid
+from collections.abc import Awaitable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from typing import AsyncContextManager, Callable, Protocol
 
 from app.core import usage as usage_core
+from app.core.anthropic.warmup import ANTHROPIC_WARMUP_MODEL, send_warmup
 from app.core.auth.refresh import RefreshError
 from app.core.clients.proxy import UpstreamProxyRouteTrace, override_stream_timeouts, stream_responses
 from app.core.crypto import TokenEncryptor
@@ -17,6 +19,7 @@ from app.core.openai.models import OpenAIError, ResponseUsage
 from app.core.openai.parsing import parse_sse_event
 from app.core.openai.requests import ResponsesRequest
 from app.core.plan_types import account_plan_matches_allowed
+from app.core.providers import is_anthropic_provider
 from app.core.upstream_proxy import ResolvedUpstreamRoute, UpstreamProxyRouteError, resolve_upstream_route
 from app.core.usage.pricing import get_pricing_for_model
 from app.core.utils.time import naive_utc_to_epoch, utcnow
@@ -38,6 +41,10 @@ _ROLLING_WINDOW_SECONDS = 300 * 60
 _SHORT_WINDOW_MAX_MINUTES = 24 * 60
 _STAGGER_SLOT_GRACE_SECONDS = 60
 _IDLE_PRIMARY_WINDOW = "primary_idle"
+_MANUAL_PRIMARY_WINDOW = "primary_manual"
+# Claude statuses a warm-up may target. Paused is included on purpose; see
+# ``_account_is_safe_candidate``.
+_WARMABLE_ANTHROPIC_STATUSES = (AccountStatus.ACTIVE, AccountStatus.PAUSED)
 # Minimum reset_at forward jump (in seconds) to confirm a real quota window reset.
 # Upstream timestamp jitter of ~1 second must not trigger a warm-up.
 _RESET_CONFIRMED_MIN_JUMP_SECONDS = 60
@@ -59,6 +66,10 @@ class LimitWarmupSendResult:
     upstream_proxy_endpoint_id: str | None = None
     upstream_proxy_fallback_used: bool | None = None
     upstream_proxy_fail_closed_reason: str | None = None
+    # Anthropic only: the warmed account's window state travels back in response
+    # headers, so the caller can ingest the window this ping just opened. The
+    # ChatGPT path leaves it None -- its usage arrives through the poller.
+    usage_headers: Mapping[str, str] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +83,11 @@ class LimitWarmupSendOutcome:
 
 class LimitWarmupSender(Protocol):
     async def send(self, account: Account, *, model: str, prompt: str) -> LimitWarmupSendResult: ...
+
+
+# Writes back the window a Claude warmup opened, from the response's rate-limit
+# headers. Optional because the ChatGPT path reports usage through the poller.
+AnthropicWindowIngestor = Callable[[str, Mapping[str, str]], Awaitable[None]]
 
 
 class LimitWarmupAttemptsRepository(Protocol):
@@ -301,6 +317,107 @@ class StreamingLimitWarmupSender:
         )
 
 
+class AnthropicLimitWarmupSender:
+    """Open a Claude five-hour window with a one-token Messages request.
+
+    Deliberately narrower than the ChatGPT sender: no streaming, no upstream
+    proxy route, no plan gating. A warmup here is one short POST whose only job
+    is to land, and whose response headers describe the window it just opened.
+    """
+
+    def __init__(
+        self,
+        accounts_repo: AccountsRepository,
+        *,
+        accounts_repo_factory: Callable[[], AsyncContextManager[AccountsRepository]] | None = None,
+    ) -> None:
+        self._accounts_repo = accounts_repo
+        self._accounts_repo_factory = accounts_repo_factory
+        self._auth_manager = AuthManager(accounts_repo)
+        self._encryptor = TokenEncryptor()
+        self._auth_lock = asyncio.Lock()
+
+    async def send(self, account: Account, *, model: str, prompt: str) -> LimitWarmupSendResult:
+        request_id = f"limit-warmup-{uuid.uuid4().hex}"
+        started = time.monotonic()
+        try:
+            async with self._auth_lock:
+                fresh_account = await self._ensure_fresh(account)
+                credential = self._encryptor.decrypt(fresh_account.access_token_encrypted)
+        except RefreshError as exc:
+            return LimitWarmupSendResult(
+                request_id=request_id,
+                success=False,
+                latency_ms=_elapsed_ms(started),
+                error_code=f"auth_refresh_{exc.code}",
+                error_message=exc.message,
+            )
+
+        if fresh_account.status not in _WARMABLE_ANTHROPIC_STATUSES:
+            return LimitWarmupSendResult(
+                request_id=request_id,
+                success=False,
+                latency_ms=_elapsed_ms(started),
+                error_code="account_not_active",
+                error_message=f"Account status is {fresh_account.status.value}",
+            )
+
+        result = await send_warmup(credential, model=model, prompt=prompt)
+        return LimitWarmupSendResult(
+            request_id=request_id,
+            success=result.success,
+            latency_ms=result.latency_ms,
+            usage=_anthropic_usage(result.input_tokens, result.output_tokens),
+            error_code=result.error_code or (None if result.success else f"http_{result.status_code}"),
+            error_message=result.error_message,
+            usage_headers=result.headers or None,
+        )
+
+    async def _ensure_fresh(self, account: Account) -> Account:
+        if self._accounts_repo_factory is None:
+            return await self._auth_manager.ensure_fresh(account)
+        async with self._accounts_repo_factory() as accounts_repo:
+            return await AuthManager(
+                accounts_repo,
+                refresh_repo_factory=self._accounts_repo_factory,
+            ).ensure_fresh(account)
+
+
+def _anthropic_usage(input_tokens: int | None, output_tokens: int | None) -> ResponseUsage | None:
+    if input_tokens is None and output_tokens is None:
+        return None
+    total = (input_tokens or 0) + (output_tokens or 0)
+    return ResponseUsage(input_tokens=input_tokens, output_tokens=output_tokens, total_tokens=total)
+
+
+class ProviderLimitWarmupSender:
+    """Route a warmup to the sender that speaks the account's protocol.
+
+    Selection is on the account's own provider field, so a Claude credential can
+    never reach the Responses API and vice versa.
+    """
+
+    def __init__(self, openai_sender: LimitWarmupSender, anthropic_sender: LimitWarmupSender) -> None:
+        self._openai = openai_sender
+        self._anthropic = anthropic_sender
+
+    async def send(self, account: Account, *, model: str, prompt: str) -> LimitWarmupSendResult:
+        if is_anthropic_provider(account.provider or ""):
+            return await self._anthropic.send(account, model=ANTHROPIC_WARMUP_MODEL, prompt=prompt)
+        return await self._openai.send(account, model=model, prompt=prompt)
+
+
+def build_provider_warmup_sender(
+    accounts_repo: AccountsRepository,
+    *,
+    accounts_repo_factory: Callable[[], AsyncContextManager[AccountsRepository]] | None = None,
+) -> ProviderLimitWarmupSender:
+    return ProviderLimitWarmupSender(
+        StreamingLimitWarmupSender(accounts_repo, accounts_repo_factory=accounts_repo_factory),
+        AnthropicLimitWarmupSender(accounts_repo, accounts_repo_factory=accounts_repo_factory),
+    )
+
+
 class LimitWarmupService:
     def __init__(
         self,
@@ -308,10 +425,12 @@ class LimitWarmupService:
         request_logs_repo: LimitWarmupRequestLogRepository,
         *,
         sender: LimitWarmupSender | None = None,
+        window_ingestor: AnthropicWindowIngestor | None = None,
     ) -> None:
         self._warmup_repo = warmup_repo
         self._request_logs_repo = request_logs_repo
         self._sender = sender
+        self._window_ingestor = window_ingestor
 
     async def run_after_usage_refresh(
         self,
@@ -484,6 +603,151 @@ class LimitWarmupService:
                         ),
                     )
 
+    async def run_anthropic_window_refresh(
+        self,
+        *,
+        accounts: list[Account],
+        settings: DashboardSettings,
+        latest_primary: dict[str, UsageHistory],
+    ) -> None:
+        """Warm Claude accounts whose five-hour window has closed.
+
+        Deliberately not routed through ``run_after_usage_refresh``: that method
+        reasons about before/after snapshots produced by polling ChatGPT's usage
+        API, and Anthropic publishes no equivalent for the proxy to poll. The
+        reset timestamp already recorded from the last response says when the
+        window ends, and each warmup response rewrites it five hours forward, so
+        the trigger re-arms itself.
+        """
+        if not settings.limit_warmup_enabled:
+            return
+        sender = self._sender
+        if sender is None:
+            raise RuntimeError("LimitWarmupService requires a sender")
+
+        candidates = [
+            account
+            for account in accounts
+            if is_anthropic_provider(account.provider or "")
+            and _account_is_safe_candidate(account)
+            and account.limit_warmup_enabled
+        ]
+        if not candidates:
+            return
+
+        latest_attempts = await self._warmup_repo.latest_by_account([account.id for account in candidates])
+        now_epoch = naive_utc_to_epoch(utcnow())
+        semaphore = asyncio.Semaphore(_MAX_CONCURRENT_WARMUP_SENDS)
+
+        for account in candidates:
+            if _in_cooldown(
+                latest_attempts.get(account.id),
+                cooldown_seconds=settings.limit_warmup_cooldown_seconds,
+            ):
+                continue
+            candidate = _anthropic_elapsed_window_candidate(latest_primary.get(account.id), now=now_epoch)
+            if candidate is None:
+                continue
+            attempt = await self._warmup_repo.try_create_attempt(
+                account_id=account.id,
+                window=candidate.window,
+                reset_at=candidate.reset_at,
+                model=ANTHROPIC_WARMUP_MODEL,
+                attempted_at=utcnow(),
+                reset_at_tolerance_seconds=_attempt_reset_at_tolerance(candidate),
+            )
+            if attempt is None:
+                continue
+            outcome = await self._send_warmup(
+                attempt,
+                account=account,
+                model=ANTHROPIC_WARMUP_MODEL,
+                prompt=settings.limit_warmup_prompt,
+                sender=sender,
+                semaphore=semaphore,
+            )
+            try:
+                await self._complete_warmup(outcome)
+            except Exception:
+                await self._mark_aborted_warmup(
+                    attempt,
+                    error_code="warmup_completion_failed",
+                    error_message="Limit warm-up completion failed",
+                )
+
+    async def warm_account_now(
+        self,
+        *,
+        account: Account,
+        settings: DashboardSettings,
+    ) -> ManualWarmupResult:
+        """Send one Claude warmup immediately, regardless of the scheduler's switch.
+
+        The operator asking for a window is a different decision from asking the
+        scheduler to manage windows, so ``limit_warmup_enabled`` is not consulted
+        here. Eligibility that protects the upstream -- Anthropic provider,
+        servable status, an actual five-hour window -- is enforced by the caller.
+
+        The attempt is filed under its own window name so it can never collide
+        with, or be mistaken for, a scheduled elapsed-window attempt; its
+        ``reset_at`` records the moment the window was opened by hand.
+        """
+        sender = self._sender
+        if sender is None:
+            raise RuntimeError("LimitWarmupService requires a sender")
+        model = ANTHROPIC_WARMUP_MODEL
+        attempt = await self._warmup_repo.try_create_attempt(
+            account_id=account.id,
+            window=_MANUAL_PRIMARY_WINDOW,
+            reset_at=naive_utc_to_epoch(utcnow()),
+            model=model,
+            attempted_at=utcnow(),
+            reset_at_tolerance_seconds=0,
+        )
+        if attempt is None:
+            # Another warmup for this account already holds the window; sending a
+            # second one would spend a request to open a window that is opening.
+            return ManualWarmupResult(
+                sent=False,
+                success=False,
+                model=model,
+                error_code="warmup_already_in_flight",
+                error_message="A warm-up for this account is already in progress",
+            )
+        outcome = await self._send_warmup(
+            attempt,
+            account=account,
+            model=model,
+            prompt=settings.limit_warmup_prompt,
+            sender=sender,
+            semaphore=asyncio.Semaphore(1),
+        )
+        try:
+            await self._complete_warmup(outcome)
+        except Exception:
+            await self._mark_aborted_warmup(
+                attempt,
+                error_code="warmup_completion_failed",
+                error_message="Limit warm-up completion failed",
+            )
+        result = outcome.result
+        if result is None:
+            return ManualWarmupResult(
+                sent=True,
+                success=False,
+                model=model,
+                error_code="warmup_send_failed",
+                error_message=_truncate(outcome.error_message),
+            )
+        return ManualWarmupResult(
+            sent=True,
+            success=result.success,
+            model=model,
+            latency_ms=result.latency_ms,
+            error_code=result.error_code,
+            error_message=_truncate(result.error_message),
+        )
+
     def _resolve_model(self, configured_model: str, account: Account) -> str | None:
         normalized = configured_model.strip()
         if normalized and normalized.lower() != "auto":
@@ -551,6 +815,11 @@ class LimitWarmupService:
             model=outcome.model,
             result=result,
         )
+        # Ingested regardless of outcome: a 429 describes the account's window as
+        # accurately as a 200 does, and headers absent from an error response
+        # simply parse to nothing.
+        if self._window_ingestor is not None and result.usage_headers is not None:
+            await self._window_ingestor(outcome.account.id, result.usage_headers)
         status = "succeeded" if result.success else "failed"
         error_code = result.error_code
         if error_code in _QUOTA_ERROR_CODES:
@@ -631,9 +900,36 @@ class LimitWarmupService:
 
 
 @dataclass(frozen=True, slots=True)
+class ManualWarmupResult:
+    """Outcome of an operator-triggered warmup, shaped for the API layer."""
+
+    sent: bool
+    success: bool
+    model: str
+    latency_ms: int | None = None
+    error_code: str | None = None
+    error_message: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
 class _WarmupCandidate:
     reset_at: int
     window: str
+
+
+def _anthropic_elapsed_window_candidate(entry: UsageHistory | None, *, now: int) -> _WarmupCandidate | None:
+    """A candidate iff the account has a five-hour window and it has closed.
+
+    ``None`` covers both "never recorded a window" and "still inside it". The
+    first case is what excludes usage-based seats: they bill against a budget
+    and their responses carry no window headers, so no row is ever written and
+    there is no window a ping could open.
+    """
+    if entry is None or entry.reset_at is None:
+        return None
+    if entry.reset_at > now:
+        return None
+    return _WarmupCandidate(reset_at=entry.reset_at, window="primary")
 
 
 def _selected_windows(value: str) -> tuple[str, ...]:
@@ -646,6 +942,13 @@ def _selected_windows(value: str) -> tuple[str, ...]:
 
 
 def _account_is_safe_candidate(account: Account) -> bool:
+    # A paused Claude account is one deliberately kept out of the serving pool,
+    # not a broken one: its five-hour window still ages, and keeping that window
+    # rolling is the whole point of the warm-up, so it is ready the moment the
+    # operator switches back to it. The ChatGPT path keeps the stricter rule --
+    # a paused account there is not expected to emit traffic at all.
+    if is_anthropic_provider(account.provider):
+        return account.status in _WARMABLE_ANTHROPIC_STATUSES
     return account.status == AccountStatus.ACTIVE
 
 
