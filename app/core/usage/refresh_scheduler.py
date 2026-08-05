@@ -10,7 +10,9 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any, AsyncIterator, Protocol, TypeVar, cast
 
+from app.core.anthropic.usage_poller import poll_anthropic_usage
 from app.core.config.settings import get_settings
+from app.core.crypto import TokenEncryptor
 from app.core.providers import PROVIDER_ANTHROPIC
 from app.core.usage import capacity_for_plan
 from app.db.models import Account, AccountLimitWarmup, AccountStatus, UsageHistory
@@ -181,10 +183,11 @@ class UsageRefreshScheduler:
                     selected_account, cycle_complete = self._select_next_account(accounts)
                     detach_session_objects(session)
                 account_count = len(accounts)
-                # Anthropic accounts are not in `accounts` -- this loop polls the
-                # ChatGPT usage API and they have no equivalent to poll. Their
-                # warmup runs off stored window state instead, on every tick, so
-                # it stays alive even when there is no OpenAI account to refresh.
+                # Anthropic accounts are not in `accounts`: `refresh_accounts`
+                # speaks the ChatGPT usage API, and Anthropic's is a different
+                # endpoint with a different payload. They get their own pass,
+                # which runs on every tick so it stays alive even when there is
+                # no OpenAI account to refresh.
                 await self._refresh_anthropic_windows()
                 if selected_account is None:
                     await _invalidate_usage_refresh_caches()
@@ -230,7 +233,10 @@ class UsageRefreshScheduler:
         return _usage_refresh_slice_seconds(self.interval_seconds, account_count)
 
     async def _refresh_anthropic_windows(self) -> None:
-        """Warm any Claude account whose five-hour window has already closed.
+        """Read Claude quota state from upstream, then warm any elapsed window.
+
+        The poll runs first so warmup decides against freshly read state rather
+        than against whatever the last served response happened to report.
 
         Failures are swallowed: this is discretionary traffic sharing a loop with
         the OpenAI usage refresh, and it must not be able to abort that refresh.
@@ -238,15 +244,20 @@ class UsageRefreshScheduler:
         try:
             async with get_background_session() as session:
                 accounts_repo = AccountsRepository(session)
+                accounts = [
+                    account for account in await accounts_repo.list_accounts() if account.provider == PROVIDER_ANTHROPIC
+                ]
+                detach_session_objects(session)
+            if not accounts:
+                return
+
+            await self._poll_anthropic_usage(accounts)
+
+            # Re-read after the poll: warmup keys off the five-hour window, and
+            # the poll is what may just have corrected it.
+            async with get_background_session() as session:
                 usage_repo = UsageRepository(session)
                 settings_repo = SettingsRepository(session)
-                accounts = [
-                    account
-                    for account in await accounts_repo.list_accounts()
-                    if account.provider == PROVIDER_ANTHROPIC
-                ]
-                if not accounts:
-                    return
                 latest_primary = await usage_repo.latest_by_account(window="primary")
                 dashboard_settings = await settings_repo.get_or_create()
                 detach_session_objects(session)
@@ -257,6 +268,32 @@ class UsageRefreshScheduler:
             )
         except Exception:
             logger.exception("Anthropic window refresh failed")
+
+    async def _poll_anthropic_usage(self, accounts: list[Account]) -> None:
+        """Ask Anthropic for each account's quota state.
+
+        Isolated from warmup so a poll outage still leaves windows being opened,
+        which is the behaviour that predates the poll.
+        """
+        try:
+            outcome = await poll_anthropic_usage(
+                accounts,
+                encryptor=TokenEncryptor(),
+                usage_repo_factory=_background_usage_repo,
+            )
+        except Exception:
+            logger.exception("Anthropic usage poll failed")
+            return
+        if outcome.written or outcome.throttled or outcome.failed:
+            logger.info(
+                "Anthropic usage poll polled=%d written=%d throttled=%d failed=%d",
+                outcome.polled,
+                outcome.written,
+                outcome.throttled,
+                outcome.failed,
+            )
+        if outcome.written:
+            await _invalidate_usage_refresh_caches()
 
     def _select_next_account(self, accounts: list[Account]) -> tuple[Account | None, bool]:
         if not accounts:
@@ -281,9 +318,9 @@ def _ordered_usage_refresh_accounts(accounts: list[Account]) -> list[Account]:
         (
             account
             for account in accounts
-            # OpenAI-only: this scheduler polls the ChatGPT usage API. Anthropic
-            # usage is ingested from relay response headers instead. (None
-            # provider = legacy OpenAI account.)
+            # OpenAI-only: this ordering feeds the ChatGPT usage poll. Anthropic
+            # accounts are refreshed by `_poll_anthropic_usage`, which speaks
+            # their own endpoint. (None provider = legacy OpenAI account.)
             if account.provider != PROVIDER_ANTHROPIC
             and account.status not in (AccountStatus.PAUSED, AccountStatus.REAUTH_REQUIRED, AccountStatus.DEACTIVATED)
         ),
@@ -306,6 +343,12 @@ async def _invalidate_usage_refresh_caches() -> None:
 async def _background_accounts_repo() -> AsyncIterator[AccountsRepository]:
     async with get_background_session() as session:
         yield AccountsRepository(session)
+
+
+@contextlib.asynccontextmanager
+async def _background_usage_repo() -> AsyncIterator[UsageRepository]:
+    async with get_background_session() as session:
+        yield UsageRepository(session)
 
 
 def build_background_limit_warmup_service() -> LimitWarmupService:

@@ -183,6 +183,9 @@ class UsageHistory(Base):
     credits_has: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     credits_unlimited: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     credits_balance: Mapped[float | None] = mapped_column(Float, nullable=True)
+    # Only a dollar-budget window sets this: the size of the budget, so a spend
+    # display can name the total instead of inferring it from a percentage.
+    credits_limit: Mapped[float | None] = mapped_column(Float, nullable=True)
 
 
 class AccountUsageRollup(Base):

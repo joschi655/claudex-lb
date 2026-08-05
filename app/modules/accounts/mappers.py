@@ -16,6 +16,7 @@ from app.modules.accounts.schemas import (
     AccountAuthStatus,
     AccountLimitWarmupStatus,
     AccountRequestUsage,
+    AccountSpendBudget,
     AccountSummary,
     AccountTokenStatus,
     AccountUsage,
@@ -34,6 +35,10 @@ _RESET_CREDITS_INELIGIBLE_STATUSES = frozenset(
     {AccountStatus.PAUSED, AccountStatus.REAUTH_REQUIRED, AccountStatus.DEACTIVATED}
 )
 _DEFAULT_USAGE_REFRESH_INTERVAL_SECONDS = 60
+# Not a guess and not worth a column: the usage payload names these fields
+# ``limit_dollars`` / ``used_dollars`` / ``remaining_dollars``, so the unit is
+# part of the upstream contract rather than something a response chooses.
+BUDGET_CURRENCY = "USD"
 
 
 def build_account_summaries(
@@ -42,6 +47,7 @@ def build_account_summaries(
     primary_usage: dict[str, UsageHistory],
     secondary_usage: dict[str, UsageHistory],
     monthly_usage: dict[str, UsageHistory] | None = None,
+    budget_usage: dict[str, UsageHistory] | None = None,
     request_usage_by_account: dict[str, AccountRequestUsage] | None = None,
     additional_quotas_by_account: dict[str, list[AccountAdditionalQuota]] | None = None,
     limit_warmups_by_account: dict[str, AccountLimitWarmup] | None = None,
@@ -64,9 +70,32 @@ def build_account_summaries(
             include_auth=include_auth,
             is_email_duplicate=_duplicate_detection_key(account) in duplicate_keys,
             reset_credits_snapshot=_reset_credits_snapshot_for_account(account, store),
+            budget_usage=budget_usage.get(account.id) if budget_usage else None,
         )
         for account in accounts
     ]
+
+
+def _spend_budget(entry: UsageHistory | None) -> AccountSpendBudget | None:
+    """The dollar budget an account bills against, if it reported one.
+
+    ``credits_limit`` and ``credits_balance`` hold the total and the remainder as
+    the poll read them; the amount spent is the difference rather than a third
+    stored number, so the three can never disagree.
+    """
+    if entry is None or entry.used_percent is None:
+        return None
+    limit = entry.credits_limit
+    remaining = entry.credits_balance
+    used = limit - remaining if limit is not None and remaining is not None else None
+    return AccountSpendBudget(
+        used_percent=float(entry.used_percent),
+        used=used,
+        limit=limit,
+        remaining=remaining,
+        currency=BUDGET_CURRENCY,
+        reset_at=from_epoch_seconds(entry.reset_at),
+    )
 
 
 def _duplicate_detection_keys_appearing_more_than_once(accounts: list[Account]) -> set[tuple[str, str, str | None]]:
@@ -111,6 +140,7 @@ def _account_to_summary(
     include_auth: bool = True,
     is_email_duplicate: bool = False,
     reset_credits_snapshot: RateLimitResetCreditsSnapshot | None = None,
+    budget_usage: UsageHistory | None = None,
 ) -> AccountSummary:
     plan_type = coerce_account_plan_type(account.plan_type, DEFAULT_PLAN)
     auth_status = _build_auth_status(account, encryptor) if include_auth else None
@@ -290,6 +320,7 @@ def _account_to_summary(
         credits_has=credits_has,
         credits_unlimited=credits_unlimited,
         credits_balance=credits_balance,
+        spend_budget=_spend_budget(budget_usage),
         request_usage=request_usage,
         additional_quotas=additional_quotas or [],
         deactivation_reason=account.deactivation_reason,

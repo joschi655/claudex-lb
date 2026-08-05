@@ -65,6 +65,15 @@ export const AccountAdditionalQuotaSchema = z.object({
   secondaryWindow: AccountAdditionalWindowSchema.nullable().optional(),
 });
 
+export const AccountSpendBudgetSchema = z.object({
+  usedPercent: z.number(),
+  used: z.number().nullable().optional(),
+  limit: z.number().nullable().optional(),
+  remaining: z.number().nullable().optional(),
+  currency: z.string().nullable().optional(),
+  resetAt: z.iso.datetime({ offset: true }).nullable().optional(),
+});
+
 export const AccountSummarySchema = z.object({
   accountId: z.string(),
   provider: z.string().optional(),
@@ -95,6 +104,7 @@ export const AccountSummarySchema = z.object({
   creditsHas: z.boolean().nullable().optional(),
   creditsUnlimited: z.boolean().nullable().optional(),
   creditsBalance: z.number().nullable().optional(),
+  spendBudget: AccountSpendBudgetSchema.nullable().optional(),
   requestUsage: AccountRequestUsageSchema.nullable().optional(),
   auth: AccountAuthSchema.nullable().optional(),
   additionalQuotas: z.array(AccountAdditionalQuotaSchema).default([]),
@@ -351,6 +361,7 @@ export type AccountLimitWarmupStatus = z.infer<
 export type AccountAdditionalWindow = z.infer<
   typeof AccountAdditionalWindowSchema
 >;
+export type AccountSpendBudget = z.infer<typeof AccountSpendBudgetSchema>;
 export type AccountAdditionalQuota = z.infer<
   typeof AccountAdditionalQuotaSchema
 >;

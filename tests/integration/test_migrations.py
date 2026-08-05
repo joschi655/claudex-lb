@@ -1185,3 +1185,66 @@ async def test_request_log_provider_migration_backfills_from_accounts(tmp_path):
         assert "provider" in await _column_names(engine)
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_usage_history_credits_limit_migration_upgrade_and_downgrade(tmp_path):
+    """Upgrade adds the budget-size column; downgrade drops it; existing rows
+    survive both directions with the column left NULL, which is the honest value
+    for a row written before any budget was ever read."""
+    from alembic import command
+
+    from app.db.migrate import _build_alembic_config
+
+    db_url = f"sqlite+aiosqlite:///{tmp_path / 'credits-limit.sqlite'}"
+    parent_revision = "20260804_010000_add_request_log_provider"
+    credits_limit_revision = "20260805_000000_add_usage_history_credits_limit"
+
+    async def _column_names(engine) -> set[str]:
+        async with engine.connect() as conn:
+            result = await conn.execute(text("PRAGMA table_info(usage_history)"))
+            return {row[1] for row in result.fetchall()}
+
+    await to_thread.run_sync(lambda: run_upgrade(db_url, parent_revision, bootstrap_legacy=False))
+    engine = create_async_engine(db_url, future=True)
+    try:
+        assert "credits_limit" not in await _column_names(engine)
+
+        async with engine.begin() as conn:
+            await conn.execute(
+                text(
+                    "INSERT INTO accounts (id, email, access_token_encrypted, refresh_token_encrypted,"
+                    " last_refresh, status, plan_type, codex_installation_id)"
+                    " VALUES ('acc_budget', 'budget@example.com', :token, :token, CURRENT_TIMESTAMP,"
+                    " 'active', 'claude_enterprise', 'install-1')"
+                ),
+                {"token": b"x"},
+            )
+            await conn.execute(
+                text(
+                    "INSERT INTO usage_history (account_id, used_percent, window, recorded_at)"
+                    " VALUES ('acc_budget', 42.0, 'primary', CURRENT_TIMESTAMP)"
+                )
+            )
+
+        await to_thread.run_sync(lambda: run_upgrade(db_url, credits_limit_revision, bootstrap_legacy=False))
+        assert "credits_limit" in await _column_names(engine)
+
+        async with engine.connect() as conn:
+            result = await conn.execute(text("SELECT used_percent, credits_limit FROM usage_history"))
+            assert result.fetchall() == [(42.0, None)]
+
+        config = _build_alembic_config(db_url)
+        await to_thread.run_sync(lambda: command.downgrade(config, parent_revision))
+        assert "credits_limit" not in await _column_names(engine)
+
+        async with engine.connect() as conn:
+            result = await conn.execute(text("SELECT used_percent FROM usage_history"))
+            assert result.fetchall() == [(42.0,)]
+
+        # Single-head sanity: the walk to head must pass through this revision.
+        result = await to_thread.run_sync(lambda: run_upgrade(db_url, "head", bootstrap_legacy=False))
+        assert result.current_revision == _HEAD_REVISION
+        assert "credits_limit" in await _column_names(engine)
+    finally:
+        await engine.dispose()

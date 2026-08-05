@@ -213,3 +213,29 @@ async def open_messages(
         await lease.close()
         raise
     return AnthropicUpstreamResponse(response, lease)
+
+
+async def open_get(
+    url: str,
+    *,
+    headers: Mapping[str, str],
+    timeout_seconds: float,
+) -> AnthropicUpstreamResponse:
+    """Open a GET against the upstream Anthropic API.
+
+    Unlike ``open_messages`` there is nothing to stream, so the whole exchange
+    gets one total-duration budget rather than an idle read timeout.
+    """
+    lease = await acquire_http_client()
+    session = lease.client.session
+    timeout = aiohttp.ClientTimeout(
+        total=timeout_seconds,
+        connect=_CONNECT_TIMEOUT_SECONDS,
+        sock_connect=_CONNECT_TIMEOUT_SECONDS,
+    )
+    try:
+        response = await session.get(url, headers=dict(headers), timeout=timeout)
+    except BaseException:
+        await lease.close()
+        raise
+    return AnthropicUpstreamResponse(response, lease)
