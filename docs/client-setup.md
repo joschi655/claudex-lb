@@ -289,6 +289,13 @@ custom_providers:
 /model custom:claudex-lb:claude-sonnet-5
 ```
 
+The combined `custom:<provider>:<model>` form is the in-session `/model` syntax. On the
+command line the provider and the model are separate flags:
+
+```bash
+hermes -z "say ok" --provider custom:claudex-lb -m claude-sonnet-5
+```
+
 Hermes sends its own key with `x-api-key` and does not disguise itself as Claude Code —
 the proxy applies the Claude Code identity to the upstream leg on its own behalf, and
 records the calling client in the request log so the traffic stays separable in reports.
