@@ -349,12 +349,18 @@ function parseDateValue(value: string | null): number | null {
 
 function filterRequestLogs(
   url: URL,
-  options?: { includeStatuses?: boolean; ignoreApiKeyIds?: boolean },
+  options?: {
+    includeStatuses?: boolean;
+    ignoreApiKeyIds?: boolean;
+    ignoreProviders?: boolean;
+  },
 ): RequestLogEntry[] {
   const includeStatuses = options?.includeStatuses ?? true;
   const ignoreApiKeyIds = options?.ignoreApiKeyIds ?? false;
+  const ignoreProviders = options?.ignoreProviders ?? false;
   const accountIds = new Set(url.searchParams.getAll("accountId"));
   const apiKeyIds = new Set(url.searchParams.getAll("apiKeyId"));
+  const providers = new Set(url.searchParams.getAll("provider"));
   const statuses = new Set(
     url.searchParams.getAll("status").map((value) => value.toLowerCase()),
   );
@@ -376,6 +382,14 @@ function filterRequestLogs(
       !ignoreApiKeyIds &&
       apiKeyIds.size > 0 &&
       (!entry.apiKeyId || !apiKeyIds.has(entry.apiKeyId))
+    ) {
+      return false;
+    }
+
+    if (
+      !ignoreProviders &&
+      providers.size > 0 &&
+      (!entry.provider || !providers.has(entry.provider))
     ) {
       return false;
     }
@@ -443,6 +457,7 @@ function filterRequestLogs(
 function requestLogOptionsFromEntries(
   entries: RequestLogEntry[],
   apiKeyEntries: RequestLogEntry[] = entries,
+  providerEntries: RequestLogEntry[] = entries,
 ) {
   const accountIds = [
     ...new Set(
@@ -495,11 +510,20 @@ function requestLogOptionsFromEntries(
   const presentStatuses = new Set(entries.map((entry) => entry.status));
   const statuses = STATUS_ORDER.filter((status) => presentStatuses.has(status));
 
+  const providers = [
+    ...new Set(
+      providerEntries
+        .map((entry) => entry.provider)
+        .filter((provider): provider is string => provider != null),
+    ),
+  ].sort();
+
   return createRequestLogFilterOptions({
     accountIds,
     modelOptions: modelOptionsList,
     apiKeys,
     statuses: [...statuses],
+    providers,
   });
 }
 
@@ -759,8 +783,12 @@ export const handlers = [
       includeStatuses: false,
       ignoreApiKeyIds: true,
     });
+    const providerFiltered = filterRequestLogs(url, {
+      includeStatuses: false,
+      ignoreProviders: true,
+    });
     return HttpResponse.json(
-      requestLogOptionsFromEntries(filtered, apiKeyFiltered),
+      requestLogOptionsFromEntries(filtered, apiKeyFiltered, providerFiltered),
     );
   }),
 

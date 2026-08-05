@@ -26,6 +26,7 @@ async def get_reports(
     account_id: Annotated[list[str] | None, Query()] = None,
     model: Annotated[str | None, Query()] = None,
     useragent_group: Annotated[str | None, Query()] = None,
+    provider: Annotated[str | None, Query()] = None,
 ) -> ReportsResponse:
     try:
         return await context.service.get_reports(
@@ -35,6 +36,7 @@ async def get_reports(
             account_ids=account_id,
             model=model,
             useragent_group=useragent_group,
+            provider=provider,
         )
     except DailyReportRangeTooLargeError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc

@@ -40,6 +40,7 @@ class RequestLogFilterOptions:
     model_options: list[RequestLogModelOption]
     api_keys: list[RequestLogApiKeyOption]
     statuses: list[str]
+    providers: list[str]
 
 
 @dataclass(frozen=True, slots=True)
@@ -62,6 +63,7 @@ class RequestLogsService:
         until: datetime | None = None,
         account_ids: list[str] | None = None,
         api_key_ids: list[str] | None = None,
+        providers: list[str] | None = None,
         model_options: list[RequestLogModelOption] | None = None,
         models: list[str] | None = None,
         reasoning_efforts: list[str] | None = None,
@@ -79,6 +81,7 @@ class RequestLogsService:
             until=until,
             account_ids=account_ids,
             api_key_ids=api_key_ids,
+            providers=providers,
             model_options=normalized_model_options,
             models=models,
             reasoning_efforts=reasoning_efforts,
@@ -108,6 +111,7 @@ class RequestLogsService:
         until: datetime | None = None,
         account_ids: list[str] | None = None,
         api_key_ids: list[str] | None = None,
+        providers: list[str] | None = None,
         model_options: list[RequestLogModelOption] | None = None,
         models: list[str] | None = None,
         reasoning_efforts: list[str] | None = None,
@@ -115,20 +119,17 @@ class RequestLogsService:
         normalized_model_options = (
             [(option.model, option.reasoning_effort) for option in model_options] if model_options else None
         )
-        (
-            option_account_ids,
-            option_model_options,
-            option_api_key_ids,
-            status_values,
-        ) = await self._repo.list_filter_options(
+        facets = await self._repo.list_filter_options(
             since=since,
             until=until,
             account_ids=account_ids,
             api_key_ids=api_key_ids,
+            providers=providers,
             model_options=normalized_model_options,
             models=models,
             reasoning_efforts=reasoning_efforts,
         )
+        option_api_key_ids = facets.api_key_ids
         api_key_details = await self._repo.get_api_key_details_by_ids(option_api_key_ids)
         option_api_keys = [
             RequestLogApiKeyOption(
@@ -140,13 +141,14 @@ class RequestLogsService:
         ]
         option_api_keys.sort(key=lambda option: (option.name.lower(), (option.key_prefix or "").lower(), option.id))
         return RequestLogFilterOptions(
-            account_ids=option_account_ids,
+            account_ids=facets.account_ids,
             model_options=[
                 RequestLogModelOption(model=model, reasoning_effort=reasoning_effort)
-                for model, reasoning_effort in option_model_options
+                for model, reasoning_effort in facets.model_options
             ],
             api_keys=option_api_keys,
-            statuses=_normalize_status_values(status_values),
+            statuses=_normalize_status_values(facets.statuses),
+            providers=facets.providers,
         )
 
 

@@ -7,6 +7,7 @@ import { usePrivacyStore } from "@/hooks/use-privacy";
 import { useAccountQuotaDisplayStore } from "@/hooks/use-account-quota-display";
 import { StatusBadge } from "@/components/status-badge";
 import { MiniQuotaBar } from "@/components/mini-quota-bar";
+import { ProviderBadge } from "@/components/provider-badge";
 import type {
   AccountRoutingPolicy,
   AccountSummary,
@@ -92,14 +93,7 @@ export function AccountListItem({
       <div className="flex items-start gap-2.5">
         <div className="min-w-0 flex-1">
           <p className="flex items-center gap-1.5 truncate text-sm font-medium">
-            {account.provider === "anthropic" ? (
-              <Badge
-                variant="outline"
-                className="shrink-0 border-orange-300 bg-orange-50 px-1.5 text-[10px] text-orange-700 dark:border-orange-500/30 dark:bg-orange-500/10 dark:text-orange-300"
-              >
-                Claude
-              </Badge>
-            ) : null}
+            <ProviderBadge provider={account.provider} />
             {titleIsEmail && blurred ? (
               <span className="privacy-blur">{title}</span>
             ) : (

@@ -1,4 +1,4 @@
-import { RESET_ERROR_LABEL } from "@/utils/constants";
+import { PROVIDER_LABELS, RESET_ERROR_LABEL } from "@/utils/constants";
 import { getTimeFormatPreference, type TimeFormatPreference } from "@/hooks/use-time-format";
 
 const numberFormatter = new Intl.NumberFormat("en-US");
@@ -80,6 +80,10 @@ export function formatSlug(value: string): string {
   const words = value.split("_");
   words[0] = words[0].charAt(0).toUpperCase() + words[0].slice(1);
   return words.join(" ");
+}
+
+export function formatProviderLabel(provider: string): string {
+  return PROVIDER_LABELS[provider] ?? provider;
 }
 
 export function toNumber(value: unknown): number | null {

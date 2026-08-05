@@ -8,6 +8,7 @@ const FILTERS: ReportsFiltersState = {
   startDate: "2026-06-01",
   endDate: "2026-06-07",
   accountId: [],
+  provider: "",
   model: "",
   useragent: "",
 };
@@ -25,6 +26,7 @@ describe("ReportsFilters", () => {
         filters={FILTERS}
         selectedPresetDays={7}
         accountOptions={[{ value: "acc_one", label: "Primary account", isEmail: false }]}
+        providerOptions={[]}
         modelOptions={[]}
         useragentOptions={[]}
         onPresetSelect={vi.fn()}
@@ -46,6 +48,7 @@ describe("ReportsFilters", () => {
         filters={{ ...FILTERS, model: "gpt-5.1" }}
         selectedPresetDays={7}
         accountOptions={[]}
+        providerOptions={[]}
         modelOptions={[
           { value: "gpt-5.1", label: "gpt-5.1" },
           { value: "gpt-5.2", label: "gpt-5.2" },
@@ -73,6 +76,7 @@ describe("ReportsFilters", () => {
         filters={{ ...FILTERS, useragent: "CLI" }}
         selectedPresetDays={7}
         accountOptions={[]}
+        providerOptions={[]}
         modelOptions={[]}
         useragentOptions={[
           { value: "CLI", label: "CLI" },
@@ -101,6 +105,7 @@ describe("ReportsFilters", () => {
         filters={FILTERS}
         selectedPresetDays={30}
         accountOptions={[]}
+        providerOptions={[]}
         modelOptions={[]}
         useragentOptions={[]}
         onPresetSelect={onPresetSelect}
@@ -130,6 +135,7 @@ describe("ReportsFilters", () => {
         filters={FILTERS}
         selectedPresetDays={30}
         accountOptions={[]}
+        providerOptions={[]}
         modelOptions={[]}
         useragentOptions={[]}
         onPresetSelect={vi.fn()}

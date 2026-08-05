@@ -31,7 +31,7 @@ import {
 import { useDashboardPreferencesStore } from "@/hooks/use-dashboard-preferences";
 import { useThemeStore } from "@/hooks/use-theme";
 import { REQUEST_STATUS_LABELS } from "@/utils/constants";
-import { formatModelLabel, formatSlug } from "@/utils/formatters";
+import { formatModelLabel, formatProviderLabel, formatSlug } from "@/utils/formatters";
 
 const MODEL_OPTION_DELIMITER = ":::";
 
@@ -153,6 +153,17 @@ export function DashboardPage() {
     [optionsQuery.data?.apiKeys],
   );
 
+  // A single-provider deployment gets no provider control at all: the filter bar
+  // only grows the dimension once there is something to separate.
+  const providerOptions = useMemo(
+    () =>
+      (optionsQuery.data?.providers ?? []).map((provider) => ({
+        value: provider,
+        label: formatProviderLabel(provider),
+      })),
+    [optionsQuery.data?.providers],
+  );
+
   const modelOptions = useMemo(
     () =>
       (optionsQuery.data?.modelOptions ?? []).map((option) => ({
@@ -270,12 +281,14 @@ export function DashboardPage() {
               filters={filters}
               accountOptions={accountOptions}
               apiKeyOptions={apiKeyOptions}
+              providerOptions={providerOptions}
               modelOptions={modelOptions}
               statusOptions={statusOptions}
               onSearchChange={(search) => updateFilters({ search, offset: 0 })}
               onTimeframeChange={(timeframe) => updateFilters({ timeframe, offset: 0 })}
               onAccountChange={(accountIds) => updateFilters({ accountIds, offset: 0 })}
               onApiKeyChange={(apiKeyIds) => updateFilters({ apiKeyIds, offset: 0 })}
+              onProviderChange={(providers) => updateFilters({ providers, offset: 0 })}
               onModelChange={(modelOptionsSelected) =>
                 updateFilters({ modelOptions: modelOptionsSelected, offset: 0 })
               }
@@ -286,6 +299,7 @@ export function DashboardPage() {
                   timeframe: "all",
                   accountIds: [],
                   apiKeyIds: [],
+                  providers: [],
                   modelOptions: [],
                   statuses: [],
                   offset: 0,

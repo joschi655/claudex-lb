@@ -23,6 +23,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ProviderBadge } from "@/components/provider-badge";
 import { PaginationControls } from "@/features/dashboard/components/filters/pagination-controls";
 import { RequestArchivePanel } from "@/features/conversation-archive/components/request-archive-panel";
 import type { AccountSummary, RequestLog } from "@/features/dashboard/schemas";
@@ -33,6 +34,7 @@ import {
   formatCurrency,
   formatModelLabel,
   formatElapsed,
+  formatProviderLabel,
   formatSlug,
   formatTimeLong,
 } from "@/utils/formatters";
@@ -235,12 +237,13 @@ export function RecentRequestsTable({
                       <div className="text-xs text-muted-foreground">{time.date}</div>
                     </div>
                   </TableCell>
-                  <TableCell className="truncate align-top text-sm">
-                    {isEmailLabel && blurred ? (
-                      <span className="privacy-blur">{accountLabel}</span>
-                    ) : (
-                      accountLabel
-                    )}
+                  <TableCell className="align-top text-sm">
+                    <span className="flex items-center gap-1.5">
+                      <ProviderBadge provider={request.provider} />
+                      <span className={`truncate${isEmailLabel && blurred ? " privacy-blur" : ""}`}>
+                        {accountLabel}
+                      </span>
+                    </span>
                   </TableCell>
                   <TableCell className="align-top">
                     {planType ? (
@@ -395,6 +398,7 @@ export function RecentRequestsTable({
                 <RequestDetailField label="Status" value={selectedRequest ? (REQUEST_STATUS_LABELS[selectedRequest.status] ?? selectedRequest.status) : "—"} />
                 <RequestDetailField label="Model" value={selectedRequest ? formatModelLabel(selectedRequest.model, selectedRequest.reasoningEffort, selectedRequest.actualServiceTier ?? selectedRequest.serviceTier) : "—"} mono />
                 <RequestDetailField label="Request kind" value={selectedRequest ? (REQUEST_KIND_LABELS[selectedRequest.requestKind] ?? selectedRequest.requestKind) : "—"} />
+                <RequestDetailField label="Provider" value={selectedRequest?.provider ? formatProviderLabel(selectedRequest.provider) : "—"} />
                 <RequestDetailField label="Plan" value={selectedRequest?.planType ? formatSlug(selectedRequest.planType) : "—"} />
                 <RequestDetailField label="Elapsed" value={formatElapsed(selectedRequest?.latencyMs ?? null)} />
                 <RequestDetailField label="TTFT" value={formatElapsed(selectedRequest?.latencyFirstTokenMs ?? null)} />

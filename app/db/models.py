@@ -260,6 +260,7 @@ class RequestLog(Base):
     __table_args__ = (
         Index("idx_logs_useragent_group", "useragent_group"),
         Index("idx_logs_client_ip", "client_ip"),
+        Index("idx_logs_provider", "provider"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -286,6 +287,10 @@ class RequestLog(Base):
     requested_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     model: Mapped[str] = mapped_column(String, nullable=False)
+    # Copied from the serving account at write time rather than joined: the
+    # account foreign key is ON DELETE SET NULL, so a deleted account would
+    # otherwise erase the provider from its whole history.
+    provider: Mapped[str | None] = mapped_column(String, nullable=True)
     plan_type: Mapped[str | None] = mapped_column(String, nullable=True)
     source: Mapped[str | None] = mapped_column(String, nullable=True)
     useragent: Mapped[str | None] = mapped_column(Text, nullable=True)

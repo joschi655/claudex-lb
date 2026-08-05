@@ -17,6 +17,7 @@ class RequestLogCostBreakdown(DashboardModel):
 class RequestLogEntry(DashboardModel):
     requested_at: datetime
     account_id: str | None = None
+    provider: str | None = None
     plan_type: str | None = None
     api_key_id: str | None = None
     api_key_name: str | None = None
@@ -79,3 +80,4 @@ class RequestLogFilterOptionsResponse(DashboardModel):
     model_options: list[RequestLogModelOption] = Field(default_factory=list)
     api_keys: list[RequestLogApiKeyOption] = Field(default_factory=list)
     statuses: list[str] = Field(default_factory=list)
+    providers: list[str] = Field(default_factory=list)

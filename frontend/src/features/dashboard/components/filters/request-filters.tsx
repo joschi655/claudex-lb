@@ -10,12 +10,14 @@ export type RequestFiltersProps = {
   filters: FilterState;
   accountOptions: MultiSelectOption[];
   apiKeyOptions: MultiSelectOption[];
+  providerOptions: MultiSelectOption[];
   modelOptions: MultiSelectOption[];
   statusOptions: MultiSelectOption[];
   onSearchChange: (value: string) => void;
   onTimeframeChange: (value: FilterState["timeframe"]) => void;
   onAccountChange: (values: string[]) => void;
   onApiKeyChange: (values: string[]) => void;
+  onProviderChange: (values: string[]) => void;
   onModelChange: (values: string[]) => void;
   onStatusChange: (values: string[]) => void;
   onReset: () => void;
@@ -25,12 +27,14 @@ export function RequestFilters({
   filters,
   accountOptions,
   apiKeyOptions,
+  providerOptions,
   modelOptions,
   statusOptions,
   onSearchChange,
   onTimeframeChange,
   onAccountChange,
   onApiKeyChange,
+  onProviderChange,
   onModelChange,
   onStatusChange,
   onReset,
@@ -64,6 +68,14 @@ export function RequestFilters({
           options={apiKeyOptions}
           onChange={onApiKeyChange}
         />
+        {providerOptions.length > 1 ? (
+          <MultiSelectFilter
+            label="Providers"
+            values={filters.providers}
+            options={providerOptions}
+            onChange={onProviderChange}
+          />
+        ) : null}
         <MultiSelectFilter
           label="Models"
           values={filters.modelOptions}

@@ -1107,3 +1107,81 @@ async def test_oauth_flow_states_migration_upgrade_and_downgrade(tmp_path):
         assert await _has_flow_table(engine)
     finally:
         await engine.dispose()
+
+
+@pytest.mark.asyncio
+async def test_request_log_provider_migration_backfills_from_accounts(tmp_path):
+    """Upgrade adds request_logs.provider and backfills it from the serving
+    account, defaulting orphaned rows to openai; downgrade drops the column."""
+    from alembic import command
+
+    from app.db.migrate import _build_alembic_config
+
+    db_url = f"sqlite+aiosqlite:///{tmp_path / 'request-log-provider.sqlite'}"
+    parent_revision = "20260804_000000_add_account_pace_gates"
+    provider_revision = "20260804_010000_add_request_log_provider"
+
+    async def _column_names(engine) -> set[str]:
+        async with engine.connect() as conn:
+            result = await conn.execute(text("PRAGMA table_info(request_logs)"))
+            return {row[1] for row in result.all()}
+
+    async def _providers_by_request_id(engine) -> dict[str, str | None]:
+        async with engine.connect() as conn:
+            result = await conn.execute(text("SELECT request_id, provider FROM request_logs"))
+            return {row[0]: row[1] for row in result.all()}
+
+    await to_thread.run_sync(lambda: run_upgrade(db_url, parent_revision, bootstrap_legacy=False))
+    engine = create_async_engine(db_url, future=True)
+    try:
+        assert "provider" not in await _column_names(engine)
+
+        async with engine.begin() as conn:
+            for account_id, provider in (("acc_openai", "openai"), ("acc_anthropic", "anthropic")):
+                await conn.execute(
+                    text(
+                        "INSERT INTO accounts (id, email, plan_type, access_token_encrypted,"
+                        " refresh_token_encrypted, status, provider, last_refresh, codex_installation_id)"
+                        " VALUES (:id, :email, 'pro', :token, :token, 'active', :provider,"
+                        " CURRENT_TIMESTAMP, :id)"
+                    ),
+                    {
+                        "id": account_id,
+                        "email": f"{account_id}@example.com",
+                        "token": b"x",
+                        "provider": provider,
+                    },
+                )
+            for request_id, account_id in (
+                ("req_openai", "acc_openai"),
+                ("req_anthropic", "acc_anthropic"),
+                ("req_orphan", None),
+            ):
+                await conn.execute(
+                    text(
+                        "INSERT INTO request_logs (account_id, request_id, model, status, requested_at)"
+                        " VALUES (:account_id, :request_id, 'model-x', 'success', CURRENT_TIMESTAMP)"
+                    ),
+                    {"account_id": account_id, "request_id": request_id},
+                )
+
+        await to_thread.run_sync(lambda: run_upgrade(db_url, provider_revision, bootstrap_legacy=False))
+        assert "provider" in await _column_names(engine)
+
+        providers = await _providers_by_request_id(engine)
+        assert providers["req_anthropic"] == "anthropic"
+        assert providers["req_openai"] == "openai"
+        # A row with no resolvable account keeps the pre-migration meaning of the
+        # whole history rather than dropping out of the OpenAI view.
+        assert providers["req_orphan"] == "openai"
+
+        config = _build_alembic_config(db_url)
+        await to_thread.run_sync(lambda: command.downgrade(config, parent_revision))
+        assert "provider" not in await _column_names(engine)
+
+        # Single-head sanity: the walk to head must pass through this revision.
+        result = await to_thread.run_sync(lambda: run_upgrade(db_url, "head", bootstrap_legacy=False))
+        assert result.current_revision == _HEAD_REVISION
+        assert "provider" in await _column_names(engine)
+    finally:
+        await engine.dispose()

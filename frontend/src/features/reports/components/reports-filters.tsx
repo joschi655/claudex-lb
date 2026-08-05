@@ -9,6 +9,7 @@ export type ReportsFiltersState = {
   startDate: string;
   endDate: string;
   accountId: string[];
+  provider: string;
   model: string;
   useragent: string;
 };
@@ -17,6 +18,7 @@ export type ReportsFiltersProps = {
   filters: ReportsFiltersState;
   selectedPresetDays: number | null;
   accountOptions: MultiSelectOption[];
+  providerOptions: MultiSelectOption[];
   modelOptions: MultiSelectOption[];
   useragentOptions: MultiSelectOption[];
   onPresetSelect: (days: number) => void;
@@ -33,6 +35,7 @@ export function ReportsFilters({
   filters,
   selectedPresetDays,
   accountOptions,
+  providerOptions,
   modelOptions,
   useragentOptions,
   onPresetSelect,
@@ -64,6 +67,16 @@ export function ReportsFilters({
         options={accountOptions}
         onChange={(accountId) => onFiltersChange({ ...filters, accountId })}
       />
+      {providerOptions.length > 1 ? (
+        <MultiSelectFilter
+          label="Provider"
+          values={filters.provider ? [filters.provider] : []}
+          options={providerOptions}
+          onChange={(providers) =>
+            onFiltersChange({ ...filters, provider: providers.at(-1) ?? "" })
+          }
+        />
+      ) : null}
       <MultiSelectFilter
         label="Model"
         values={filters.model ? [filters.model] : []}

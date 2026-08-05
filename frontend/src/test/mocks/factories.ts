@@ -357,6 +357,7 @@ export function createRequestLogEntry(
 	return RequestLogSchema.parse({
 		requestedAt: offsetIso(-1),
 		accountId: "acc_primary",
+		provider: "openai",
 		apiKeyId: "key_1",
 		apiKeyName: "Primary Key",
 		requestId: "req_1",
@@ -447,6 +448,7 @@ export function createRequestLogFilterOptions(
 			{ id: "key_2", name: "Read only key", keyPrefix: "sk-second" },
 		],
 		statuses: ["ok", "rate_limit", "quota"],
+		providers: ["openai"],
 		...overrides,
 	});
 }

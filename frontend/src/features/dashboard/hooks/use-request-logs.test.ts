@@ -53,7 +53,7 @@ describe("useRequestLogs", () => {
     const queryClient = createTestQueryClient();
     const wrapper = createWrapper(
       queryClient,
-      "/dashboard?overviewTimeframe=30d&search=rate&timeframe=24h&accountId=acc_primary&apiKeyId=key_1&modelOption=gpt-5.1:::high&status=rate_limit&limit=10&offset=20",
+      "/dashboard?overviewTimeframe=30d&search=rate&timeframe=24h&accountId=acc_primary&apiKeyId=key_1&provider=anthropic&modelOption=gpt-5.1:::high&status=rate_limit&limit=10&offset=20",
     );
 
     const { result } = renderHook(() => useRequestLogs(), { wrapper });
@@ -65,6 +65,7 @@ describe("useRequestLogs", () => {
       timeframe: "24h",
       accountIds: ["acc_primary"],
       apiKeyIds: ["key_1"],
+      providers: ["anthropic"],
       modelOptions: ["gpt-5.1:::high"],
       statuses: ["rate_limit"],
       limit: 10,
@@ -131,6 +132,7 @@ describe("useRequestLogs", () => {
       statuses: string[];
       accountIds: string[];
       apiKeyIds: string[];
+      providers: string[];
       modelOptions: string[];
       since: string | null;
     }> = [];
@@ -141,6 +143,7 @@ describe("useRequestLogs", () => {
           statuses: url.searchParams.getAll("status"),
           accountIds: url.searchParams.getAll("accountId"),
           apiKeyIds: url.searchParams.getAll("apiKeyId"),
+          providers: url.searchParams.getAll("provider"),
           modelOptions: url.searchParams.getAll("modelOption"),
           since: url.searchParams.get("since"),
         });
@@ -149,6 +152,7 @@ describe("useRequestLogs", () => {
           apiKeys: [],
           modelOptions: [],
           statuses: ["ok", "rate_limit", "quota", "error"],
+          providers: ["openai", "anthropic"],
         });
       }),
     );
@@ -242,5 +246,48 @@ describe("useRequestLogs", () => {
     await waitFor(() =>
       expect(apiKeyCalls[apiKeyCalls.length - 1]).toEqual(["key_1", "key_2"]),
     );
+  });
+
+  it("forwards the provider filter to both the list and the facet queries", async () => {
+    const listProviders: string[][] = [];
+    const facetProviders: string[][] = [];
+    server.use(
+      http.get("/api/request-logs", ({ request }) => {
+        listProviders.push(new URL(request.url).searchParams.getAll("provider"));
+        return HttpResponse.json({ requests: [], total: 0, hasMore: false });
+      }),
+      http.get("/api/request-logs/options", ({ request }) => {
+        facetProviders.push(new URL(request.url).searchParams.getAll("provider"));
+        return HttpResponse.json({
+          accountIds: [],
+          apiKeys: [],
+          modelOptions: [],
+          statuses: [],
+          providers: ["openai", "anthropic"],
+        });
+      }),
+    );
+
+    const queryClient = createTestQueryClient();
+    let locationSearch = "";
+    const wrapper = createWrapper(queryClient, "/dashboard", (search) => {
+      locationSearch = search;
+    });
+    const { result } = renderHook(() => useRequestLogs(), { wrapper });
+
+    await waitFor(() => expect(result.current.logsQuery.isSuccess).toBe(true));
+
+    act(() => {
+      result.current.updateFilters({ providers: ["anthropic"], offset: 0 });
+    });
+
+    await waitFor(() => expect(result.current.filters.providers).toEqual(["anthropic"]));
+    await waitFor(() =>
+      expect(listProviders.some((providers) => providers.includes("anthropic"))).toBe(true),
+    );
+    await waitFor(() =>
+      expect(facetProviders.some((providers) => providers.includes("anthropic"))).toBe(true),
+    );
+    expect(locationSearch).toContain("provider=anthropic");
   });
 });

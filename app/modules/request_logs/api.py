@@ -44,6 +44,7 @@ async def list_request_logs(
     search: str | None = Query(default=None),
     account_id: list[str] | None = Query(default=None, alias="accountId"),
     api_key_id: list[str] | None = Query(default=None, alias="apiKeyId"),
+    provider: list[str] | None = Query(default=None),
     status: list[str] | None = Query(default=None),
     model: list[str] | None = Query(default=None),
     reasoning_effort: list[str] | None = Query(default=None, alias="reasoningEffort"),
@@ -64,6 +65,7 @@ async def list_request_logs(
         until=until,
         account_ids=account_id,
         api_key_ids=api_key_id,
+        providers=provider,
         model_options=parsed_options,
         models=model,
         reasoning_efforts=reasoning_effort,
@@ -81,6 +83,7 @@ async def list_request_log_filter_options(
     status: list[str] | None = Query(default=None),
     account_id: list[str] | None = Query(default=None, alias="accountId"),
     api_key_id: list[str] | None = Query(default=None, alias="apiKeyId"),
+    provider: list[str] | None = Query(default=None),
     model: list[str] | None = Query(default=None),
     reasoning_effort: list[str] | None = Query(default=None, alias="reasoningEffort"),
     model_option: list[str] | None = Query(default=None, alias="modelOption"),
@@ -98,6 +101,7 @@ async def list_request_log_filter_options(
         until=until,
         account_ids=account_id,
         api_key_ids=api_key_id,
+        providers=provider,
         model_options=parsed_options,
         models=model,
         reasoning_efforts=reasoning_effort,
@@ -113,4 +117,5 @@ async def list_request_log_filter_options(
             for option in options.api_keys
         ],
         statuses=options.statuses,
+        providers=options.providers,
     )

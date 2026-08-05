@@ -5,6 +5,7 @@ export type ReportsParams = {
   startDate?: string;
   endDate?: string;
   accountId?: string[];
+  provider?: string;
   model?: string;
   useragent?: string;
   timezone?: string;
@@ -14,6 +15,7 @@ export function getReports(params: ReportsParams = {}) {
   const query = new URLSearchParams();
   if (params.startDate) query.set("start_date", params.startDate);
   if (params.endDate) query.set("end_date", params.endDate);
+  if (params.provider) query.set("provider", params.provider);
   if (params.model) query.set("model", params.model);
   if (params.useragent) query.set("useragent_group", params.useragent);
   if (params.timezone) query.set("timezone", params.timezone);

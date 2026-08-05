@@ -36,6 +36,7 @@ def to_request_log_entry(log: RequestLog, *, api_key_name: str | None = None) ->
     return RequestLogEntry(
         requested_at=log.requested_at,
         account_id=log.account_id,
+        provider=log.provider,
         plan_type=log.plan_type,
         api_key_id=log.api_key_id,
         api_key_name=api_key_name,

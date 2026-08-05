@@ -99,6 +99,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-primary",
+            provider: "openai",
             planType: "plus",
             apiKeyName: "Key Alpha",
             apiKeyId: "key-alpha",
@@ -183,6 +184,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-speed",
+            provider: "openai",
             planType: "plus",
             apiKeyName: "Key Speed",
             apiKeyId: "key-speed",
@@ -231,6 +233,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-reasoning",
+            provider: "openai",
             planType: "plus",
             apiKeyName: "Key Reasoning",
             apiKeyId: "key-reasoning",
@@ -271,6 +274,87 @@ describe("RecentRequestsTable", () => {
     expect(within(row as HTMLElement).queryByText("250.0")).not.toBeInTheDocument();
   });
 
+  it("marks Claude rows and leaves Codex rows unmarked", () => {
+    render(
+      <RecentRequestsTable
+        {...PAGINATION_PROPS}
+        total={2}
+        accounts={[]}
+        requests={[
+          {
+            requestedAt: ISO,
+            accountId: "acc-claude",
+            provider: "anthropic",
+            planType: null,
+            apiKeyName: null,
+            apiKeyId: null,
+            requestId: "req-claude",
+            requestKind: "normal",
+            source: null,
+            ...NULL_FAILURE_METADATA,
+            model: "claude-sonnet-4-5",
+            serviceTier: null,
+            requestedServiceTier: null,
+            actualServiceTier: null,
+            transport: "http",
+            ...NULL_USERAGENT_METADATA,
+            status: "ok",
+            errorCode: null,
+            errorMessage: null,
+            tokens: 1,
+            inputTokens: 1,
+            outputTokens: 0,
+            outputTokensRaw: null,
+            latencyFirstTokenMs: null,
+            latencyQueueMs: null,
+            cachedInputTokens: null,
+            reasoningEffort: null,
+            costUsd: null,
+            costBreakdown: null,
+            latencyMs: 1,
+          },
+          {
+            requestedAt: ISO,
+            accountId: "acc-codex",
+            provider: "openai",
+            planType: null,
+            apiKeyName: null,
+            apiKeyId: null,
+            requestId: "req-codex",
+            requestKind: "normal",
+            source: null,
+            ...NULL_FAILURE_METADATA,
+            model: "gpt-5.1",
+            serviceTier: null,
+            requestedServiceTier: null,
+            actualServiceTier: null,
+            transport: "http",
+            ...NULL_USERAGENT_METADATA,
+            status: "ok",
+            errorCode: null,
+            errorMessage: null,
+            tokens: 1,
+            inputTokens: 1,
+            outputTokens: 0,
+            outputTokensRaw: null,
+            latencyFirstTokenMs: null,
+            latencyQueueMs: null,
+            cachedInputTokens: null,
+            reasoningEffort: null,
+            costUsd: 0,
+            costBreakdown: null,
+            latencyMs: 1,
+          },
+        ]}
+      />,
+    );
+
+    const claudeRow = screen.getByText("acc-claude").closest("tr");
+    const codexRow = screen.getByText("acc-codex").closest("tr");
+    expect(within(claudeRow as HTMLElement).getByText("Claude")).toBeInTheDocument();
+    expect(within(codexRow as HTMLElement).queryByText("Claude")).not.toBeInTheDocument();
+  });
+
   it("renders empty state", () => {
     render(<RecentRequestsTable {...PAGINATION_PROPS} total={0} accounts={[]} requests={[]} />);
     expect(screen.getByText("No request logs match the current filters.")).toBeInTheDocument();
@@ -287,6 +371,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-normal",
+            provider: "openai",
             planType: null,
             apiKeyName: null,
             apiKeyId: null,
@@ -318,6 +403,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-warmup",
+            provider: "openai",
             planType: null,
             apiKeyName: null,
             apiKeyId: null,
@@ -363,6 +449,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-legacy",
+            provider: "openai",
             planType: null,
             apiKeyName: null,
             apiKeyId: null,
@@ -409,6 +496,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-legacy",
+            provider: "openai",
             planType: null,
             apiKeyName: null,
             apiKeyId: null,
@@ -456,6 +544,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-cost",
+            provider: "openai",
             planType: "plus",
             apiKeyName: "Key Cost",
             apiKeyId: "key-cost",
@@ -512,6 +601,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-useragent",
+            provider: "openai",
             planType: "plus",
             apiKeyName: "Key Agent",
             apiKeyId: "key-agent",
@@ -574,6 +664,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-no-useragent",
+            provider: "openai",
             planType: null,
             apiKeyName: null,
             apiKeyId: null,
@@ -630,6 +721,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-no-cost",
+            provider: "openai",
             planType: null,
             apiKeyName: null,
             apiKeyId: null,
@@ -681,6 +773,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-partial-cost",
+            provider: "openai",
             planType: "plus",
             apiKeyName: "Key Partial",
             apiKeyId: "key-partial",
@@ -737,6 +830,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-partial-no-total",
+            provider: "openai",
             planType: "plus",
             apiKeyName: "Key Partial No Total",
             apiKeyId: "key-partial-no-total",
@@ -793,6 +887,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-useragent",
+            provider: "openai",
             planType: "plus",
             apiKeyName: "Key Agent",
             apiKeyId: "key-agent",
@@ -853,6 +948,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-no-useragent",
+            provider: "openai",
             planType: null,
             apiKeyName: null,
             apiKeyId: null,
@@ -909,6 +1005,7 @@ describe("RecentRequestsTable", () => {
           {
             requestedAt: ISO,
             accountId: "acc-total-only-cost",
+            provider: "openai",
             planType: "plus",
             apiKeyName: "Key Total Only",
             apiKeyId: "key-total-only",
