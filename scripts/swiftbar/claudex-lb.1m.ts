@@ -652,28 +652,27 @@ function titlePart(s: Section): string {
 // Menu bar text for the embedded block: the remaining percentage on the account
 // that is serving, plus 📌 when the pool is pinned to one account. Falls back to
 // the status when a usage-based seat reports no percentage at all.
-// Menu bar text: how much of the serving account's 5h window is still available.
-// A usage-based seat has no window at all, so fall back to the most headroom left
-// in the pool — that is what decides how much longer work can continue.
+// Menu bar text: how much of the serving account's 5h window is used, the same
+// metric the account lines show. A usage-based seat has no window at all, so fall
+// back to the least-used window in the pool — the one with the most room left.
 function menuBarTitle(s: Section): string {
   const pin = s.manual ? "📌" : "";
-  const own = remainingPercent(s.current);
+  const own = usedPercent(s.current);
   if (own != null) return `${pct(own)}${pin}`;
   const pool = s.accounts
     .filter((a) => a.status !== "reauth_required" && a.status !== "deactivated")
-    .map(remainingPercent)
+    .map(usedPercent)
     .filter((p): p is number => p != null);
-  if (pool.length > 0) return `${pct(Math.max(...pool))}${pin}`;
+  if (pool.length > 0) return `${pct(Math.min(...pool))}${pin}`;
   return `${sane(s.current?.status ?? "?").replace(/_/g, " ")}${pin}`;
 }
 
-function remainingPercent(acc: Account | null | undefined): number | null {
-  return (
+function usedPercent(acc: Account | null | undefined): number | null {
+  const left =
     acc?.usage?.primaryRemainingPercent ??
     acc?.usage?.secondaryRemainingPercent ??
-    acc?.usage?.monthlyRemainingPercent ??
-    null
-  );
+    acc?.usage?.monthlyRemainingPercent;
+  return left == null ? null : 100 - left;
 }
 
 function renderSection(s: Section, globalWarmup: boolean | null, separator = true): void {
@@ -856,13 +855,11 @@ async function renderMenuBlocks(cfg: Config): Promise<void> {
 
   // The 5h window headline for whichever account is serving.
   console.log("#BEGIN:window");
-  const left = cur?.usage?.primaryRemainingPercent;
+  const used = usedPercent(cur);
   const resetIn = remaining(cur?.resetAtPrimary);
-  if (left != null) {
+  if (used != null) {
     const at = clockTime(cur?.resetAtPrimary);
-    console.log(
-      `⏱ 5h Window: ${pct(left)} left${resetIn ? ` — resets in ${resetIn}${at ? ` → ${at}` : ""}` : ""} | size=12`,
-    );
+    console.log(`⏱ 5h Window: ${pct(used)}${resetIn ? ` — resets in ${resetIn}${at ? ` → ${at}` : ""}` : ""} | size=12`);
   } else {
     console.log(`⏱ 5h Window: usage-based seat (no window) | size=12`);
   }
@@ -941,20 +938,20 @@ function renderAccountLine(acc: Account, cur: Account | null, s: Section): void 
   }
 }
 
-// Badge in the shape the menu used before, but stated as headroom: 5h left ·
-// when it resets · 7d left (when that resets).
+// Badge in the shape the menu used before: 5h used · when it resets · 7d used
+// (when that resets).
 function accountBadge(acc: Account): string {
   const parts: string[] = [];
-  const p = acc.usage?.primaryRemainingPercent;
-  if (p != null) {
-    parts.push(`${pct(p)} left`);
+  const primary = acc.usage?.primaryRemainingPercent;
+  if (primary != null) {
+    parts.push(pct(100 - primary));
     const resets = remaining(acc.resetAtPrimary);
     if (resets) parts.push(resets);
   }
   const weekly = acc.usage?.secondaryRemainingPercent;
   if (weekly != null) {
     const resets = remaining(acc.resetAtSecondary);
-    parts.push(`${pct(weekly)} 7d${resets ? ` (${resets})` : ""}`);
+    parts.push(`${pct(100 - weekly)} 7d${resets ? ` (${resets})` : ""}`);
   }
   if (parts.length === 0) return acc.status === "active" ? "usage-based" : sane(acc.status).replace(/_/g, " ");
   return parts.join(" · ");
@@ -968,10 +965,9 @@ function clockTime(iso: string | null | undefined): string {
 }
 
 function whyNotWarmable(acc: Account): string {
-  if (acc.status === "reauth_required" || acc.status === "deactivated") return sane(acc.status).replace(/_/g, " ");
+  if (acc.status !== "active" && acc.status !== "paused") return sane(acc.status).replace(/_/g, " ");
   if ((acc.requestUsage?.requestCount ?? 0) > 0 && acc.resetAtPrimary == null) return "usage-based seat, no 5h window";
-  if (acc.resetAtPrimary == null) return "no 5h window on record yet";
-  return "not eligible";
+  return "no 5h window on record yet";
 }
 
 async function render(cfg: Config): Promise<void> {
