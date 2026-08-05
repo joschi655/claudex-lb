@@ -35,6 +35,24 @@ line understates nothing but describes two different things at once. The latency
 percentiles average two upstreams with different response characteristics, so a combined
 p95 can describe no request that actually happened.
 
+## Clients other than Claude Code
+
+Anthropic routes subscription traffic on the client identity the OAuth token was issued
+against, so a request that does not look like Claude Code earns intermittent `5xx`
+rather than a clean rejection. The relay therefore normalizes the upstream leg of every
+OAuth-credentialed request: it sends the `claude-cli` user agent and `x-app: cli`, merges
+the `claude-code-20250219` beta flag, and prefixes the request body's `system` field with
+the Claude Code identity block. A caller that already presents as Claude Code is left
+alone, and accounts holding a console API key are relayed verbatim — a static key is not
+a Claude Code credential and disguising it would buy nothing.
+
+The request log deliberately disagrees with the wire. It records the user agent the
+*client* sent, not the one the proxy substituted, so any other client keeps its own slice
+of the UserAgent breakdown on the reports page and can be filtered out of the Claude Code
+figures. What that slice is named depends on the client: one that sets its own user agent
+is grouped under it, while one that leaves the Anthropic SDK's default in place is grouped
+under `Anthropic` along with every other SDK caller.
+
 ## Failover is visible
 
 When an account is rate limited and the request fails over, both attempts are logged:

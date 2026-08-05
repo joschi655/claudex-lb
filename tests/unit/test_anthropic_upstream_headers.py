@@ -3,6 +3,7 @@ from __future__ import annotations
 import aiohttp
 
 from app.core.anthropic import upstream as upstream_module
+from app.core.anthropic.client_identity import CLAUDE_CODE_USER_AGENT
 from app.core.anthropic.upstream import (
     build_upstream_headers,
     credential_is_static_api_key,
@@ -32,6 +33,7 @@ def test_oauth_credential_uses_bearer_and_merges_beta():
     assert "oauth-2025-04-20" in headers["anthropic-beta"]
     # Passed through untouched.
     assert headers["anthropic-version"] == "2023-06-01"
+    # Already a Claude Code caller: its own version survives, not the pinned one.
     assert headers["user-agent"] == "claude-cli/1.0"
     # Hop-by-hop / host / length stripped.
     assert "host" not in headers
@@ -40,7 +42,29 @@ def test_oauth_credential_uses_bearer_and_merges_beta():
 
 def test_oauth_credential_adds_beta_when_client_sent_none():
     headers = build_upstream_headers({"content-type": "application/json"}, "sk-ant-oat-abc")
-    assert headers["anthropic-beta"] == "oauth-2025-04-20"
+    assert headers["anthropic-beta"] == "oauth-2025-04-20, claude-code-20250219"
+
+
+def test_oauth_credential_stamps_claude_code_identity_on_other_clients():
+    headers = build_upstream_headers(
+        {"content-type": "application/json", "user-agent": "hermes-agent/1.0"},
+        "sk-ant-oat-abc",
+    )
+    assert headers["user-agent"] == CLAUDE_CODE_USER_AGENT
+    assert headers["x-app"] == "cli"
+    assert "oauth-2025-04-20" in headers["anthropic-beta"]
+    assert "claude-code-20250219" in headers["anthropic-beta"]
+
+
+def test_oauth_identity_replaces_client_user_agent_whatever_its_casing():
+    """Client headers keep their original casing, so a ``User-Agent`` spelling
+    must not survive alongside the injected ``user-agent``."""
+    headers = build_upstream_headers(
+        {"User-Agent": "hermes-agent/1.0", "content-type": "application/json"},
+        "sk-ant-oat-abc",
+    )
+    agents = [value for key, value in headers.items() if key.lower() == "user-agent"]
+    assert agents == [CLAUDE_CODE_USER_AGENT]
 
 
 def test_static_api_key_uses_x_api_key_without_oauth_beta():
@@ -51,6 +75,15 @@ def test_static_api_key_uses_x_api_key_without_oauth_beta():
     assert headers["x-api-key"] == "sk-ant-api03-xyz"
     assert "Authorization" not in headers
     assert "anthropic-beta" not in headers
+
+
+def test_static_api_key_is_never_disguised_as_claude_code():
+    headers = build_upstream_headers(
+        {"user-agent": "hermes-agent/1.0", "content-type": "application/json"},
+        "sk-ant-api03-xyz",
+    )
+    assert headers["user-agent"] == "hermes-agent/1.0"
+    assert "x-app" not in headers
 
 
 def test_credential_is_static_api_key():

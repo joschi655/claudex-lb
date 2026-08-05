@@ -3,12 +3,14 @@ from __future__ import annotations
 import asyncio
 import json
 from collections.abc import AsyncIterator, Mapping
+from dataclasses import dataclass
 from types import SimpleNamespace
 from typing import Any, cast
 
 import pytest
 from starlette.responses import StreamingResponse
 
+from app.core.anthropic.client_identity import CLAUDE_CODE_SYSTEM_TEXT, CLAUDE_CODE_USER_AGENT
 from app.core.crypto import TokenEncryptor
 from app.core.providers import PROVIDER_ANTHROPIC
 from app.core.utils.time import utcnow
@@ -97,18 +99,26 @@ class _FakeUpstreamResponse:
         self.closed = True
 
 
+@dataclass(frozen=True, slots=True)
+class _SentRequest:
+    """What actually went out on the wire for one upstream attempt."""
+
+    headers: dict[str, str]
+    body: bytes
+
+
 def _build_service(
     monkeypatch: pytest.MonkeyPatch,
     accounts: list[Account],
     outcomes: list[_FakeUpstreamResponse],
     *,
     routing_strategy: str = "capacity_weighted",
-) -> tuple[AnthropicProxyService, _FakeLoadBalancer, list[dict[str, str]]]:
+) -> tuple[AnthropicProxyService, _FakeLoadBalancer, list[_SentRequest]]:
     balancer = _FakeLoadBalancer(accounts)
-    sent_headers: list[dict[str, str]] = []
+    sent: list[_SentRequest] = []
 
     async def _fake_open_messages(url: str, *, body: bytes, headers: Mapping[str, str], idle_timeout_seconds: float):
-        sent_headers.append(dict(headers))
+        sent.append(_SentRequest(headers=dict(headers), body=body))
         return outcomes.pop(0)
 
     monkeypatch.setattr(anthropic_service_module, "open_messages", _fake_open_messages)
@@ -130,14 +140,21 @@ def _build_service(
         return account
 
     monkeypatch.setattr(service, "_ensure_fresh", _fake_ensure_fresh)
-    return service, balancer, sent_headers
+    return service, balancer, sent
 
 
-async def _relay(service: AnthropicProxyService) -> Any:
+async def _relay(
+    service: AnthropicProxyService,
+    *,
+    client_headers: Mapping[str, str] | None = None,
+    body: bytes = b'{"model": "claude-sonnet-5"}',
+) -> Any:
     return await service.relay(
         upstream_path="/v1/messages",
-        client_headers={"content-type": "application/json", "authorization": "Bearer proxy-key"},
-        body=b'{"model": "claude-sonnet-5"}',
+        client_headers=dict(
+            client_headers or {"content-type": "application/json", "authorization": "Bearer proxy-key"}
+        ),
+        body=body,
     )
 
 
@@ -160,7 +177,7 @@ async def test_success_streams_bytes_verbatim(monkeypatch):
     assert upstream.closed
     assert balancer.successes == ["acc-1"]
     # Client proxy key never reaches upstream; account token injected.
-    assert sent[0]["Authorization"] == "Bearer sk-ant-oat01-token"
+    assert sent[0].headers["Authorization"] == "Bearer sk-ant-oat01-token"
     assert response.headers["anthropic-ratelimit-unified-5h-remaining"] == "42"
 
 
@@ -323,6 +340,61 @@ async def test_429_response_ingests_usage_headers(monkeypatch):
     assert written[0][0] == "acc-1"
     assert written[0][1].primary_used_percent == 100.0
     assert written[0][1].primary_reset_at == 1_900_000_000
+
+
+@pytest.mark.asyncio
+async def test_oauth_relay_presents_the_caller_as_claude_code(monkeypatch):
+    """A non-Claude-Code caller reaches upstream wearing the Claude Code
+    fingerprint: the OAuth token the pool spends was issued against it."""
+    upstream = _FakeUpstreamResponse(200, headers={"content-type": "application/json"}, body=b'{"id":"msg_id"}')
+    service, _, sent = _build_service(monkeypatch, [_make_account("acc-1")], [upstream])
+
+    await _relay(
+        service,
+        client_headers={"content-type": "application/json", "user-agent": "hermes-agent/1.0"},
+        body=b'{"model":"claude-sonnet-5","system":"You are Hermes."}',
+    )
+
+    assert sent[0].headers["user-agent"] == CLAUDE_CODE_USER_AGENT
+    assert sent[0].headers["x-app"] == "cli"
+    system = json.loads(sent[0].body)["system"]
+    assert system[0] == {"type": "text", "text": CLAUDE_CODE_SYSTEM_TEXT}
+    # The caller's own prompt survives, it is only pushed down one block.
+    assert system[1] == {"type": "text", "text": "You are Hermes."}
+
+
+@pytest.mark.asyncio
+async def test_static_account_relays_the_body_byte_for_byte(monkeypatch):
+    """A console key is not a Claude Code credential, so nothing is disguised."""
+    upstream = _FakeUpstreamResponse(200, headers={"content-type": "application/json"}, body=b'{"id":"msg_id"}')
+    body = b'{"model":"claude-sonnet-5","system":"You are Hermes."}'
+    static_account = _make_account("acc-static", credential="sk-ant-api03-console")
+    service, _, sent = _build_service(monkeypatch, [static_account], [upstream])
+
+    await _relay(
+        service,
+        client_headers={"content-type": "application/json", "user-agent": "hermes-agent/1.0"},
+        body=body,
+    )
+
+    assert sent[0].body is body
+    assert sent[0].headers["user-agent"] == "hermes-agent/1.0"
+    assert "x-app" not in sent[0].headers
+
+
+@pytest.mark.asyncio
+async def test_body_is_normalized_once_across_failover(monkeypatch):
+    """Normalizing re-serializes; failing over must not pay for it again."""
+    outcomes = [
+        _FakeUpstreamResponse(429, body=b'{"type":"error","error":{"type":"rate_limit_error","message":"limit"}}'),
+        _FakeUpstreamResponse(200, headers={"content-type": "application/json"}, body=b'{"id":"msg_id"}'),
+    ]
+    service, _, sent = _build_service(monkeypatch, [_make_account("acc-1"), _make_account("acc-2")], outcomes)
+
+    await _relay(service, client_headers={"content-type": "application/json", "user-agent": "hermes-agent/1.0"})
+
+    assert len(sent) == 2
+    assert sent[0].body is sent[1].body
 
 
 @pytest.mark.asyncio

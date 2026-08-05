@@ -11,6 +11,7 @@ from dataclasses import dataclass
 
 from starlette.responses import Response, StreamingResponse
 
+from app.core.anthropic.client_identity import apply_claude_code_identity
 from app.core.anthropic.messages_usage import (
     AnthropicMessageUsage,
     SseUsageAccumulator,
@@ -142,7 +143,13 @@ class AnthropicProxyService:
         url = f"{ANTHROPIC_API_BASE}{upstream_path}"
         tried: set[str] = set()
         last_error: tuple[int, bytes, list[tuple[str, str]]] | None = None
+        # Read from the CLIENT headers, before any upstream identity rewrite: the
+        # upstream leg is normalized to Claude Code for OAuth credentials, but the
+        # log records who actually called so reports can still tell callers apart.
         useragent, useragent_group = request_log_useragent_fields(client_headers)
+        # Normalizing re-serializes the body, so it is done at most once per relay
+        # and only if an OAuth account is actually selected.
+        normalized_body: bytes | None = None
         log_context = _RelayLogContext(
             enabled=upstream_path == _LOGGED_UPSTREAM_PATH,
             api_key_id=api_key_id,
@@ -171,6 +178,12 @@ class AnthropicProxyService:
             account = fresh
 
             is_static = credential_is_static_api_key(self._encryptor.decrypt(account.access_token_encrypted))
+            if is_static:
+                upstream_body = body
+            else:
+                if normalized_body is None:
+                    normalized_body = apply_claude_code_identity(body)
+                upstream_body = normalized_body
             forced_refresh_done = False
             while True:
                 credential = self._encryptor.decrypt(account.access_token_encrypted)
@@ -178,7 +191,7 @@ class AnthropicProxyService:
                 attempt_started = time.perf_counter()
                 upstream = await open_messages(
                     url,
-                    body=body,
+                    body=upstream_body,
                     headers=headers,
                     idle_timeout_seconds=settings.stream_idle_timeout_seconds,
                 )
