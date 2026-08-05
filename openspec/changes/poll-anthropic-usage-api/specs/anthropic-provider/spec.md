@@ -57,6 +57,29 @@ consume the same budget.
 - **THEN** the remaining accounts are still polled
 - **AND** limit warmup still runs in the same tick
 
+### Requirement: Unchanged polls are not rewritten every tick
+
+A polled snapshot identical to the one last written for that account SHALL NOT be
+persisted again until a minimum interval has elapsed, so an idle account does not append
+an identical row on every tick. A snapshot that differs SHALL be written immediately —
+the throttle applies only to restating what is already stored.
+
+#### Scenario: An idle account is not rewritten each tick
+
+- **WHEN** consecutive polls report the same utilizations and reset timestamps
+- **THEN** at most one row set is written until the minimum interval elapses
+
+#### Scenario: A change is written without delay
+
+- **WHEN** a poll reports a utilization or reset that differs from the stored row
+- **THEN** the write happens on that tick
+
+#### Scenario: An unchanged account is refreshed once the interval elapses
+
+- **WHEN** the minimum interval passes with the snapshot still unchanged
+- **THEN** the row is written again, so its recency continues to reflect that the account
+  is still reporting
+
 ## ADDED Requirements
 
 ### Requirement: Usage-based seats expose a spend budget

@@ -28,6 +28,8 @@
 - [x] 3.2 Skip static API-key credentials.
 - [x] 3.3 Per-account cooldown on 429; per-account failures swallowed so one account
       cannot stop the others or the warmup pass.
+- [x] 3.4 Skip a write that only restates the stored row, until a minimum interval
+      elapses; never defer a changed snapshot.
 
 ## 4. Presentation
 
@@ -45,6 +47,8 @@
 - [x] 5.2 Unit: 429 → throttled error, 401 → unauthorized error.
 - [x] 5.3 Persistence: a budget payload writes a `budget` row with dollars; a
       subscription payload writes primary/secondary and no budget row.
+- [x] 5.4a Poller: an unchanged snapshot is not rewritten each tick, a changed one is
+      written immediately, and an unchanged one is refreshed once the interval lapses.
 - [x] 5.4 Scheduler: an idle account's stale row is replaced by the polled value; a 429
       account is skipped while its cooldown holds; a raising poll still leaves the other
       accounts polled and warmup running.
