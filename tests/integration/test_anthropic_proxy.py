@@ -8,6 +8,7 @@ from collections.abc import AsyncIterator, Mapping
 import pytest
 from sqlalchemy import select
 
+from app.core.anthropic.client_identity import ATTRIBUTION_HEADER, CLAUDE_CODE_SYSTEM_TEXT
 from app.core.crypto import TokenEncryptor
 from app.core.utils.time import utcnow
 from app.db.models import Account, AccountStatus, UsageHistory
@@ -276,6 +277,69 @@ async def test_relay_ingests_usage_from_response_headers(async_client, app_insta
     assert len(rows) == 1
     assert rows[0].used_percent == 35.0
     assert rows[0].reset_at == reset_at
+
+
+@pytest.mark.asyncio
+async def test_relay_keeps_the_prompt_prefix_stable_across_requests(async_client, monkeypatch):
+    """Claude Code writes its billing attribution -- including a per-request hash
+    and the previous request id -- into the first ``system`` block. Left there, the
+    prompt prefix differs on every call and upstream can never read the prompt
+    cache, so a long conversation is re-billed in full on every turn.
+    """
+    await _import_claude_account(async_client, "cache@example.com")
+
+    sent: list[tuple[bytes, Mapping[str, str]]] = []
+
+    async def _fake_open_messages(url: str, *, body: bytes, headers: Mapping[str, str], idle_timeout_seconds: float):
+        sent.append((body, dict(headers)))
+        return _FakeUpstreamResponse(200, headers={"content-type": "application/json"}, body=b'{"ok":true}')
+
+    monkeypatch.setattr(anthropic_service_module, "open_messages", _fake_open_messages)
+
+    sdk_block = {
+        "type": "text",
+        "text": f"{CLAUDE_CODE_SYSTEM_TEXT} Running within the Claude Agent SDK.",
+        "cache_control": {"type": "ephemeral"},
+    }
+    for nonce in ("ff2f4", "e2e09"):
+        payload = {
+            "model": "claude-opus-5",
+            "system": [
+                {
+                    "type": "text",
+                    "text": (
+                        f"{ATTRIBUTION_HEADER}: cc_version=2.1.220.b7d; cc_entrypoint=claude-vscode;"
+                        f" cch={nonce}; cc_prev_req=req_{nonce};"
+                    ),
+                },
+                sdk_block,
+            ],
+            "messages": [{"role": "user", "content": "hi"}],
+        }
+        response = await async_client.post(
+            "/v1/messages",
+            headers={
+                "content-type": "application/json",
+                "authorization": "Bearer client-proxy-key",
+                "user-agent": "claude-cli/2.1.220 (external, claude-vscode, agent-sdk/0.3.220)",
+            },
+            content=json.dumps(payload).encode(),
+        )
+        assert response.status_code == 200
+
+    assert len(sent) == 2
+    first_body, first_headers = sent[0]
+    second_body, second_headers = sent[1]
+
+    # The attribution line is gone from the prompt and sent as the header it is
+    # written as, so upstream still gets it -- per-request fields included.
+    assert json.loads(first_body)["system"] == [sdk_block]
+    assert first_headers[ATTRIBUTION_HEADER].startswith("cc_version=2.1.220.b7d;")
+    assert "cch=ff2f4" in first_headers[ATTRIBUTION_HEADER]
+    assert "cch=e2e09" in second_headers[ATTRIBUTION_HEADER]
+
+    # The cacheable prefix is byte-identical across the two turns.
+    assert first_body == second_body
 
 
 @pytest.mark.asyncio

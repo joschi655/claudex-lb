@@ -34,7 +34,21 @@
       `useragent_group = "hermes-agent"`.
 - [x] 3.4 Relay: a static-key account relays the body byte-for-byte.
 
-## 4. Validation
+## 4. Billing attribution lift
+
+- [x] 4.1 Lift a leading `x-anthropic-billing-header:` system block out of the body in
+      `normalize_claude_code_request` and return it alongside the normalized bytes;
+      leave a block carrying `cache_control` in place, and consider only the leading
+      block.
+- [x] 4.2 Send the lifted value as the `x-anthropic-billing-header` upstream header for
+      OAuth credentials, without overwriting a caller that spelled that header itself.
+- [x] 4.3 Unit: the lift for the real Claude Code shape, the byte-identical-prefix
+      property across two nonces, the breakpoint case, the mid-conversation case, and
+      header construction with and without an attribution value.
+- [x] 4.4 Relay: two `/v1/messages` requests differing only in the attribution nonce
+      reach upstream with identical bodies and their own per-request header values.
+
+## 5. Validation
 
 - [x] 4.1 `uv run pytest` for the touched modules.
 - [x] 4.2 `uv run ruff check` / format.

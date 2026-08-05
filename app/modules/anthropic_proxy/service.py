@@ -11,7 +11,7 @@ from dataclasses import dataclass
 
 from starlette.responses import Response, StreamingResponse
 
-from app.core.anthropic.client_identity import apply_claude_code_identity
+from app.core.anthropic.client_identity import NormalizedRelayRequest, normalize_claude_code_request
 from app.core.anthropic.messages_usage import (
     AnthropicMessageUsage,
     SseUsageAccumulator,
@@ -148,7 +148,7 @@ class AnthropicProxyService:
         useragent, useragent_group = request_log_useragent_fields(client_headers)
         # Normalizing re-serializes the body, so it is done at most once per relay
         # and only if an OAuth account is actually selected.
-        normalized_body: bytes | None = None
+        normalized: NormalizedRelayRequest | None = None
         log_context = _RelayLogContext(
             enabled=upstream_path == _LOGGED_UPSTREAM_PATH,
             api_key_id=api_key_id,
@@ -179,14 +179,16 @@ class AnthropicProxyService:
             is_static = credential_is_static_api_key(self._encryptor.decrypt(account.access_token_encrypted))
             if is_static:
                 upstream_body = body
+                attribution: str | None = None
             else:
-                if normalized_body is None:
-                    normalized_body = apply_claude_code_identity(body)
-                upstream_body = normalized_body
+                if normalized is None:
+                    normalized = normalize_claude_code_request(body)
+                upstream_body = normalized.body
+                attribution = normalized.attribution
             forced_refresh_done = False
             while True:
                 credential = self._encryptor.decrypt(account.access_token_encrypted)
-                headers = build_upstream_headers(client_headers, credential)
+                headers = build_upstream_headers(client_headers, credential, attribution=attribution)
                 attempt_started = time.perf_counter()
                 upstream = await open_messages(
                     url,

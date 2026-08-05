@@ -74,6 +74,42 @@ Authorization: Bearer sk-ant-oat…
 and the request-log row records `useragent = "hermes-agent/1.0"`,
 `useragent_group = "hermes-agent"`.
 
+## The attribution line and the prompt cache
+
+Claude Code 2.1.220 builds its billing attribution as a literal header line and then
+sends it as the first `system` block rather than as a header:
+
+```json
+{"type":"text","text":"x-anthropic-billing-header: cc_version=2.1.220.b7d; cc_entrypoint=claude-vscode; cch=ff2f4; cc_prev_req=req_011CdjUFT6GUjJUS9gCqgLbF;"}
+```
+
+`cch` is a per-request hash and `cc_prev_req` is the previous request id, so the block
+changes on every call. Both fields are added only when the client believes it is
+talking to a first-party base URL — which is exactly the configuration that unlocks
+the one-million-token context window for a proxied client. The two therefore arrive
+together: a client that turns on the large window also starts sending a prompt prefix
+that can never be cached.
+
+Measured against production traffic on 2026-08-05, the transition is unambiguous.
+Before the client began sending the per-request fields, 796 of 828 relayed Claude Code
+requests in one hour read the prompt cache. After, the rate was 0 of 86 — with upstream
+re-writing the whole prefix each turn (`cache_creation_input_tokens` 96,669 → 97,109 →
+98,696 on three consecutive turns, `cache_read_input_tokens` 0 throughout) while a
+second client on the same account, same minute, kept reading its cache normally.
+
+Three shapes were measured through the relay against a live account, sending the same
+request twice:
+
+| Leading `system` block | Second request |
+| --- | --- |
+| attribution line with per-request fields | `cache_creation 4388`, `cache_read 0` |
+| attribution line with those fields removed | `cache_read 4364` |
+| no attribution block, value sent as the header | `cache_read 4323` |
+
+So upstream does not strip the block for a relayed request, and it accepts the header
+form. Sending it as a header is the shape this change adopts: it keeps every field,
+including the per-request ones, and leaves the prompt prefix stable.
+
 ## Deliberate non-goals
 
 - **No product-name scrubbing.** Clients that mention themselves by name inside their

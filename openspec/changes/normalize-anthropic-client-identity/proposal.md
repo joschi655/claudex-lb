@@ -29,7 +29,12 @@ readable even though the upstream leg is uniform.
   block-list shapes of `system` are handled, and a body that already leads with the
   block is forwarded byte-for-byte.
 - Callers that already present as Claude Code are passed through untouched — their
-  own user-agent version is preserved rather than overwritten with the proxy's.
+  own user-agent version is preserved rather than overwritten with the proxy's, save
+  for one thing: Claude Code's billing attribution, which it writes into the first
+  `system` block as a header line, is lifted back out into the
+  `x-anthropic-billing-header` header. That line carries a per-request hash and the
+  previous request id, so leaving it in the prompt makes every request present a
+  different prefix and upstream never reads the prompt cache.
 - Static console API keys (`sk-ant-api…`) keep today's verbatim pass-through. The
   Claude Code identity belongs to OAuth traffic and would be wrong on a console key.
 - Request logs keep recording the *client's* user-agent, not the normalized upstream
