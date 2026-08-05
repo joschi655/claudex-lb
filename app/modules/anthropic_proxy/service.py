@@ -59,6 +59,11 @@ _SSE_CONTENT_TYPE = "text/event-stream"
 # 403 bodies whose error text names a revoked/expired OAuth grant are permanent.
 _REVOCATION_MARKERS = ("oauth", "revoked", "token has expired", "authentication_error")
 
+# A subscription seat that has spent its allowance answers 400 invalid_request, not
+# 429, and carries no anthropic-ratelimit-* headers. Only the message distinguishes
+# it from a genuinely malformed request, so the body is what has to be read.
+_USAGE_EXHAUSTION_MARKERS = ("out of extra usage",)
+
 # Usage-ingest throttle: write a fresh usage row only when the utilization moved
 # by at least this many points or at least this many seconds have passed, so a
 # burst of requests does not flood usage_history.
@@ -250,6 +255,15 @@ class AnthropicProxyService:
                 if status == 403 and _looks_like_revocation(error_body):
                     record_attempt("account_auth_invalidated")
                     await self._load_balancer.mark_permanent_failure(account, "account_auth_invalidated")
+                    last_error = (status, error_body, filter_response_headers(error_headers))
+                    break
+
+                if status == 400 and _looks_like_usage_exhaustion(error_body):
+                    # Nothing is wrong with the request -- this seat is spent. The
+                    # same bytes succeed on an account that still has allowance, so
+                    # treat it as saturation and let the next candidate try.
+                    record_attempt("rate_limit_exceeded")
+                    await self._load_balancer.mark_rate_limit(account, _rate_limit_error(error_headers))
                     last_error = (status, error_body, filter_response_headers(error_headers))
                     break
 
@@ -584,6 +598,12 @@ def _first_int(headers: Mapping[str, str], names: tuple[str, ...]) -> int | None
 def _looks_like_revocation(body: bytes) -> bool:
     text = body.decode("utf-8", errors="replace").lower()
     return any(marker in text for marker in _REVOCATION_MARKERS)
+
+
+def _looks_like_usage_exhaustion(body: bytes) -> bool:
+    """Whether a 400 is a spent subscription seat rather than a bad request."""
+    text = body.decode("utf-8", errors="replace").lower()
+    return any(marker in text for marker in _USAGE_EXHAUSTION_MARKERS)
 
 
 def _passthrough_response(status: int, body: bytes, headers: list[tuple[str, str]]) -> Response:

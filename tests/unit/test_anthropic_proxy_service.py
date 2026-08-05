@@ -254,6 +254,46 @@ async def test_client_4xx_returns_verbatim_without_health_writes(monkeypatch):
     assert balancer.errors == []
 
 
+_SPENT_USAGE_BODY = (
+    b'{"type":"error","error":{"type":"invalid_request_error",'
+    b'"message":"You\'re out of extra usage. Add more at claude.ai/settings/usage and keep going."}}'
+)
+
+
+@pytest.mark.asyncio
+async def test_spent_subscription_usage_fails_over(monkeypatch):
+    """A drained seat answers 400, not 429. Nothing is wrong with the request --
+    the same bytes succeed on an account that still has allowance."""
+    outcomes = [
+        _FakeUpstreamResponse(400, headers={"content-type": "application/json"}, body=_SPENT_USAGE_BODY),
+        _FakeUpstreamResponse(200, headers={"content-type": "application/json"}, body=b'{"id":"msg_ok"}'),
+    ]
+    service, balancer, _ = _build_service(monkeypatch, [_make_account("acc-1"), _make_account("acc-2")], outcomes)
+
+    response = await _relay(service)
+
+    assert response.status_code == 200
+    assert [entry[0] for entry in balancer.rate_limited] == ["acc-1"]
+    assert balancer.successes == ["acc-2"]
+
+
+@pytest.mark.asyncio
+async def test_spent_subscription_usage_reaches_the_caller_once_the_pool_is_dry(monkeypatch):
+    """The message names the actionable fix, so it must survive to the caller --
+    just not before every account has been asked."""
+    outcomes = [
+        _FakeUpstreamResponse(400, headers={"content-type": "application/json"}, body=_SPENT_USAGE_BODY),
+        _FakeUpstreamResponse(400, headers={"content-type": "application/json"}, body=_SPENT_USAGE_BODY),
+    ]
+    service, balancer, _ = _build_service(monkeypatch, [_make_account("acc-1"), _make_account("acc-2")], outcomes)
+
+    response = await _relay(service)
+
+    assert response.status_code == 400
+    assert response.body == _SPENT_USAGE_BODY
+    assert [entry[0] for entry in balancer.rate_limited] == ["acc-1", "acc-2"]
+
+
 @pytest.mark.asyncio
 async def test_5xx_records_error_and_fails_over(monkeypatch):
     outcomes = [

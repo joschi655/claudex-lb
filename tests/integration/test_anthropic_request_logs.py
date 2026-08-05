@@ -305,6 +305,46 @@ async def test_failover_logs_one_row_per_attempt(async_client, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_spent_usage_is_logged_against_the_account_not_the_caller(async_client, monkeypatch):
+    """A drained seat's 400 is the account's problem. Logging it as
+    `invalid_request` sends whoever reads the row looking at the payload."""
+    await _import_claude_account(async_client, "logs-spent-a@example.com")
+    await _import_claude_account(async_client, "logs-spent-b@example.com")
+    _queue_upstream(
+        monkeypatch,
+        [
+            _FakeUpstreamResponse(
+                400,
+                headers={"content-type": "application/json"},
+                body=(
+                    b'{"type":"error","error":{"type":"invalid_request_error",'
+                    b'"message":"You\'re out of extra usage. Add more at claude.ai/settings/usage."}}'
+                ),
+            ),
+            _FakeUpstreamResponse(
+                200,
+                headers={"content-type": "application/json"},
+                body=b'{"type":"message","model":"claude-opus-5","usage":{"input_tokens":3,"output_tokens":4}}',
+            ),
+        ],
+    )
+
+    response = await async_client.post(
+        "/v1/messages",
+        headers={"content-type": "application/json"},
+        content=b'{"model":"claude-sonnet-5"}',
+    )
+    assert response.status_code == 200
+
+    logs = await _wait_for_logs(2)
+    by_status = {log.status: log for log in logs}
+    assert by_status["error"].error_code == "rate_limit_exceeded"
+    assert by_status["error"].upstream_status_code == 400
+    # The two attempts landed on different accounts: the drained one was skipped.
+    assert by_status["error"].account_id != by_status["success"].account_id
+
+
+@pytest.mark.asyncio
 async def test_client_error_is_logged_and_passed_through(async_client, monkeypatch):
     await _import_claude_account(async_client, "logs-client-error@example.com")
     _queue_upstream(
