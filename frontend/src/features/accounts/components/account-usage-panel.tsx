@@ -1,10 +1,11 @@
 import { lazy, Suspense } from "react";
-import { Clock, Flame, RotateCcw } from "lucide-react";
+import { Clock, Flame, RotateCcw, Wallet } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { AccountTrendChartProps } from "@/features/accounts/components/account-trend-chart";
 import type {
+  AccountSpendBudget,
   AccountSummary,
   AccountTrendsResponse,
   AccountUsageResetCredits,
@@ -145,6 +146,64 @@ const ADDITIONAL_ROUTING_POLICY_LABELS: Record<string, string> = {
   preserve: "Preserve",
 };
 
+function formatBudgetAmount(amount: number | null | undefined, currency: string | null | undefined): string | null {
+  if (amount == null || !Number.isFinite(amount)) return null;
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: currency ?? "USD",
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
+function SpendBudgetRow({ budget }: { budget: AccountSpendBudget }) {
+  const clamped = Math.max(0, Math.min(100, budget.usedPercent));
+  const spent = formatBudgetAmount(budget.used, budget.currency);
+  const limit = formatBudgetAmount(budget.limit, budget.currency);
+  const remaining = formatBudgetAmount(budget.remaining, budget.currency);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="flex items-center gap-1.5 font-medium">
+          <Wallet className="h-3 w-3 shrink-0" aria-hidden="true" />
+          Budget used
+        </span>
+        <span
+          className={cn(
+            "tabular-nums font-medium",
+            clamped >= 90
+              ? "text-red-600 dark:text-red-400"
+              : clamped >= 70
+                ? "text-amber-600 dark:text-amber-400"
+                : "text-emerald-600 dark:text-emerald-400",
+          )}
+        >
+          {clamped.toFixed(1)}%
+        </span>
+      </div>
+      <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+        <div
+          className={cn(
+            "h-full rounded-full transition-all duration-500 ease-out",
+            clamped >= 90 ? "bg-red-500" : clamped >= 70 ? "bg-amber-500" : "bg-emerald-500",
+          )}
+          style={{ width: `${clamped}%` }}
+        />
+      </div>
+      {spent != null && limit != null ? (
+        <p className="text-xs tabular-nums text-muted-foreground">
+          {spent} of {limit}
+          {remaining != null ? ` | ${remaining} left` : ""}
+        </p>
+      ) : null}
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Clock className="h-3 w-3 shrink-0" />
+        <span>Reset {formatQuotaResetLabel(budget.resetAt ?? null)}</span>
+      </div>
+    </div>
+  );
+}
+
 function ResetCreditsRow({
   accountId,
   resetCredits,
@@ -221,14 +280,25 @@ export function AccountUsagePanel({
     account.windowMinutesMonthly != null &&
     account.windowMinutesPrimary == null &&
     account.windowMinutesSecondary == null;
+  const spendBudget = account.spendBudget ?? null;
+  // A usage-based seat bills against a budget and reports no rolling window, so
+  // the budget replaces the window bars rather than sitting beside them.
+  const budgetOnly = spendBudget != null && primary === null && secondary === null && monthly === null;
   const hasTrends =
     primaryTrendPoints.length > 0 || secondaryTrendPoints.length > 0 || secondaryScheduledTrendPoints.length > 0;
 
   return (
     <div className="min-w-0 space-y-4 rounded-lg border bg-muted/30 p-4">
       <h3 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">Usage</h3>
-      <div className={cn("grid gap-4", weeklyOnly || monthlyOnly ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2")}>
-        {monthlyOnly ? (
+      <div
+        className={cn(
+          "grid gap-4",
+          weeklyOnly || monthlyOnly || budgetOnly ? "grid-cols-1" : "grid-cols-1 sm:grid-cols-2",
+        )}
+      >
+        {budgetOnly ? (
+          <SpendBudgetRow budget={spendBudget} />
+        ) : monthlyOnly ? (
           <QuotaRow label="Monthly" percent={monthly} resetAt={account.resetAtMonthly} />
         ) : (
           <>
@@ -237,6 +307,7 @@ export function AccountUsagePanel({
           </>
         )}
       </div>
+      {spendBudget != null && !budgetOnly ? <SpendBudgetRow budget={spendBudget} /> : null}
       <ResetCreditsRow
         accountId={account.accountId}
         resetCredits={resetCredits}

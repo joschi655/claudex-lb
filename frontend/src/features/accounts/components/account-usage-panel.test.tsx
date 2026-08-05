@@ -176,4 +176,47 @@ describe("AccountUsagePanel", () => {
     expect(screen.getByText("7-day trend")).toBeInTheDocument();
     expect(screen.getByText("Weekly plan")).toBeInTheDocument();
   });
+
+  it("shows the spend budget for a seat that reports no window", () => {
+    const account = createAccountSummary({
+      planType: "claude_enterprise",
+      usage: {
+        primaryRemainingPercent: null,
+        secondaryRemainingPercent: null,
+      },
+      windowMinutesPrimary: null,
+      windowMinutesSecondary: null,
+      spendBudget: {
+        usedPercent: 77.72440259999999,
+        used: 777.244026,
+        limit: 1000,
+        remaining: 222.755974,
+        currency: "USD",
+        resetAt: "2026-09-30T20:47:10.939005Z",
+      },
+    });
+
+    render(<AccountUsagePanel account={account} trends={null} />);
+
+    expect(screen.getByText("Budget used")).toBeInTheDocument();
+    expect(screen.getByText("77.7%")).toBeInTheDocument();
+    expect(screen.getByText(/\$777\.24 of \$1,000\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/\$222\.76 left/)).toBeInTheDocument();
+    // The budget replaces the window bars rather than sitting beside empty ones.
+    expect(screen.queryByText("5h remaining")).not.toBeInTheDocument();
+    expect(screen.queryByText("Weekly remaining")).not.toBeInTheDocument();
+  });
+
+  it("shows no budget row for a window-based account", () => {
+    const account = createAccountSummary({
+      usage: { primaryRemainingPercent: 80, secondaryRemainingPercent: 60 },
+      windowMinutesPrimary: 300,
+      windowMinutesSecondary: 10_080,
+    });
+
+    render(<AccountUsagePanel account={account} trends={null} />);
+
+    expect(screen.getByText("5h remaining")).toBeInTheDocument();
+    expect(screen.queryByText("Budget used")).not.toBeInTheDocument();
+  });
 });

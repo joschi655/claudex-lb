@@ -614,10 +614,10 @@ class LimitWarmupService:
 
         Deliberately not routed through ``run_after_usage_refresh``: that method
         reasons about before/after snapshots produced by polling ChatGPT's usage
-        API, and Anthropic publishes no equivalent for the proxy to poll. The
-        reset timestamp already recorded from the last response says when the
-        window ends, and each warmup response rewrites it five hours forward, so
-        the trigger re-arms itself.
+        API, whose shape Anthropic's endpoint does not share. This path works
+        from stored window state instead -- the reset timestamp recorded from the
+        last response or usage poll says when the window ends, and each warmup
+        response rewrites it five hours forward, so the trigger re-arms itself.
         """
         if not settings.limit_warmup_enabled:
             return

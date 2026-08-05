@@ -79,6 +79,21 @@ class AccountAdditionalQuota(DashboardModel):
     secondary_window: AccountAdditionalWindow | None = None
 
 
+class AccountSpendBudget(DashboardModel):
+    """A dollar-denominated quota, for seats that bill against a budget.
+
+    Present only for accounts that actually report one — a subscription seat's
+    quota is its rolling windows and carries no budget.
+    """
+
+    used_percent: float
+    used: float | None = None
+    limit: float | None = None
+    remaining: float | None = None
+    currency: str | None = None
+    reset_at: datetime | None = None
+
+
 class AccountSummary(DashboardModel):
     account_id: str
     provider: str = "openai"
@@ -115,6 +130,7 @@ class AccountSummary(DashboardModel):
     credits_has: bool | None = None
     credits_unlimited: bool | None = None
     credits_balance: float | None = None
+    spend_budget: AccountSpendBudget | None = None
     deactivation_reason: str | None = None
     auth: AccountAuthStatus | None = None
     limit_warmup_enabled: bool = False

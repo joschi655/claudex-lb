@@ -11,6 +11,7 @@ import aiohttp
 from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
 
+from app.core.anthropic.usage_ingest import BUDGET_WINDOW
 from app.core.auth import (
     DEFAULT_EMAIL,
     DEFAULT_PLAN,
@@ -172,6 +173,11 @@ class AccountsService:
             if self._usage_repo
             else {}
         )
+        budget_usage = (
+            await self._usage_repo.latest_by_account(window=BUDGET_WINDOW, account_ids=usage_account_ids)
+            if self._usage_repo
+            else {}
+        )
         request_usage_rows = await self._repo.list_request_usage_summary_by_account(visible_account_ids)
         limit_warmups_by_account = (
             await self._limit_warmup_repo.latest_by_account(visible_account_ids) if self._limit_warmup_repo else {}
@@ -242,6 +248,7 @@ class AccountsService:
             primary_usage=primary_usage,
             secondary_usage=secondary_usage,
             monthly_usage=monthly_usage,
+            budget_usage=budget_usage,
             request_usage_by_account=request_usage_by_account,
             additional_quotas_by_account=additional_quotas_by_account,
             limit_warmups_by_account=limit_warmups_by_account,
@@ -742,9 +749,7 @@ class AccountsService:
         if not await self._has_five_hour_window(account_id):
             # No recorded five-hour window means the seat has none to open --
             # a usage-based seat, or an account that has never served a request.
-            raise AccountNotWarmableError(
-                "Account has no recorded five-hour window, so there is no window to open"
-            )
+            raise AccountNotWarmableError("Account has no recorded five-hour window, so there is no window to open")
         settings = await get_settings_cache().get()
         return await build_background_limit_warmup_service().warm_account_now(
             account=account,
