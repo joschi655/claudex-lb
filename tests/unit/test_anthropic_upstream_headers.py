@@ -3,7 +3,7 @@ from __future__ import annotations
 import aiohttp
 
 from app.core.anthropic import upstream as upstream_module
-from app.core.anthropic.client_identity import CLAUDE_CODE_USER_AGENT
+from app.core.anthropic.client_identity import ATTRIBUTION_HEADER, CLAUDE_CODE_USER_AGENT
 from app.core.anthropic.upstream import (
     build_upstream_headers,
     credential_is_static_api_key,
@@ -65,6 +65,30 @@ def test_oauth_identity_replaces_client_user_agent_whatever_its_casing():
     )
     agents = [value for key, value in headers.items() if key.lower() == "user-agent"]
     assert agents == [CLAUDE_CODE_USER_AGENT]
+
+
+def test_lifted_attribution_is_sent_as_the_header_it_is_written_as():
+    headers = build_upstream_headers(
+        {"content-type": "application/json", "user-agent": "claude-cli/2.1.220 (external, cli)"},
+        "sk-ant-oat-abc",
+        attribution="cc_version=2.1.220.b7d; cc_entrypoint=claude-vscode; cch=ff2f4;",
+    )
+    assert headers[ATTRIBUTION_HEADER] == "cc_version=2.1.220.b7d; cc_entrypoint=claude-vscode; cch=ff2f4;"
+
+
+def test_caller_that_sent_the_attribution_header_itself_keeps_its_own():
+    headers = build_upstream_headers(
+        {"X-Anthropic-Billing-Header": "cc_version=own;", "content-type": "application/json"},
+        "sk-ant-oat-abc",
+        attribution="cc_version=lifted;",
+    )
+    values = [value for key, value in headers.items() if key.lower() == ATTRIBUTION_HEADER]
+    assert values == ["cc_version=own;"]
+
+
+def test_no_attribution_means_no_header():
+    headers = build_upstream_headers({"content-type": "application/json"}, "sk-ant-oat-abc")
+    assert not any(key.lower() == ATTRIBUTION_HEADER for key in headers)
 
 
 def test_static_api_key_uses_x_api_key_without_oauth_beta():

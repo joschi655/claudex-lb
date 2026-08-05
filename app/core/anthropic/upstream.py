@@ -6,6 +6,7 @@ from collections.abc import AsyncIterator, Mapping
 import aiohttp
 
 from app.core.anthropic.client_identity import (
+    ATTRIBUTION_HEADER,
     CLAUDE_CODE_APP,
     CLAUDE_CODE_BETA,
     CLAUDE_CODE_USER_AGENT,
@@ -69,7 +70,12 @@ def credential_is_static_api_key(credential: str) -> bool:
     return credential.startswith(_STATIC_API_KEY_PREFIX)
 
 
-def build_upstream_headers(client_headers: Mapping[str, str], credential: str) -> dict[str, str]:
+def build_upstream_headers(
+    client_headers: Mapping[str, str],
+    credential: str,
+    *,
+    attribution: str | None = None,
+) -> dict[str, str]:
     """Rewrite client request headers for the upstream Anthropic request.
 
     Strips client auth and hop-by-hop headers and injects the account
@@ -78,6 +84,10 @@ def build_upstream_headers(client_headers: Mapping[str, str], credential: str) -
     ``claude-code-20250219`` beta flags, ``x-app``, and a ``claude-cli``
     user-agent for callers that are not already Claude Code. Static console keys
     are relayed with the caller's own headers untouched.
+
+    ``attribution`` is billing metadata lifted out of the request body by
+    ``normalize_claude_code_request``; it is sent as ``ATTRIBUTION_HEADER``
+    unless the caller already spelled that header itself.
 
     Everything else -- ``anthropic-version``, other ``anthropic-*``,
     ``content-type``, ``accept`` -- passes through as sent.
@@ -101,6 +111,8 @@ def build_upstream_headers(client_headers: Mapping[str, str], credential: str) -
         headers["Authorization"] = f"Bearer {credential}"
         headers["anthropic-beta"] = _merge_beta(client_beta, ANTHROPIC_OAUTH_BETA, CLAUDE_CODE_BETA)
         _apply_claude_code_headers(headers, client_headers)
+        if attribution and not any(key.lower() == ATTRIBUTION_HEADER for key in headers):
+            headers[ATTRIBUTION_HEADER] = attribution
 
     return headers
 

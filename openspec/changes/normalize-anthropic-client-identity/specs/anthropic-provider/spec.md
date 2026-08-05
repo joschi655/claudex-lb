@@ -53,6 +53,50 @@ relayed verbatim.
 - **THEN** the upstream body carries a `system` block list containing exactly the
   Claude Code identity block
 
+### Requirement: Billing attribution never enters the cached prompt prefix
+
+Claude Code does not send its billing attribution as a header. It writes the header
+line into the first `system` block —
+`x-anthropic-billing-header: cc_version=…; cc_entrypoint=…; cch=…; cc_prev_req=…;` —
+and under a first-party base URL that line carries per-request values (`cch`, a
+request hash, and `cc_prev_req`, the previous request id). Left in the body, the
+prompt prefix therefore differs on every request and upstream can never serve a
+prompt-cache read: it re-writes the entire prefix instead, which on a long
+conversation is the difference between a few thousand billed input tokens per turn
+and several hundred thousand.
+
+When the first `system` block of an OAuth-credentialed request is such a line, the
+relay MUST remove that block from the request body and MUST send its value upstream
+as the `x-anthropic-billing-header` request header, so no attribution is lost. A
+caller that already sent that header itself MUST keep its own value. The removal MUST
+happen before the identity block is prepended, so the identity check applies to the
+caller's own leading block rather than to the attribution line.
+
+The relay MUST NOT remove such a block when it carries a `cache_control` breakpoint,
+because removing it would move the caller's cache boundary — the very thing this
+protects. Only the leading `system` block is considered; a mid-conversation system
+block is the client's business.
+
+#### Scenario: Two turns present an identical cacheable prefix
+
+- **GIVEN** an OAuth-credentialed anthropic account
+- **WHEN** Claude Code relays two requests whose leading `system` block differs only in
+  its `cch` and `cc_prev_req` values
+- **THEN** the two upstream request bodies are byte-identical
+- **AND** each upstream request carries its own `x-anthropic-billing-header` value,
+  per-request fields included
+
+#### Scenario: An attribution block with a breakpoint is left alone
+
+- **WHEN** the leading attribution block carries a `cache_control` breakpoint
+- **THEN** the block stays in `system` and no `x-anthropic-billing-header` is added
+
+#### Scenario: A caller's own attribution header wins
+
+- **WHEN** a caller sends both an `x-anthropic-billing-header` header and an
+  attribution block
+- **THEN** the upstream request carries the caller's header value, not the lifted one
+
 ### Requirement: Request logs record the calling client, not the upstream identity
 
 The `useragent` and `useragent_group` recorded on a relayed request MUST come from the
