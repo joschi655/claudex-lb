@@ -440,7 +440,8 @@ def test_latest_by_account_sqlite_closes_direct_connection(tmp_path, monkeypatch
                 window_minutes integer,
                 credits_has integer,
                 credits_unlimited integer,
-                credits_balance real
+                credits_balance real,
+                credits_limit real
             )
             """
         )
