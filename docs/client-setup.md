@@ -270,16 +270,20 @@ hermes
 ### Claude accounts
 
 Add a second provider in `anthropic_messages` mode to reach the pooled Claude accounts.
-The Anthropic SDK appends `/v1/messages` itself, so this `base_url` carries no `/v1`
-suffix:
+Use the keyed `providers:` map rather than a `custom_providers:` list entry, and turn
+model discovery off. Hermes otherwise probes the endpoint's `/models` route, gets back
+codex-lb's OpenAI catalog, and overwrites the configured Claude models with it — in the
+picker *and* on disk. `discover_models` is only honoured for `providers:` entries. The
+Anthropic SDK appends `/v1/messages` itself, so this `base_url` carries no `/v1` suffix:
 
 ```yaml
-custom_providers:
-  - name: claudex-lb
+providers:
+  claudex-lb:
     base_url: http://127.0.0.1:2455
     key_env: CODEX_LB_API_KEY
     api_mode: anthropic_messages
-    default_model: claude-sonnet-5
+    discover_models: false
+    model: claude-sonnet-5
     models:
       claude-opus-5: {}
       claude-sonnet-5: {}
@@ -293,7 +297,7 @@ The combined `custom:<provider>:<model>` form is the in-session `/model` syntax.
 command line the provider and the model are separate flags:
 
 ```bash
-hermes -z "say ok" --provider custom:claudex-lb -m claude-sonnet-5
+hermes -z "say ok" --provider claudex-lb -m claude-sonnet-5
 ```
 
 Hermes sends its own key with `x-api-key` and does not disguise itself as Claude Code —
