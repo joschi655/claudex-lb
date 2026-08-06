@@ -85,6 +85,17 @@ interface RequestUsage {
   totalCostUsd?: number;
 }
 
+// A usage-based seat's dollar budget. Such a seat reports no rolling window, so
+// this is the only quota figure it has.
+interface SpendBudget {
+  usedPercent: number;
+  used?: number | null;
+  limit?: number | null;
+  remaining?: number | null;
+  currency?: string | null;
+  resetAt?: string | null;
+}
+
 // Last warm-up attempt for an account, as recorded by the server.
 interface AccountLimitWarmup {
   window: string;
@@ -113,6 +124,7 @@ interface Account {
   resetAtSecondary?: string | null;
   resetAtMonthly?: string | null;
   requestUsage?: RequestUsage | null;
+  spendBudget?: SpendBudget | null;
   limitWarmupEnabled?: boolean;
   limitWarmup?: AccountLimitWarmup | null;
 }
@@ -564,9 +576,22 @@ function pct(v: number | null | undefined): string {
   return v == null ? "–" : `${Math.round(v)}%`;
 }
 
+function money(v: number | null | undefined, currency: string | null | undefined): string | null {
+  if (v == null || !Number.isFinite(v)) return null;
+  const symbol = currency == null || currency === "USD" ? "$" : `${currency} `;
+  return `${symbol}${v.toFixed(2)}`;
+}
+
 function badge(acc: Account): string {
   const p =
     acc.usage?.primaryRemainingPercent ?? acc.usage?.secondaryRemainingPercent ?? acc.usage?.monthlyRemainingPercent;
+  // A budget seat has no window to report a remainder for, so its badge is what
+  // is left of the budget rather than "unknown".
+  if (p == null && acc.spendBudget != null) {
+    const left = money(acc.spendBudget.remaining, acc.spendBudget.currency);
+    const budgetLeft = Math.max(0, 100 - acc.spendBudget.usedPercent);
+    return `${pct(budgetLeft)} left${left ? ` · ${left}` : ""}`;
+  }
   const reset = remaining(acc.resetAtPrimary ?? acc.resetAtSecondary ?? acc.resetAtMonthly);
   const statusMark =
     acc.status === "paused"
@@ -672,7 +697,10 @@ function usedPercent(acc: Account | null | undefined): number | null {
     acc?.usage?.primaryRemainingPercent ??
     acc?.usage?.secondaryRemainingPercent ??
     acc?.usage?.monthlyRemainingPercent;
-  return left == null ? null : 100 - left;
+  if (left != null) return 100 - left;
+  // Fall back to the budget so the icon shows a number for a seat whose quota is
+  // dollars rather than a window.
+  return acc?.spendBudget?.usedPercent ?? null;
 }
 
 function renderSection(s: Section, globalWarmup: boolean | null, separator = true): void {
@@ -690,6 +718,15 @@ function renderSection(s: Section, globalWarmup: boolean | null, separator = tru
     }
     if (cur.usage?.secondaryRemainingPercent != null) {
       console.log(`Weekly: ${pct(cur.usage.secondaryRemainingPercent)} left${remaining(cur.resetAtSecondary) ? ` · resets ${remaining(cur.resetAtSecondary)}` : ""}`);
+    }
+    if (cur.spendBudget != null) {
+      const b = cur.spendBudget;
+      const spent = money(b.used, b.currency);
+      const cap = money(b.limit, b.currency);
+      const amounts = spent && cap ? ` (${spent} of ${cap})` : "";
+      console.log(
+        `Budget: ${b.usedPercent.toFixed(1)}% used${amounts}${remaining(b.resetAt) ? ` · resets ${remaining(b.resetAt)}` : ""}`,
+      );
     }
     const ru = cur.requestUsage;
     if (ru && (ru.requestCount ?? 0) > 0) {
