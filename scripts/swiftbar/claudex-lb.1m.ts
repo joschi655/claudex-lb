@@ -652,12 +652,19 @@ function buildSection(
   const preferred = mine.find((a) => a.routingPolicy === "burn_first" && a.status === "active") ?? null;
   const manual = preferred !== null || (healthy.length === 1 && mine.some((a) => a.status === "paused"));
   const last = lastFor(requests, mine);
-  // The preferred account wins; otherwise the last-served one while it can still
-  // serve, then any healthy account.
+  // Which account is serving is a question about traffic, so the newest request
+  // log entry answers it -- not the burn-first marking, which is only a request
+  // the server may decline. A pinned account still gets gated out by its pace
+  // margin, its pre-reset window or its own quota, and reading the pin as truth
+  // made the menu name an account that was serving nothing.
+  //
+  // The pin still shows (as 📌, via `preferred`); it just no longer overrides
+  // the evidence. It does win before any traffic exists, so clicking "switch"
+  // on an idle pool still gives immediate feedback.
   const lastAcc = last?.accountId ? mine.find((a) => a.accountId === last.accountId) : undefined;
   const current =
-    preferred ||
     (lastAcc && PAUSABLE.has(lastAcc.status) ? lastAcc : null) ||
+    preferred ||
     healthy[0] ||
     pausable[0] ||
     lastAcc ||
@@ -930,7 +937,18 @@ async function renderMenuBlocks(cfg: Config): Promise<void> {
   // Header line for the account section.
   console.log("#BEGIN:current");
   const label = cur ? name(cur) : "no account";
-  console.log(`👤 Claude via claudex-lb: ${label}${s.manual ? " 📌" : ""} | size=12`);
+  // A pin that is not the serving account is worth naming: it means the server
+  // declined the preference, which is exactly the case a bare 📌 used to hide.
+  const pinned = s.preferred;
+  const pinNote =
+    pinned == null
+      ? s.manual
+        ? " 📌"
+        : ""
+      : cur != null && pinned.accountId === cur.accountId
+        ? " 📌"
+        : ` · 📌 ${name(pinned)} pinned, not serving`;
+  console.log(`👤 Claude via claudex-lb: ${label}${pinNote} | size=12`);
 
   // One line per account, click switches the proxy; settings sit underneath.
   console.log("#BEGIN:accounts");
