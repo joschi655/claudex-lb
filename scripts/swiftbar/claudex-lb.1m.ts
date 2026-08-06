@@ -864,6 +864,12 @@ async function renderClaudeMenu(cfg: Config): Promise<void> {
   // account's remaining quota and nothing else — that number is the icon.
   console.log(`#TITLE:${menuBarTitle(section)}`);
   renderSection(section, globalWarmup, false);
+  // The Codex pool gets the same section below Claude's, so one embedded menu
+  // switches both assistants. `renderSection` is provider-generic — it already
+  // limits the 5h-window restarts to anthropic — and a provider with zero
+  // accounts renders nothing at all.
+  const codex = buildSection(PROVIDERS[1], accounts, requests);
+  if (codex !== null) renderSection(codex, globalWarmup);
 }
 
 // Everything the live proxy-status plugin embeds, in one request. Sections are
@@ -933,6 +939,18 @@ async function renderMenuBlocks(cfg: Config): Promise<void> {
   // burn-first marking so quota and pace decide again.
   console.log(`--${action("⚖️ Auto: balance across all accounts", [SELF, "auto", "anthropic"])}`);
 
+  // Codex rides in the same block rather than a new #BEGIN: marker: the host
+  // splits on the markers it knows, so anything under a new one would be
+  // dropped silently. Same account lines, same click-to-serve action, scoped
+  // client-side to openai so pinning here never touches a Claude account.
+  const codex = buildSection(PROVIDERS[1], accounts, requests);
+  if (codex !== null) {
+    const codexCur = codex.current;
+    console.log(`--⇄ Codex: ${codexCur ? name(codexCur) : "no account"}${codex.manual ? " 📌" : ""} | size=12`);
+    for (const acc of codex.accounts) renderAccountLine(acc, codexCur, codex);
+    console.log(`--${action("⚖️ Auto: balance across all Codex accounts", [SELF, "auto", "openai"])}`);
+  }
+
   console.log("#BEGIN:end");
 }
 
@@ -953,10 +971,14 @@ function renderAccountLine(acc: Account, cur: Account | null, s: Section): void 
   if (warmable(acc)) {
     console.log(`----${action("🔁 Restart 5h limit now", [SELF, "warmup", acc.accountId])}`);
   }
-  const warm = acc.limitWarmupEnabled === true;
-  console.log(
-    `----${action(`${warm ? "☑︎" : "☐"} Auto-restart this account`, [SELF, "autowarm", acc.accountId, warm ? "off" : "on"])}`,
-  );
+  // Window restarts are a Claude-only concept — a Codex account has nothing to
+  // warm, so it must not be offered the toggle.
+  if (providerOf(acc) === "anthropic") {
+    const warm = acc.limitWarmupEnabled === true;
+    console.log(
+      `----${action(`${warm ? "☑︎" : "☐"} Auto-restart this account`, [SELF, "autowarm", acc.accountId, warm ? "off" : "on"])}`,
+    );
+  }
   console.log(`----⚙ Pace margin (5h): ${acc.paceMarginPrimaryPct == null ? "off" : `${acc.paceMarginPrimaryPct}%`} | size=11`);
   for (const opt of [null, 0, 5, 10, 20]) {
     const mark = (acc.paceMarginPrimaryPct ?? null) === opt ? "• " : "  ";
