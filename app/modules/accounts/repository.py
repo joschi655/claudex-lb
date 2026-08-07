@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import delete, or_, select, text, update
+from sqlalchemy import delete, func, or_, select, text, update
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -125,6 +125,32 @@ class AccountsRepository:
             stmt = stmt.execution_options(populate_existing=True)
         result = await self._session.execute(stmt)
         return list(result.scalars().all())
+
+    async def last_served_at_by_account(
+        self,
+        *,
+        since: datetime,
+        account_ids: list[str] | None = None,
+    ) -> dict[str, datetime]:
+        """When each account most recently carried a request, within a window.
+
+        Bounded by ``since`` on purpose: the caller wants to know who is serving
+        *now*, and an unbounded ``MAX`` would scan the whole log to answer a
+        question about the last few minutes. ``idx_logs_account_time`` covers
+        the grouped read, and ``idx_logs_requested_at`` the range.
+        """
+        stmt = (
+            select(RequestLog.account_id, func.max(RequestLog.requested_at))
+            .where(RequestLog.account_id.is_not(None))
+            .where(RequestLog.requested_at >= since)
+            .group_by(RequestLog.account_id)
+        )
+        if account_ids is not None:
+            if not account_ids:
+                return {}
+            stmt = stmt.where(RequestLog.account_id.in_(account_ids))
+        result = await self._session.execute(stmt)
+        return {account_id: last_at for account_id, last_at in result.all() if account_id and last_at}
 
     async def list_request_usage_summary_by_account(
         self,

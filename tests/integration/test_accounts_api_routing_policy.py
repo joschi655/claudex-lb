@@ -146,3 +146,31 @@ async def test_an_unknown_policy_is_rejected(async_client):
     response = await _set_policy(async_client, account_id, "pin")
 
     assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_pace_gates_round_trip_through_the_account_listing(async_client):
+    account_id = await _import_account(async_client, "gates@example.com", "acct-gates")
+
+    response = await async_client.put(
+        f"/api/accounts/{account_id}/pace-gates",
+        json={"paceMarginPrimaryPct": 20, "preResetWindowMinutes": 120},
+    )
+    assert response.status_code == 200, response.text
+
+    listing = await async_client.get("/api/accounts")
+    account = next(a for a in listing.json()["accounts"] if a["accountId"] == account_id)
+    assert account["paceMarginPrimaryPct"] == 20
+    assert account["preResetWindowMinutes"] == 120
+    # Untouched gates stay unset — the dashboard must not read "off" as zero.
+    assert account["paceMarginSecondaryPct"] is None
+
+
+@pytest.mark.asyncio
+async def test_an_idle_account_reports_no_serving_time(async_client):
+    account_id = await _import_account(async_client, "idle@example.com", "acct-idle")
+
+    listing = await async_client.get("/api/accounts")
+    account = next(a for a in listing.json()["accounts"] if a["accountId"] == account_id)
+
+    assert account["lastServedAt"] is None

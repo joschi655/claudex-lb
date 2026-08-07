@@ -14,6 +14,7 @@ import { AccountListItem } from "@/features/accounts/components/account-list-ite
 import { AddAccountDialog } from "@/features/accounts/components/add-account-dialog";
 import { WindowsOauthHelp } from "@/features/accounts/components/windows-oauth-help";
 import type { AccountSummary } from "@/features/accounts/schemas";
+import { servingAccountIds } from "@/features/accounts/serving";
 import {
   ACCOUNT_SORT_OPTIONS,
   DEFAULT_ACCOUNT_SORT_MODE,
@@ -52,6 +53,10 @@ export function AccountList({
   const [chooserOpen, setChooserOpen] = useState(false);
   const quotaDisplay = useAccountQuotaDisplayStore((s) => s.quotaDisplay);
   const activeSortMode = sortMode ?? DEFAULT_ACCOUNT_SORT_MODE;
+
+  // Computed over every account, not the filtered view: a search or status
+  // filter must not promote the second-newest account to "serving".
+  const serving = useMemo(() => servingAccountIds(accounts), [accounts]);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -162,6 +167,7 @@ export function AccountList({
               account={account}
               selected={account.accountId === selectedAccountId}
               showAccountId={account.isEmailDuplicate === true}
+              serving={serving.has(account.accountId)}
               onSelect={onSelect}
             />
           ))

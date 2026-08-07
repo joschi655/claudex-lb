@@ -136,6 +136,11 @@ class AccountSummary(DashboardModel):
     window_minutes_secondary: int | None = None
     window_minutes_monthly: int | None = None
     last_refresh_at: datetime | None = None
+    # When this account most recently carried a request, within the recent
+    # window the service asks for. Absent means "not recently", never "never":
+    # the lookup is time-bounded so it can answer who is serving *now* without
+    # scanning the whole request log.
+    last_served_at: datetime | None = None
     capacity_credits_primary: float | None = None
     remaining_credits_primary: float | None = None
     capacity_credits_secondary: float | None = None

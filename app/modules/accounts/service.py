@@ -89,6 +89,9 @@ from app.modules.usage.updater import AdditionalUsageRepositoryPort, UsageUpdate
 
 logger = logging.getLogger(__name__)
 
+# How far back "serving" looks. Long enough that a pause between turns does not
+# blank the indicator, short enough that yesterday's account never claims it.
+_RECENTLY_SERVED_MINUTES = 10
 _SPARKLINE_DAYS = 7
 _DETAIL_BUCKET_SECONDS = 3600  # 1h → 168 points
 
@@ -184,6 +187,10 @@ class AccountsService:
             else {}
         )
         request_usage_rows = await self._repo.list_request_usage_summary_by_account(visible_account_ids)
+        last_served_at_by_account = await self._repo.last_served_at_by_account(
+            since=utcnow() - timedelta(minutes=_RECENTLY_SERVED_MINUTES),
+            account_ids=visible_account_ids,
+        )
         limit_warmups_by_account = (
             await self._limit_warmup_repo.latest_by_account(visible_account_ids) if self._limit_warmup_repo else {}
         )
@@ -258,6 +265,7 @@ class AccountsService:
             request_usage_by_account=request_usage_by_account,
             additional_quotas_by_account=additional_quotas_by_account,
             limit_warmups_by_account=limit_warmups_by_account,
+            last_served_at_by_account=last_served_at_by_account,
             encryptor=self._encryptor,
         )
 

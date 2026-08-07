@@ -53,6 +53,7 @@ def build_account_summaries(
     request_usage_by_account: dict[str, AccountRequestUsage] | None = None,
     additional_quotas_by_account: dict[str, list[AccountAdditionalQuota]] | None = None,
     limit_warmups_by_account: dict[str, AccountLimitWarmup] | None = None,
+    last_served_at_by_account: dict[str, datetime] | None = None,
     encryptor: TokenEncryptor,
     include_auth: bool = True,
     reset_credits_store: RateLimitResetCreditsStore | None = None,
@@ -74,6 +75,7 @@ def build_account_summaries(
             reset_credits_snapshot=_reset_credits_snapshot_for_account(account, store),
             budget_usage=budget_usage.get(account.id) if budget_usage else None,
             extra_credits_usage=extra_credits_usage.get(account.id) if extra_credits_usage else None,
+            last_served_at=last_served_at_by_account.get(account.id) if last_served_at_by_account else None,
         )
         for account in accounts
     ]
@@ -168,6 +170,7 @@ def _account_to_summary(
     reset_credits_snapshot: RateLimitResetCreditsSnapshot | None = None,
     budget_usage: UsageHistory | None = None,
     extra_credits_usage: UsageHistory | None = None,
+    last_served_at: datetime | None = None,
 ) -> AccountSummary:
     plan_type = coerce_account_plan_type(account.plan_type, DEFAULT_PLAN)
     auth_status = _build_auth_status(account, encryptor) if include_auth else None
@@ -338,6 +341,7 @@ def _account_to_summary(
         window_minutes_secondary=window_minutes_secondary,
         window_minutes_monthly=window_minutes_monthly,
         last_refresh_at=account.last_refresh,
+        last_served_at=last_served_at,
         capacity_credits_primary=capacity_primary,
         remaining_credits_primary=remaining_credits_primary,
         capacity_credits_secondary=capacity_secondary,
