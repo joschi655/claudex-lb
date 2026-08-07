@@ -207,6 +207,64 @@ describe("AccountUsagePanel", () => {
     expect(screen.queryByText("Weekly remaining")).not.toBeInTheDocument();
   });
 
+  it("shows the extra-usage pool alongside the windows for a Pro seat", () => {
+    const account = createAccountSummary({
+      planType: "claude_pro",
+      usage: { primaryRemainingPercent: 80, secondaryRemainingPercent: 60 },
+      windowMinutesPrimary: 300,
+      windowMinutesSecondary: 10_080,
+      extraCredits: {
+        enabled: true,
+        usedPercent: 8.015,
+        used: 16.03,
+        limit: 200,
+        remaining: 183.97,
+        currency: "USD",
+      },
+    });
+
+    render(<AccountUsagePanel account={account} trends={null} />);
+
+    expect(screen.getByText("Extra usage")).toBeInTheDocument();
+    expect(screen.getByText("8.0%")).toBeInTheDocument();
+    expect(screen.getByText(/\$16\.03 of \$200\.00/)).toBeInTheDocument();
+    expect(screen.getByText(/\$183\.97 left/)).toBeInTheDocument();
+  });
+
+  it("reports a switched-off extra-usage pool rather than hiding it", () => {
+    const account = createAccountSummary({
+      planType: "claude_pro",
+      usage: { primaryRemainingPercent: 80, secondaryRemainingPercent: 60 },
+      windowMinutesPrimary: 300,
+      windowMinutesSecondary: 10_080,
+      extraCredits: {
+        enabled: false,
+        usedPercent: 0,
+        used: null,
+        limit: null,
+        remaining: null,
+        currency: "USD",
+      },
+    });
+
+    render(<AccountUsagePanel account={account} trends={null} />);
+
+    expect(screen.getByText("Extra usage")).toBeInTheDocument();
+    expect(screen.getByText("Off")).toBeInTheDocument();
+  });
+
+  it("shows no extra-usage row for an account that reports no pool", () => {
+    const account = createAccountSummary({
+      usage: { primaryRemainingPercent: 80, secondaryRemainingPercent: 60 },
+      windowMinutesPrimary: 300,
+      windowMinutesSecondary: 10_080,
+    });
+
+    render(<AccountUsagePanel account={account} trends={null} />);
+
+    expect(screen.queryByText("Extra usage")).not.toBeInTheDocument();
+  });
+
   it("shows no budget row for a window-based account", () => {
     const account = createAccountSummary({
       usage: { primaryRemainingPercent: 80, secondaryRemainingPercent: 60 },

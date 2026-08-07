@@ -11,7 +11,7 @@ import aiohttp
 from pydantic import ValidationError
 from sqlalchemy.exc import OperationalError
 
-from app.core.anthropic.usage_ingest import BUDGET_WINDOW
+from app.core.anthropic.usage_ingest import BUDGET_WINDOW, EXTRA_CREDITS_WINDOW
 from app.core.auth import (
     DEFAULT_EMAIL,
     DEFAULT_PLAN,
@@ -178,6 +178,11 @@ class AccountsService:
             if self._usage_repo
             else {}
         )
+        extra_credits_usage = (
+            await self._usage_repo.latest_by_account(window=EXTRA_CREDITS_WINDOW, account_ids=usage_account_ids)
+            if self._usage_repo
+            else {}
+        )
         request_usage_rows = await self._repo.list_request_usage_summary_by_account(visible_account_ids)
         limit_warmups_by_account = (
             await self._limit_warmup_repo.latest_by_account(visible_account_ids) if self._limit_warmup_repo else {}
@@ -249,6 +254,7 @@ class AccountsService:
             secondary_usage=secondary_usage,
             monthly_usage=monthly_usage,
             budget_usage=budget_usage,
+            extra_credits_usage=extra_credits_usage,
             request_usage_by_account=request_usage_by_account,
             additional_quotas_by_account=additional_quotas_by_account,
             limit_warmups_by_account=limit_warmups_by_account,

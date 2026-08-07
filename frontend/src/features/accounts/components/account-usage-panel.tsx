@@ -1,10 +1,11 @@
 import { lazy, Suspense } from "react";
-import { Clock, Flame, RotateCcw, Wallet } from "lucide-react";
+import { Clock, CirclePlus, Flame, RotateCcw, Wallet } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type { AccountTrendChartProps } from "@/features/accounts/components/account-trend-chart";
 import type {
+  AccountExtraCredits,
   AccountSpendBudget,
   AccountSummary,
   AccountTrendsResponse,
@@ -155,6 +156,67 @@ function formatBudgetAmount(amount: number | null | undefined, currency: string 
   }).format(amount);
 }
 
+// Extra usage is the pool that covers spend past the plan's own limits. It is
+// shown whenever the account reports the facility -- a switched-off pool renders
+// as off rather than vanishing, because "you could turn this on" is the useful
+// thing to know when a seat is out of quota.
+function ExtraCreditsRow({ credits }: { credits: AccountExtraCredits }) {
+  const clamped = Math.max(0, Math.min(100, credits.usedPercent));
+  const spent = formatBudgetAmount(credits.used, credits.currency);
+  const limit = formatBudgetAmount(credits.limit, credits.currency);
+  const remaining = formatBudgetAmount(credits.remaining, credits.currency);
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex items-center justify-between text-xs">
+        <span className="flex items-center gap-1.5 font-medium">
+          <CirclePlus className="h-3 w-3 shrink-0" aria-hidden="true" />
+          Extra usage
+        </span>
+        {credits.enabled ? (
+          <span
+            className={cn(
+              "tabular-nums font-medium",
+              clamped >= 90
+                ? "text-red-600 dark:text-red-400"
+                : clamped >= 70
+                  ? "text-amber-600 dark:text-amber-400"
+                  : "text-emerald-600 dark:text-emerald-400",
+            )}
+          >
+            {clamped.toFixed(1)}%
+          </span>
+        ) : (
+          <span className="font-medium text-muted-foreground">Off</span>
+        )}
+      </div>
+      {credits.enabled ? (
+        <>
+          <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className={cn(
+                "h-full rounded-full transition-all duration-500 ease-out",
+                clamped >= 90 ? "bg-red-500" : clamped >= 70 ? "bg-amber-500" : "bg-emerald-500",
+              )}
+              style={{ width: `${clamped}%` }}
+            />
+          </div>
+          {spent != null && limit != null ? (
+            <p className="text-xs tabular-nums text-muted-foreground">
+              {spent} of {limit}
+              {remaining != null ? ` | ${remaining} left` : ""}
+            </p>
+          ) : null}
+        </>
+      ) : (
+        <p className="text-xs text-muted-foreground">
+          No overflow spend allowed once the plan&apos;s own limits are reached.
+        </p>
+      )}
+    </div>
+  );
+}
+
 function SpendBudgetRow({ budget }: { budget: AccountSpendBudget }) {
   const clamped = Math.max(0, Math.min(100, budget.usedPercent));
   const spent = formatBudgetAmount(budget.used, budget.currency);
@@ -281,6 +343,7 @@ export function AccountUsagePanel({
     account.windowMinutesPrimary == null &&
     account.windowMinutesSecondary == null;
   const spendBudget = account.spendBudget ?? null;
+  const extraCredits = account.extraCredits ?? null;
   // A usage-based seat bills against a budget and reports no rolling window, so
   // the budget replaces the window bars rather than sitting beside them.
   const budgetOnly = spendBudget != null && primary === null && secondary === null && monthly === null;
@@ -308,6 +371,7 @@ export function AccountUsagePanel({
         )}
       </div>
       {spendBudget != null && !budgetOnly ? <SpendBudgetRow budget={spendBudget} /> : null}
+      {extraCredits != null ? <ExtraCreditsRow credits={extraCredits} /> : null}
       <ResetCreditsRow
         accountId={account.accountId}
         resetCredits={resetCredits}

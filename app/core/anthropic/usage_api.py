@@ -77,7 +77,12 @@ class AnthropicUsageApiSnapshot:
 
     @property
     def has_any(self) -> bool:
-        return self.primary is not None or self.secondary is not None or self.budget is not None
+        return (
+            self.primary is not None
+            or self.secondary is not None
+            or self.budget is not None
+            or self.extra_credits is not None
+        )
 
 
 class AnthropicUsageFetchError(Exception):

@@ -10,12 +10,13 @@ import pytest
 
 from app.core.anthropic import usage_poller
 from app.core.anthropic.usage_api import (
+    AnthropicExtraCredits,
     AnthropicSpendBudget,
     AnthropicUsageApiSnapshot,
     AnthropicUsageFetchError,
     AnthropicUsageWindow,
 )
-from app.core.anthropic.usage_ingest import BUDGET_WINDOW
+from app.core.anthropic.usage_ingest import BUDGET_WINDOW, EXTRA_CREDITS_WINDOW
 from app.core.anthropic.usage_poller import (
     clear_anthropic_usage_poll_cooldowns,
     poll_anthropic_usage,
@@ -76,6 +77,7 @@ class RecordedWrite:
     reset_at: int | None
     credits_balance: float | None = None
     credits_limit: float | None = None
+    credits_has: bool | None = None
 
 
 @dataclass
@@ -91,6 +93,7 @@ class FakeUsageRepo:
                 reset_at=kwargs.get("reset_at"),
                 credits_balance=kwargs.get("credits_balance"),
                 credits_limit=kwargs.get("credits_limit"),
+                credits_has=kwargs.get("credits_has"),
             )
         )
 
@@ -119,6 +122,17 @@ def _budget_snapshot() -> AnthropicUsageApiSnapshot:
             remaining_dollars=222.76,
             currency="USD",
             reset_at=1790822830,
+        )
+    )
+
+
+def _extra_credits_snapshot(*, enabled: bool) -> AnthropicUsageApiSnapshot:
+    return AnthropicUsageApiSnapshot(
+        extra_credits=AnthropicExtraCredits(
+            enabled=enabled,
+            used_dollars=16.03 if enabled else 0.0,
+            limit_dollars=200.0 if enabled else None,
+            currency="USD",
         )
     )
 
@@ -366,3 +380,45 @@ async def test_an_unchanged_snapshot_is_rewritten_once_the_interval_lapses(monke
     await poll_anthropic_usage([_account()], encryptor=FakeEncryptor(), usage_repo_factory=_repo_factory(repo))
 
     assert len([w for w in repo.writes if w.window == "primary"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_extra_credits_are_written_with_the_remainder_derived(monkeypatch):
+    repo = FakeUsageRepo()
+    monkeypatch.setattr(usage_poller, "fetch_anthropic_usage", _fetch_returning(_extra_credits_snapshot(enabled=True)))
+
+    outcome = await poll_anthropic_usage(
+        [_account()],
+        encryptor=FakeEncryptor(),
+        usage_repo_factory=_repo_factory(repo),
+    )
+
+    assert outcome.written == 1
+    write = repo.writes[0]
+    assert write.window == EXTRA_CREDITS_WINDOW
+    assert write.credits_has is True
+    assert write.credits_limit == 200.0
+    # Derived, not a third stored number: 200 - 16.03.
+    assert write.credits_balance == pytest.approx(183.97)
+    # Reproduces the utilization the payload reports for these same dollars.
+    assert write.used_percent == pytest.approx(8.015)
+
+
+@pytest.mark.asyncio
+async def test_a_disabled_extra_usage_pool_still_writes_a_row(monkeypatch):
+    """Off is the state an operator needs in order to decide to switch it on."""
+    repo = FakeUsageRepo()
+    monkeypatch.setattr(usage_poller, "fetch_anthropic_usage", _fetch_returning(_extra_credits_snapshot(enabled=False)))
+
+    outcome = await poll_anthropic_usage(
+        [_account()],
+        encryptor=FakeEncryptor(),
+        usage_repo_factory=_repo_factory(repo),
+    )
+
+    assert outcome.written == 1
+    write = repo.writes[0]
+    assert write.window == EXTRA_CREDITS_WINDOW
+    assert write.credits_has is False
+    assert write.credits_limit is None
+    assert write.used_percent == 0.0

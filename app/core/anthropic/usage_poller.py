@@ -148,6 +148,12 @@ def _fingerprint(snapshot: AnthropicUsageApiSnapshot) -> tuple[object, ...]:
         snapshot.budget.used_percent if snapshot.budget else None,
         snapshot.budget.remaining_dollars if snapshot.budget else None,
         snapshot.budget.reset_at if snapshot.budget else None,
+        # Extra-credit spend moves independently of the windows: leaving it out
+        # would hold a stale pool on screen for the whole unchanged-write
+        # interval whenever the quota figures happen not to move.
+        snapshot.extra_credits.enabled if snapshot.extra_credits else None,
+        snapshot.extra_credits.used_dollars if snapshot.extra_credits else None,
+        snapshot.extra_credits.limit_dollars if snapshot.extra_credits else None,
     )
 
 

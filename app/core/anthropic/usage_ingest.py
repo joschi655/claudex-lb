@@ -9,7 +9,7 @@ same thing whichever of the three learned it.
 
 from __future__ import annotations
 
-from app.core.anthropic.usage_api import AnthropicUsageApiSnapshot
+from app.core.anthropic.usage_api import AnthropicExtraCredits, AnthropicUsageApiSnapshot
 from app.core.anthropic.usage_headers import AnthropicUsageSnapshot
 from app.modules.usage.repository import UsageRepository
 
@@ -20,6 +20,14 @@ ANTHROPIC_SECONDARY_WINDOW_MINUTES = 7 * 24 * 60
 # span between resets varies. ``BUDGET_WINDOW`` marks the row as that kind of
 # quota so consumers do not read it as a five-hour or weekly sample.
 BUDGET_WINDOW = "budget"
+
+# Extra usage is the top-up pool that covers spend past a plan's own limits. It
+# is not the seat's own quota, so it gets its own window rather than sharing
+# ``BUDGET_WINDOW``: a usage-based seat reports both at once, and collapsing them
+# would let one overwrite the other. Unlike every other window here a row is
+# written even when the facility is switched off -- "off" is precisely the state
+# an operator needs to see in order to decide to turn it on.
+EXTRA_CREDITS_WINDOW = "extra_credits"
 
 
 async def persist_usage_snapshot(
@@ -92,4 +100,39 @@ async def persist_usage_api_snapshot(
             credits_limit=budget.limit_dollars,
         )
         written = True
+    extra_credits = snapshot.extra_credits
+    if extra_credits is not None:
+        # ``credits_has`` carries the on/off state so a disabled pool still has a
+        # row: the dashboard needs to show the facility exists before an operator
+        # can enable it. The remainder is derived here rather than stored twice --
+        # the payload reports a limit and an amount used, and a pool with no limit
+        # has no remainder to speak of.
+        remaining_dollars = (
+            extra_credits.limit_dollars - extra_credits.used_dollars
+            if extra_credits.limit_dollars is not None and extra_credits.used_dollars is not None
+            else None
+        )
+        await repo.add_entry(
+            account_id,
+            used_percent=_extra_credits_used_percent(extra_credits),
+            window=EXTRA_CREDITS_WINDOW,
+            credits_has=extra_credits.enabled,
+            credits_unlimited=False,
+            credits_balance=remaining_dollars,
+            credits_limit=extra_credits.limit_dollars,
+        )
+        written = True
     return written
+
+
+def _extra_credits_used_percent(extra_credits: AnthropicExtraCredits) -> float:
+    """How much of the top-up pool is spent, as a percentage.
+
+    ``used_percent`` is not nullable, and a pool with no limit set (or none yet
+    granted) has no meaningful ratio, so those read as nothing spent.
+    """
+    limit = extra_credits.limit_dollars
+    used = extra_credits.used_dollars
+    if limit is None or used is None or limit <= 0:
+        return 0.0
+    return min(100.0, max(0.0, used / limit * 100))
