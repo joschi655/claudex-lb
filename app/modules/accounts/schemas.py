@@ -94,6 +94,23 @@ class AccountSpendBudget(DashboardModel):
     reset_at: datetime | None = None
 
 
+class AccountExtraCredits(DashboardModel):
+    """The top-up pool that covers spend past a plan's own limits.
+
+    Distinct from ``AccountSpendBudget``: that is the seat's own quota, this is
+    the overflow behind it. Present whenever the account reports the facility at
+    all, including when it is switched off — ``enabled`` carries that, and a
+    disabled pool is exactly what an operator needs to see before turning it on.
+    """
+
+    enabled: bool
+    used_percent: float
+    used: float | None = None
+    limit: float | None = None
+    remaining: float | None = None
+    currency: str | None = None
+
+
 class AccountSummary(DashboardModel):
     account_id: str
     provider: str = "openai"
@@ -131,6 +148,7 @@ class AccountSummary(DashboardModel):
     credits_unlimited: bool | None = None
     credits_balance: float | None = None
     spend_budget: AccountSpendBudget | None = None
+    extra_credits: AccountExtraCredits | None = None
     deactivation_reason: str | None = None
     auth: AccountAuthStatus | None = None
     limit_warmup_enabled: bool = False

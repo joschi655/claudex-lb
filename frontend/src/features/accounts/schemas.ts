@@ -74,6 +74,17 @@ export const AccountSpendBudgetSchema = z.object({
   resetAt: z.iso.datetime({ offset: true }).nullable().optional(),
 });
 
+// The top-up pool behind the plan's own limits. Reported even when switched
+// off, so `enabled` is the field that decides how it renders.
+export const AccountExtraCreditsSchema = z.object({
+  enabled: z.boolean(),
+  usedPercent: z.number(),
+  used: z.number().nullable().optional(),
+  limit: z.number().nullable().optional(),
+  remaining: z.number().nullable().optional(),
+  currency: z.string().nullable().optional(),
+});
+
 export const AccountSummarySchema = z.object({
   accountId: z.string(),
   provider: z.string().optional(),
@@ -105,6 +116,7 @@ export const AccountSummarySchema = z.object({
   creditsUnlimited: z.boolean().nullable().optional(),
   creditsBalance: z.number().nullable().optional(),
   spendBudget: AccountSpendBudgetSchema.nullable().optional(),
+  extraCredits: AccountExtraCreditsSchema.nullable().optional(),
   requestUsage: AccountRequestUsageSchema.nullable().optional(),
   auth: AccountAuthSchema.nullable().optional(),
   additionalQuotas: z.array(AccountAdditionalQuotaSchema).default([]),
@@ -362,6 +374,7 @@ export type AccountAdditionalWindow = z.infer<
   typeof AccountAdditionalWindowSchema
 >;
 export type AccountSpendBudget = z.infer<typeof AccountSpendBudgetSchema>;
+export type AccountExtraCredits = z.infer<typeof AccountExtraCreditsSchema>;
 export type AccountAdditionalQuota = z.infer<
   typeof AccountAdditionalQuotaSchema
 >;
