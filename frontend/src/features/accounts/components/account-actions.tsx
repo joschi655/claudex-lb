@@ -20,7 +20,9 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { PaceGateFields } from "@/features/accounts/components/pace-gate-fields";
 import type {
+  AccountPaceGatesUpdate,
   AccountRoutingPolicy,
   AccountSummary,
 } from "@/features/accounts/schemas";
@@ -43,6 +45,7 @@ export type AccountActionsProps = {
     accountId: string,
     routingPolicy: AccountRoutingPolicy,
   ) => void;
+  onPaceGatesChange: (accountId: string, gates: AccountPaceGatesUpdate) => void;
 };
 
 export function AccountActions({
@@ -59,6 +62,7 @@ export function AccountActions({
   onSecurityWorkAuthorizedChange,
   onLimitWarmupChange,
   onRoutingPolicyChange,
+  onPaceGatesChange,
 }: AccountActionsProps) {
   const showOperatorRecoveryAction =
     account.status === "reauth_required" || account.status === "deactivated";
@@ -111,6 +115,15 @@ export function AccountActions({
             </SelectContent>
           </Select>
         </div>
+      ) : null}
+
+      {!showOperatorRecoveryAction ? (
+        <PaceGateFields
+          account={account}
+          busy={busy}
+          readOnly={readOnly}
+          onChange={onPaceGatesChange}
+        />
       ) : null}
 
       <label

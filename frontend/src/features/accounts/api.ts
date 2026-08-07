@@ -1,5 +1,7 @@
 import { del, get, patch, post, put } from "@/lib/api-client";
 
+import type { AccountPaceGatesUpdate } from "@/features/accounts/schemas";
+
 import {
   AccountActionResponseSchema,
   AccountAliasRequestSchema,
@@ -8,6 +10,8 @@ import {
   AccountImportResponseSchema,
   AccountLimitWarmupUpdateRequestSchema,
   AccountLimitWarmupUpdateResponseSchema,
+  AccountPaceGatesUpdateRequestSchema,
+  AccountPaceGatesUpdateResponseSchema,
   AccountUpdateRequestSchema,
   AccountsResponseSchema,
   AccountRoutingPolicyUpdateRequestSchema,
@@ -98,6 +102,18 @@ export function updateAccountRoutingPolicy(
   return put(
     `${ACCOUNTS_BASE_PATH}/${encodeURIComponent(accountId)}/routing-policy`,
     AccountRoutingPolicyUpdateResponseSchema,
+    { body: payload },
+  );
+}
+
+export function updateAccountPaceGates(
+  accountId: string,
+  gates: AccountPaceGatesUpdate,
+) {
+  const payload = AccountPaceGatesUpdateRequestSchema.parse(gates);
+  return put(
+    `${ACCOUNTS_BASE_PATH}/${encodeURIComponent(accountId)}/pace-gates`,
+    AccountPaceGatesUpdateResponseSchema,
     { body: payload },
   );
 }

@@ -11,6 +11,7 @@ import { AccountProxyBinding } from "@/features/accounts/components/account-prox
 import { AccountTokenInfo } from "@/features/accounts/components/account-token-info";
 import { AccountUsagePanel } from "@/features/accounts/components/account-usage-panel";
 import type {
+  AccountPaceGatesUpdate,
   AccountRoutingPolicy,
   AccountSummary,
   AccountUsageResetCredits,
@@ -43,6 +44,7 @@ export type AccountDetailProps = {
     accountId: string,
     routingPolicy: AccountRoutingPolicy,
   ) => void;
+  onPaceGatesChange: (accountId: string, gates: AccountPaceGatesUpdate) => void;
   onSecurityWorkAuthorizedChange: (accountId: string, enabled: boolean) => void;
   upstreamProxyAdmin?: UpstreamProxyAdmin | null;
   onProxyBindingSave?: (accountId: string, payload: AccountProxyBindingRequest) => Promise<unknown>;
@@ -68,6 +70,7 @@ export function AccountDetail({
   onResetCredit,
   onLimitWarmupChange,
   onRoutingPolicyChange,
+  onPaceGatesChange,
   onSecurityWorkAuthorizedChange,
   upstreamProxyAdmin = null,
   onProxyBindingSave,
@@ -181,6 +184,7 @@ export function AccountDetail({
         onResetCredit={onResetCredit}
         onLimitWarmupChange={onLimitWarmupChange}
         onRoutingPolicyChange={onRoutingPolicyChange}
+        onPaceGatesChange={onPaceGatesChange}
         onSecurityWorkAuthorizedChange={onSecurityWorkAuthorizedChange}
       />
     </div>

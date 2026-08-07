@@ -25,6 +25,7 @@ export type AccountListItemProps = {
   account: AccountSummary;
   selected: boolean;
   showAccountId?: boolean;
+  serving?: boolean;
   onSelect: (accountId: string) => void;
 };
 
@@ -32,6 +33,7 @@ export function AccountListItem({
   account,
   selected,
   showAccountId = false,
+  serving = false,
   onSelect,
 }: AccountListItemProps) {
   const blurred = usePrivacyStore((s) => s.blurred);
@@ -115,7 +117,7 @@ export function AccountListItem({
             aria-label="Trusted Access for Cyber"
           />
         ) : null}
-        <StatusBadge status={status} />
+        {serving ? <ServingBadge /> : <StatusBadge status={status} />}
       </div>
       <div
         className={cn(
@@ -150,6 +152,24 @@ export function AccountListItem({
         <span className="min-w-0 truncate">{warmupMeta}</span>
       </div>
     </button>
+  );
+}
+
+// Replaces the status badge rather than sitting beside it: "serving" already
+// implies active, and a second badge on the one row that matters costs the
+// width the account name needs.
+function ServingBadge() {
+  return (
+    <Badge
+      variant="outline"
+      className="shrink-0 gap-1.5 border-blue-500/20 bg-blue-500/15 px-1.5 text-[11px] text-blue-700 dark:text-blue-400"
+    >
+      <span className="relative flex h-1.5 w-1.5" aria-hidden>
+        <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-75" />
+        <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" />
+      </span>
+      Serving
+    </Badge>
   );
 }
 

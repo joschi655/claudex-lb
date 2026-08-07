@@ -50,6 +50,7 @@ export function AccountsPage() {
     updateMutation,
     deleteMutation,
     routingPolicyMutation,
+    paceGatesMutation,
     exportAuthMutation,
   } = useAccounts();
   const { upstreamProxyQuery, accountBindingMutation, testEndpointMutation } = useUpstreamProxyAdmin();
@@ -223,6 +224,9 @@ export function AccountsPage() {
                 accountId,
                 routingPolicy,
               })
+            }
+            onPaceGatesChange={(accountId, gates) =>
+              void paceGatesMutation.mutateAsync({ accountId, gates })
             }
             onSecurityWorkAuthorizedChange={(accountId, enabled) =>
               void updateMutation.mutateAsync({

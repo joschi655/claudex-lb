@@ -18,9 +18,11 @@ import {
   setAccountAlias,
   updateAccount,
   updateAccountLimitWarmup,
+  updateAccountPaceGates,
   updateAccountRoutingPolicy,
 } from "@/features/accounts/api";
 import type {
+  AccountPaceGatesUpdate,
   AccountRoutingPolicy,
   AccountUsageResetConsumeResponse,
 } from "@/features/accounts/schemas";
@@ -199,6 +201,23 @@ export function useAccountMutations() {
     },
   });
 
+  const paceGatesMutation = useMutation({
+    mutationFn: ({
+      accountId,
+      gates,
+    }: {
+      accountId: string;
+      gates: AccountPaceGatesUpdate;
+    }) => updateAccountPaceGates(accountId, gates),
+    onSuccess: () => {
+      toast.success("Pace gates updated");
+      void invalidateAccountRelatedQueries(queryClient);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Pace gate update failed");
+    },
+  });
+
   const exportAuthMutation = useMutation({
     mutationFn: exportAccountAuth,
     onSuccess: () => {
@@ -251,6 +270,7 @@ export function useAccountMutations() {
     exportAuthMutation,
     limitWarmupMutation,
     routingPolicyMutation,
+    paceGatesMutation,
     updateMutation,
     resetCreditConsumeMutation,
   };

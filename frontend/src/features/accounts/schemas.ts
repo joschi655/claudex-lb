@@ -97,6 +97,10 @@ export const AccountSummarySchema = z.object({
   seatType: z.string().nullable().optional(),
   planType: z.string(),
   routingPolicy: z.enum(["normal", "burn_first", "preserve", "pinned"]).optional(),
+  lastServedAt: z.string().nullable().optional(),
+  paceMarginPrimaryPct: z.number().nullable().optional(),
+  paceMarginSecondaryPct: z.number().nullable().optional(),
+  preResetWindowMinutes: z.number().nullable().optional(),
   status: z.string(),
   securityWorkAuthorized: z.boolean().optional(),
   usage: AccountUsageSchema.nullable().optional(),
@@ -263,6 +267,24 @@ const AccountRoutingPolicySchema = z.enum([
   "preserve",
   "pinned",
 ]);
+
+// Every gate is nullable and independently optional: omitting a field leaves the
+// stored value alone, while an explicit null clears that gate. The form sends
+// only the field the operator touched.
+export const AccountPaceGatesUpdateRequestSchema = z.object({
+  paceMarginPrimaryPct: z.number().min(0).max(100).nullable().optional(),
+  paceMarginSecondaryPct: z.number().min(0).max(100).nullable().optional(),
+  preResetWindowMinutes: z.number().int().min(0).nullable().optional(),
+});
+
+export const AccountPaceGatesUpdateResponseSchema = z.object({
+  accountId: z.string(),
+  paceMarginPrimaryPct: z.number().nullable().optional(),
+  paceMarginSecondaryPct: z.number().nullable().optional(),
+  preResetWindowMinutes: z.number().nullable().optional(),
+});
+
+export type AccountPaceGatesUpdate = z.infer<typeof AccountPaceGatesUpdateRequestSchema>;
 
 export const AccountAliasRequestSchema = z.object({
   alias: z.string().max(255).nullable(),

@@ -33,6 +33,7 @@ describe("AccountDetail", () => {
         onResetCredit={vi.fn()}
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={onRoutingPolicyChange}
+        onPaceGatesChange={() => {}}
         onSecurityWorkAuthorizedChange={vi.fn()}
       />,
     );
@@ -64,6 +65,7 @@ describe("AccountDetail", () => {
         onResetCredit={vi.fn()}
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
+        onPaceGatesChange={() => {}}
         onSecurityWorkAuthorizedChange={vi.fn()}
         onProxyBindingSave={onProxyBindingSave}
         upstreamProxyAdmin={createUpstreamProxyAdmin({
@@ -98,6 +100,7 @@ describe("AccountDetail", () => {
         onResetCredit={vi.fn()}
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
+        onPaceGatesChange={() => {}}
         onSecurityWorkAuthorizedChange={vi.fn()}
         resetCredits={{ availableCount: 2 }}
       />,
