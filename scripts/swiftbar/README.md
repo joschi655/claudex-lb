@@ -54,3 +54,18 @@ never in play. A provider with zero accounts simply renders no section.
 The menu invokes the plugin itself: `claudex-lb.1m.ts switch <account_id>` and
 `claudex-lb.1m.ts auto [openai|anthropic]`. Errors from menu actions surface
 as macOS notifications.
+
+## Embedding in another menu-bar plugin
+
+`menu-blocks` and `claude-menu` print the same data for a host plugin to embed
+(`#BEGIN:`-separated blocks and one standalone block respectively); both exit
+non-zero without output when the server is unreachable, so the host can fall
+back. Both cover **Claude and Codex**: `claude-menu` appends the Codex section
+below the Claude one, and `menu-blocks` puts the Codex accounts at the end of
+its `accounts` block rather than behind a new `#BEGIN:` marker — a host splits
+on the markers it knows, so a new one would be dropped silently.
+
+Codex accounts get the same click-to-serve switching and the same pace /
+pre-reset controls as Claude ones. The 5h-window restart entries stay
+Claude-only. `#TITLE:` is unchanged (still the Claude figure) so the host's
+menu-bar text keeps its current shape.
