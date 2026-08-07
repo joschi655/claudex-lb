@@ -91,7 +91,7 @@ const AccountAliasPayloadSchema = z.object({
 });
 
 const AccountRoutingPolicyPayloadSchema = z.object({
-  routingPolicy: z.enum(["normal", "burn_first", "preserve"]),
+  routingPolicy: z.enum(["normal", "burn_first", "preserve", "pinned"]),
 });
 
 const SettingsPayloadSchema = z.looseObject({

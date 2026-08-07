@@ -29,7 +29,7 @@ from app.modules.rate_limit_reset_credits.store import (
 )
 from app.modules.usage.mappers import usage_history_to_window_row
 
-_ACCOUNT_ROUTING_POLICIES = frozenset({"burn_first", "normal", "preserve"})
+_ACCOUNT_ROUTING_POLICIES = frozenset({"burn_first", "normal", "preserve", "pinned"})
 _RESET_CREDITS_INELIGIBLE_STATUSES = frozenset(
     {AccountStatus.PAUSED, AccountStatus.REAUTH_REQUIRED, AccountStatus.DEACTIVATED}
 )

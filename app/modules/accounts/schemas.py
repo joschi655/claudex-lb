@@ -90,7 +90,7 @@ class AccountSummary(DashboardModel):
     workspace_label: str | None = None
     seat_type: str | None = None
     plan_type: str
-    routing_policy: str = Field(default="normal", pattern=r"^(normal|burn_first|preserve)$")
+    routing_policy: str = Field(default="normal", pattern=r"^(normal|burn_first|preserve|pinned)$")
     pace_margin_primary_pct: float | None = None
     pace_margin_secondary_pct: float | None = None
     pre_reset_window_minutes: int | None = None
@@ -198,7 +198,7 @@ class AccountLimitWarmupUpdateResponse(DashboardModel):
 
 
 class AccountRoutingPolicyUpdateRequest(DashboardModel):
-    routing_policy: str = Field(pattern=r"^(normal|burn_first|preserve)$")
+    routing_policy: str = Field(pattern=r"^(normal|burn_first|preserve|pinned)$")
 
 
 class AccountRoutingPolicyUpdateResponse(DashboardModel):

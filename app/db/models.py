@@ -53,6 +53,7 @@ class AccountRoutingPolicy(str, Enum):
     NORMAL = "normal"
     BURN_FIRST = "burn_first"
     PRESERVE = "preserve"
+    PINNED = "pinned"
 
 
 class StickySessionKind(str, Enum):

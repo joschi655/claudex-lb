@@ -104,6 +104,7 @@ export function AccountActions({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="pinned">Pinned</SelectItem>
               <SelectItem value="burn_first">Burn first</SelectItem>
               <SelectItem value="normal">Normal</SelectItem>
               <SelectItem value="preserve">Preserve</SelectItem>
