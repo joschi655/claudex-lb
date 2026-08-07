@@ -322,11 +322,16 @@ function lastFor(requests: RequestLogEntry[], accounts: Account[]): RequestLogEn
 
 const PAUSABLE = new Set(["active", "rate_limited", "quota_exceeded"]);
 
-// "Switch to this account" means the pool serves it first, not that the others
-// are shut off. Pausing the rest used to be how this worked, and it cost twice:
-// a single upstream hiccup on the pinned account left nothing to fail over to,
-// and a paused account cannot have its five-hour window restarted. So the
-// preference rides on routing_policy=burn_first and every account stays live.
+// "Switch to this account" writes routing_policy=pinned, which the server
+// treats as a hard override: while the account can serve it is the only
+// candidate, and when it cannot the pool falls back to its automatic rules on
+// its own. The others stay live rather than being paused, so failover has
+// somewhere to go and their five-hour windows can still be restarted.
+//
+// Reactivating the provider's paused accounts used to be part of this, back
+// when pinning meant pausing everything else. It no longer is: a hard pin does
+// not need the pool cleared, and un-pausing a seat somebody parked on purpose
+// is a surprise, not a service.
 async function cmdSwitch(cfg: Config, targetId: string): Promise<void> {
   const accounts = await allAccounts(cfg);
   const target = accounts.find((a) => a.accountId === targetId);
@@ -336,20 +341,20 @@ async function cmdSwitch(cfg: Config, targetId: string): Promise<void> {
   }
   const scope = providerOf(target);
   const failures: string[] = [];
-  // Bring the whole provider back into the pool: leftovers from the old
-  // pause-the-others behaviour would otherwise stay parked forever.
-  for (const acc of accounts) {
-    if (providerOf(acc) !== scope || acc.status !== "paused") continue;
+  if (target.status === "paused") {
+    // The one exception: a pin on a paused account would never fire.
     try {
-      await apiFetch(cfg, `/api/accounts/${acc.accountId}/reactivate`, { method: "POST" });
+      await apiFetch(cfg, `/api/accounts/${targetId}/reactivate`, { method: "POST" });
     } catch (err) {
-      failures.push(`reactivate ${name(acc)}: ${String(err).slice(0, 50)}`);
+      failures.push(`reactivate ${name(target)}: ${String(err).slice(0, 50)}`);
     }
   }
-  await setRoutingPolicy(cfg, targetId, "burn_first");
+  await setRoutingPolicy(cfg, targetId, "pinned");
+  // The server demotes the provider's previous *pin* itself. A leftover
+  // burn-first mark is a different thing — an old pin from before `pinned`
+  // existed — and would go on quietly outranking `normal`, so clear it here.
   for (const acc of accounts) {
     if (acc.accountId === targetId || providerOf(acc) !== scope) continue;
-    // Leave "preserve" alone: that is a deliberate keep-for-later marking.
     if (acc.routingPolicy !== "burn_first") continue;
     try {
       await setRoutingPolicy(cfg, acc.accountId, "normal");
@@ -357,8 +362,8 @@ async function cmdSwitch(cfg: Config, targetId: string): Promise<void> {
       failures.push(`${name(acc)}: ${String(err).slice(0, 50)}`);
     }
   }
-  if (failures.length > 0) throw new Error(`Preferred ${name(target)}, but: ${failures.join("; ")}`);
-  notify(`${name(target)} serves next — the rest stay available for failover`);
+  if (failures.length > 0) throw new Error(`Pinned ${name(target)}, but: ${failures.join("; ")}`);
+  notify(`${name(target)} now serves everything until it runs out`);
 }
 
 async function setRoutingPolicy(cfg: Config, accountId: string, policy: string): Promise<void> {
@@ -478,7 +483,9 @@ async function cmdAuto(cfg: Config, provider?: string): Promise<void> {
         failures.push(`${name(acc)}: ${String(err).slice(0, 60)}`);
       }
     }
-    if (acc.routingPolicy === "burn_first") {
+    // Clear both the pin and any leftover burn-first mark: "auto" means quota
+    // and pace decide, and either value would keep overriding that.
+    if (acc.routingPolicy === "pinned" || acc.routingPolicy === "burn_first") {
       try {
         await setRoutingPolicy(cfg, acc.accountId, "normal");
       } catch (err) {
@@ -649,7 +656,7 @@ function buildSection(
   const pausable = mine.filter((a) => PAUSABLE.has(a.status));
   // Manual = an explicit burn-first preference, or the legacy shape where every
   // other account was paused to force one.
-  const preferred = mine.find((a) => a.routingPolicy === "burn_first" && a.status === "active") ?? null;
+  const preferred = mine.find((a) => a.routingPolicy === "pinned" && a.status === "active") ?? null;
   const manual = preferred !== null || (healthy.length === 1 && mine.some((a) => a.status === "paused"));
   const last = lastFor(requests, mine);
   // Which account is serving is a question about traffic, so the newest request
@@ -752,15 +759,15 @@ function renderSection(s: Section, globalWarmup: boolean | null, separator = tru
   for (const acc of s.accounts) {
     const isCurrent = cur != null && acc.accountId === cur.accountId;
     const mark =
-      acc.routingPolicy === "burn_first" ? "📌" : isCurrent ? "●" : acc.status === "paused" ? "⏸" : "○";
+      acc.routingPolicy === "pinned" ? "📌" : isCurrent ? "●" : acc.status === "paused" ? "⏸" : "○";
     const line = `${mark} ${name(acc)} — ${badge(acc)}`;
     if (acc.status === "reauth_required" || acc.status === "deactivated") {
       console.log(`--${line} | color=#e74c3c`);
     } else if (acc.status !== "active" && acc.status !== "paused") {
       // rate_limited / quota_exceeded: visible but not a valid pin target
       console.log(`--${line} | color=#e67e22`);
-    } else if (acc.routingPolicy === "burn_first") {
-      // Already first in line; clicking it again would do nothing.
+    } else if (acc.routingPolicy === "pinned") {
+      // Already pinned; clicking it again would do nothing.
       console.log(`--${line}`);
     } else {
       console.log(`--${action(line, [SELF, "switch", acc.accountId])}`);
@@ -937,8 +944,9 @@ async function renderMenuBlocks(cfg: Config): Promise<void> {
   // Header line for the account section.
   console.log("#BEGIN:current");
   const label = cur ? name(cur) : "no account";
-  // A pin that is not the serving account is worth naming: it means the server
-  // declined the preference, which is exactly the case a bare 📌 used to hide.
+  // A pin that is not the serving account is worth naming. With a hard pin it
+  // no longer means the server declined a preference — it means the pinned
+  // account cannot currently serve at all, which is the one thing worth saying.
   const pinned = s.preferred;
   const pinNote =
     pinned == null
@@ -975,12 +983,12 @@ async function renderMenuBlocks(cfg: Config): Promise<void> {
 function renderAccountLine(acc: Account, cur: Account | null, s: Section): void {
   const serving = cur != null && acc.accountId === cur.accountId;
   const dead = acc.status === "reauth_required" || acc.status === "deactivated";
-  const icon = acc.routingPolicy === "burn_first" ? "📌" : serving ? "✅" : dead ? "💀" : acc.status === "paused" ? "⏸" : "🔄";
+  const icon = acc.routingPolicy === "pinned" ? "📌" : serving ? "✅" : dead ? "💀" : acc.status === "paused" ? "⏸" : "🔄";
   const suffix = serving ? " • serving" : dead ? ` • ${sane(acc.status).replace(/_/g, " ")}` : "";
   const line = `${icon} ${name(acc)} — ${accountBadge(acc)}${suffix}`;
   if (dead) {
     console.log(`--${line} | color=#e74c3c`);
-  } else if (serving && acc.routingPolicy === "burn_first") {
+  } else if (serving && acc.routingPolicy === "pinned") {
     console.log(`--${line}`);
   } else {
     console.log(`--${action(line, [SELF, "switch", acc.accountId])}`);
