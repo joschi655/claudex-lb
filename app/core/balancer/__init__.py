@@ -7,6 +7,7 @@ from app.core.balancer.logic import (
     RATE_LIMITED_MIN_COOLDOWN_SECONDS,
     REAUTH_REQUIRED_FAILURE_CODES,
     ROUTING_POLICY_BURN_FIRST,
+    ROUTING_POLICY_PINNED,
     ROUTING_POLICY_PRESERVE,
     TRAFFIC_CLASS_FOREGROUND,
     TRAFFIC_CLASS_OPPORTUNISTIC,
@@ -26,6 +27,8 @@ from app.core.balancer.logic import (
     handle_permanent_failure,
     handle_quota_exceeded,
     handle_rate_limit,
+    is_pinned,
+    pinned_states,
     select_account,
 )
 
@@ -41,6 +44,7 @@ __all__ = [
     "QUOTA_EXCEEDED_COOLDOWN_SECONDS",
     "RATE_LIMITED_MIN_COOLDOWN_SECONDS",
     "ROUTING_POLICY_BURN_FIRST",
+    "ROUTING_POLICY_PINNED",
     "ROUTING_POLICY_PRESERVE",
     "TRAFFIC_CLASS_FOREGROUND",
     "TRAFFIC_CLASS_OPPORTUNISTIC",
@@ -57,5 +61,7 @@ __all__ = [
     "handle_permanent_failure",
     "handle_quota_exceeded",
     "handle_rate_limit",
+    "is_pinned",
+    "pinned_states",
     "select_account",
 ]

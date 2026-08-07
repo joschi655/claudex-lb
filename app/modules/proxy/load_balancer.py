@@ -19,6 +19,7 @@ from app.core.balancer import (
     QUOTA_EXCEEDED_COOLDOWN_SECONDS,
     RATE_LIMITED_MIN_COOLDOWN_SECONDS,
     ROUTING_POLICY_BURN_FIRST,
+    ROUTING_POLICY_PINNED,
     ROUTING_POLICY_PRESERVE,
     TRAFFIC_CLASS_FOREGROUND,
     TRAFFIC_CLASS_OPPORTUNISTIC,
@@ -32,6 +33,8 @@ from app.core.balancer import (
     handle_permanent_failure,
     handle_quota_exceeded,
     handle_rate_limit,
+    is_pinned,
+    pinned_states,
     select_account,
 )
 from app.core.balancer.types import UpstreamError
@@ -105,7 +108,14 @@ ADDITIONAL_QUOTA_EXHAUSTED = "quota_exhausted"
 NO_ADDITIONAL_QUOTA_ELIGIBLE_ACCOUNTS = "no_additional_quota_eligible_accounts"
 _ADDITIONAL_QUOTA_EXEMPT_PLAN_TYPES = frozenset({"free", "plus", "edu"})
 _ROUTING_POLICY_NORMAL = "normal"
-_ACCOUNT_ROUTING_POLICIES = frozenset({_ROUTING_POLICY_NORMAL, ROUTING_POLICY_BURN_FIRST, ROUTING_POLICY_PRESERVE})
+_ACCOUNT_ROUTING_POLICIES = frozenset(
+    {
+        _ROUTING_POLICY_NORMAL,
+        ROUTING_POLICY_BURN_FIRST,
+        ROUTING_POLICY_PRESERVE,
+        ROUTING_POLICY_PINNED,
+    }
+)
 _ADDITIONAL_QUOTA_ROUTING_POLICIES = _ACCOUNT_ROUTING_POLICIES | frozenset({"inherit"})
 OPPORTUNISTIC_BURN_WINDOW_CLOSED = "opportunistic_burn_window_closed"
 
@@ -1320,6 +1330,32 @@ class LoadBalancer:
             )
         else:
             existing = sticky_existing_account_id if isinstance(sticky_existing_account_id, str) else None
+
+        # An operator pin outranks session affinity, in both directions: a
+        # session that started elsewhere moves onto the pinned account, and a
+        # session already there is not reallocated off it by budget pressure.
+        # Only a pin that can serve right now takes this branch, so a pin that
+        # is down leaves the sticky mapping — and the warm cache it protects —
+        # exactly as it was.
+        operator_pin = _operator_pinned_state(states)
+        if operator_pin is not None:
+            operator_pin_result = select_account(
+                [operator_pin],
+                prefer_earlier_reset=prefer_earlier_reset_accounts,
+                prefer_earlier_reset_window=prefer_earlier_reset_window,
+                routing_strategy=routing_strategy,
+                allow_backoff_fallback=False,
+                relative_availability_power=relative_availability_power,
+                relative_availability_top_k=relative_availability_top_k,
+                traffic_class=traffic_class,
+                ignore_standard_quota=ignore_standard_quota,
+                routing_costs=routing_costs_by_account_id,
+            )
+            if operator_pin_result.account is not None:
+                if sticky_max_age_seconds is not None:
+                    await sticky_repo.upsert(sticky_key, operator_pin.account_id, kind=sticky_kind)
+                return operator_pin_result
+
         # When the pinned account is temporarily unavailable (rate-limited,
         # error backoff) but still in the pool, pick a fallback WITHOUT
         # overwriting the sticky mapping so the next request returns to the
@@ -1801,7 +1837,14 @@ def _build_states(
             secondary_entry=secondary_entry,
             runtime=runtime.setdefault(account.id, RuntimeState()),
         )
-        if routing_policy_override is not None and account.id in ignore_standard_quota_account_ids:
+        if (
+            routing_policy_override is not None
+            and account.id in ignore_standard_quota_account_ids
+            # An additional quota overrides the account's *ranking* tier. A pin
+            # is not one, so it survives: the operator pinned the account, not a
+            # preference for one quota pool.
+            and not is_pinned(state)
+        ):
             state.routing_policy = routing_policy_override
         state.ignore_standard_quota = account.id in ignore_standard_quota_account_ids
         states.append(state)
@@ -1929,6 +1972,19 @@ def _record_account_cap_rejection(kind: AccountLeaseKind | None) -> None:
         return
     if PROMETHEUS_AVAILABLE and account_cap_rejections_total is not None:
         account_cap_rejections_total.labels(kind=kind).inc()
+
+
+def _operator_pinned_state(states: Iterable[AccountState]) -> AccountState | None:
+    """The operator-pinned account, or ``None`` when no pin is in force.
+
+    A pin is exclusive per provider, so at most one candidate is expected; the
+    lowest account id is taken if a pool somehow carries two, to keep selection
+    deterministic rather than input-order dependent.
+    """
+    pinned = pinned_states(states)
+    if not pinned:
+        return None
+    return min(pinned, key=lambda state: state.account_id)
 
 
 def _normalize_account_routing_policy(value: str | None) -> str:
@@ -2721,6 +2777,28 @@ def _select_account_preferring_budget_safe(
     routing_costs_by_account_id: RoutingCostsByAccount | None = None,
 ) -> SelectionResult:
     state_list = list(states)
+    # This path collapses to the best health tier before it reads any routing
+    # policy, so a pinned account in a worse tier would never be seen. Try the
+    # pin alone first and fall through to the automatic rules over the whole
+    # list when it cannot serve; backoff fallback stays off so a hard-erroring
+    # pin releases instead of being dragged back in as a last resort.
+    pinned = pinned_states(state_list)
+    if pinned:
+        pinned_result = select_account(
+            pinned,
+            prefer_earlier_reset=prefer_earlier_reset,
+            prefer_earlier_reset_window=prefer_earlier_reset_window,
+            routing_strategy=routing_strategy,
+            allow_backoff_fallback=False,
+            deterministic_probe=deterministic_probe,
+            relative_availability_power=relative_availability_power,
+            relative_availability_top_k=relative_availability_top_k,
+            traffic_class=traffic_class,
+            ignore_standard_quota=ignore_standard_quota,
+            routing_costs=routing_costs_by_account_id,
+        )
+        if pinned_result.account is not None:
+            return pinned_result
     state_budget_threshold = (
         (
             lambda state: _state_above_sticky_budget_threshold(

@@ -1,4 +1,4 @@
-import { Flame, Shield, ShieldCheck } from "lucide-react";
+import { Flame, Pin, Shield, ShieldCheck } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
@@ -158,6 +158,17 @@ function RoutingPolicyBadge({
 }: {
   policy: AccountRoutingPolicy | undefined;
 }) {
+  if (policy === "pinned") {
+    return (
+      <Badge
+        variant="outline"
+        className="shrink-0 gap-1 border-emerald-300 bg-emerald-50 px-1.5 text-[11px] text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
+      >
+        <Pin className="h-3 w-3" aria-hidden="true" />
+        Pinned
+      </Badge>
+    );
+  }
   if (policy === "burn_first") {
     return (
       <Badge

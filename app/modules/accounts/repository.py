@@ -16,6 +16,7 @@ from app.core.utils.time import utcnow
 from app.db.models import (
     Account,
     AccountLimitWarmup,
+    AccountRoutingPolicy,
     AccountStatus,
     AccountUsageRollup,
     AdditionalUsageHistory,
@@ -669,6 +670,8 @@ class AccountsRepository:
 
     async def update_routing_policy(self, account_id: str, routing_policy: str) -> bool:
         async with sqlite_writer_section():
+            if routing_policy == AccountRoutingPolicy.PINNED.value:
+                return await self._pin_account_exclusively(account_id)
             result = await self._session.execute(
                 update(Account)
                 .where(Account.id == account_id)
@@ -677,6 +680,31 @@ class AccountsRepository:
             )
             await self._session.commit()
             return result.scalar_one_or_none() is not None
+
+    async def _pin_account_exclusively(self, account_id: str) -> bool:
+        """Pin one account and demote the provider's previous pin in one commit.
+
+        A pin means "only this account", so two of them within a provider is not
+        a state the selector should ever have to interpret. Both writes land
+        together; the caller's ``sqlite_writer_section`` already holds the lock.
+        """
+        target = (
+            await self._session.execute(select(Account.provider).where(Account.id == account_id))
+        ).scalar_one_or_none()
+        if target is None:
+            return False
+        await self._session.execute(
+            update(Account)
+            .where(Account.provider == target)
+            .where(Account.id != account_id)
+            .where(Account.routing_policy == AccountRoutingPolicy.PINNED.value)
+            .values(routing_policy=AccountRoutingPolicy.NORMAL.value)
+        )
+        await self._session.execute(
+            update(Account).where(Account.id == account_id).values(routing_policy=AccountRoutingPolicy.PINNED.value)
+        )
+        await self._session.commit()
+        return True
 
     async def update_pace_gates(self, account_id: str, gates: PaceGateUpdate) -> Account | None:
         """Apply only the gates the caller actually supplied.

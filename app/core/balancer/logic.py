@@ -94,6 +94,7 @@ PROBE_SUCCESS_STREAK_REQUIRED = 3
 ROUTING_POLICY_NORMAL = "normal"
 ROUTING_POLICY_BURN_FIRST = "burn_first"
 ROUTING_POLICY_PRESERVE = "preserve"
+ROUTING_POLICY_PINNED = "pinned"
 TRAFFIC_CLASS_FOREGROUND = "foreground"
 TRAFFIC_CLASS_OPPORTUNISTIC = "opportunistic"
 PRESERVE_MIN_WEEKLY_FLOOR_PCT = 5.0
@@ -192,9 +193,25 @@ def _routing_policy(state: AccountState) -> str:
         ROUTING_POLICY_BURN_FIRST,
         ROUTING_POLICY_NORMAL,
         ROUTING_POLICY_PRESERVE,
+        ROUTING_POLICY_PINNED,
     }:
         return state.routing_policy
     return ROUTING_POLICY_NORMAL
+
+
+def is_pinned(state: AccountState) -> bool:
+    """Whether the operator has pinned this account as the sole route."""
+    return _routing_policy(state) == ROUTING_POLICY_PINNED
+
+
+def pinned_states(states: Iterable[AccountState]) -> list[AccountState]:
+    """The pinned subset of ``states``, empty when no pin is in force.
+
+    A pin is exclusive per provider (see ``openspec/specs/account-routing/spec.md``),
+    but the selector never assumes that: a list is returned so a pool that somehow
+    carries two pins degrades to choosing between them rather than to an exception.
+    """
+    return [state for state in states if is_pinned(state)]
 
 
 def _used_pct(state: AccountState, *, secondary: bool) -> float | None:
@@ -517,7 +534,9 @@ def select_account(
         # Applied before every other check so a gated account cannot be
         # re-admitted by a later tier (burn-first, budget-safe, or backoff
         # fallback). Gating is an operator promise about someone else's quota.
-        failed_gate = evaluate_pace_gates(state, current)
+        # A pin is the same operator withdrawing that promise for one account,
+        # which is why it is the single exemption.
+        failed_gate = None if is_pinned(state) else evaluate_pace_gates(state, current)
         if failed_gate is not None:
             pace_gated[state.account_id] = failed_gate
             continue
@@ -645,6 +664,16 @@ def select_account(
                 wait_seconds = max(0.0, min(cooldowns) - current)
                 return SelectionResult(None, _format_retry_hint(wait_seconds))
             return SelectionResult(None, "No available accounts")
+
+    # Everything above decides whether an account *can* serve; everything below
+    # decides which of the ones that can should. The pin belongs on the seam: it
+    # overrides every ranking stage that follows — health tier, policy tier,
+    # strategy — and overrides none of the eligibility filters that precede it.
+    # An unserviceable pin therefore falls through here silently, and the pool
+    # runs its automatic rules until the account recovers.
+    pinned = pinned_states(available)
+    if pinned:
+        available = pinned
 
     def _reset_first_sort_key(state: AccountState) -> tuple[int, float, float, float, float, str]:
         reset_bucket_days = _reset_preference_bucket(state, current, prefer_earlier_reset_window)

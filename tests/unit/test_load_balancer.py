@@ -5287,3 +5287,67 @@ def test_select_account_fill_first_primary_dominates_over_secondary():
     assert result.account is not None
     # Primary still wins -- only ties break on secondary.
     assert result.account.account_id == "high-secondary"
+
+
+def test_budget_safe_selection_puts_the_pin_ahead_of_the_health_tier():
+    """The pin is not a ranking tier, so the health-tier collapse cannot hide it."""
+    states = [
+        AccountState(
+            "normal",
+            AccountStatus.ACTIVE,
+            used_percent=1.0,
+            routing_policy="normal",
+            health_tier=HEALTH_TIER_HEALTHY,
+        ),
+        AccountState(
+            "chosen",
+            AccountStatus.ACTIVE,
+            used_percent=99.0,
+            routing_policy="pinned",
+            health_tier=HEALTH_TIER_DRAINING,
+        ),
+    ]
+
+    result = _select_account_preferring_budget_safe(
+        states,
+        prefer_earlier_reset=False,
+        routing_strategy="usage_weighted",
+        budget_threshold_pct=95.0,
+    )
+
+    assert result.account is not None
+    assert result.account.account_id == "chosen"
+
+
+def test_budget_safe_selection_falls_through_when_the_pin_cannot_serve():
+    states = [
+        AccountState("normal", AccountStatus.ACTIVE, used_percent=1.0, routing_policy="normal"),
+        AccountState("chosen", AccountStatus.PAUSED, used_percent=1.0, routing_policy="pinned"),
+    ]
+
+    result = _select_account_preferring_budget_safe(
+        states,
+        prefer_earlier_reset=False,
+        routing_strategy="usage_weighted",
+        budget_threshold_pct=95.0,
+    )
+
+    assert result.account is not None
+    assert result.account.account_id == "normal"
+
+
+def test_budget_safe_selection_honours_the_pin_under_drain_strategies():
+    states = [
+        AccountState("normal", AccountStatus.ACTIVE, used_percent=1.0, routing_policy="normal"),
+        AccountState("chosen", AccountStatus.ACTIVE, used_percent=99.0, routing_policy="pinned"),
+    ]
+
+    result = _select_account_preferring_budget_safe(
+        states,
+        prefer_earlier_reset=False,
+        routing_strategy="sequential_drain",
+        budget_threshold_pct=95.0,
+    )
+
+    assert result.account is not None
+    assert result.account.account_id == "chosen"

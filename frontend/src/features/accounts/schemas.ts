@@ -85,7 +85,7 @@ export const AccountSummarySchema = z.object({
   workspaceLabel: z.string().nullable().optional(),
   seatType: z.string().nullable().optional(),
   planType: z.string(),
-  routingPolicy: z.enum(["normal", "burn_first", "preserve"]).optional(),
+  routingPolicy: z.enum(["normal", "burn_first", "preserve", "pinned"]).optional(),
   status: z.string(),
   securityWorkAuthorized: z.boolean().optional(),
   usage: AccountUsageSchema.nullable().optional(),
@@ -245,7 +245,12 @@ export const AccountUsageResetConsumeResponseSchema = z.object({
   accountStatusAfter: z.string(),
 });
 
-const AccountRoutingPolicySchema = z.enum(["normal", "burn_first", "preserve"]);
+const AccountRoutingPolicySchema = z.enum([
+  "normal",
+  "burn_first",
+  "preserve",
+  "pinned",
+]);
 
 export const AccountAliasRequestSchema = z.object({
   alias: z.string().max(255).nullable(),

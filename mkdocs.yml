@@ -62,6 +62,7 @@ nav:
   - API Keys: api-keys.md
   - Routing: routing.md
   - Pace Gates: pace-gates.md
+  - Account Pin: account-pin.md
   - Claude Statistics: claude-statistics.md
   - Database: database.md
   - Deployment:

@@ -1058,3 +1058,51 @@ async def test_burn_first_reallocation_only_when_burn_first_is_selectable():
     assert result.account.account_id == "a"
     repo.delete.assert_not_called()
     repo.upsert.assert_called_once_with("key1", "a", kind=StickySessionKind.PROMPT_CACHE)
+
+
+# ---------------------------------------------------------------------------
+# Operator pin: openspec/specs/account-routing/spec.md
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_operator_pin_moves_a_session_off_its_sticky_account():
+    """A pin outranks session affinity, and the mapping follows it."""
+    acc_a = _active("a")
+    acc_b = _active("b", routing_policy="pinned")
+    repo = _make_sticky_repo(existing_account_id="a")
+
+    result = await _invoke_stickiness([acc_a, acc_b], "key1", repo)
+
+    assert result.account is not None
+    assert result.account.account_id == "b"
+    repo.upsert.assert_called_once_with("key1", "b", kind=StickySessionKind.PROMPT_CACHE)
+
+
+@pytest.mark.asyncio
+async def test_operator_pin_survives_budget_pressure_on_its_own_session():
+    """Budget-pressure reallocation must not move a session off the pin."""
+    acc_a = _active("a", used_percent=99.0, routing_policy="pinned")
+    acc_b = _active("b", used_percent=1.0, routing_policy="burn_first")
+    repo = _make_sticky_repo(existing_account_id="a")
+
+    result = await _invoke_stickiness([acc_a, acc_b], "key1", repo, budget_threshold_pct=95.0)
+
+    assert result.account is not None
+    assert result.account.account_id == "a"
+    repo.delete.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_an_unserviceable_pin_leaves_the_sticky_mapping_alone():
+    """A pin that cannot serve must not cost the session its warm-cache account."""
+    now = time.time()
+    acc_a = _active("a")
+    acc_b = _rate_limited("b", cooldown_until=now + 60, routing_policy="pinned")
+    repo = _make_sticky_repo(existing_account_id="a")
+
+    result = await _invoke_stickiness([acc_a, acc_b], "key1", repo)
+
+    assert result.account is not None
+    assert result.account.account_id == "a"
+    repo.delete.assert_not_called()
