@@ -343,7 +343,7 @@ async def test_daily_speed_medians_stmt_returns_only_one_row_per_populated_day_a
     )
     await async_session.commit()
 
-    result = await async_session.execute(_daily_speed_medians_stmt(day_ranges, None, None, None))
+    result = await async_session.execute(_daily_speed_medians_stmt(day_ranges, None, None, None, None))
     rows = result.all()
 
     assert [(row.report_date, row.median_ttft_ms, row.median_tps) for row in rows] == [
@@ -356,6 +356,7 @@ async def test_daily_speed_medians_stmt_returns_only_one_row_per_populated_day_a
 def test_daily_speed_medians_stmt_compiles_to_portable_window_sql() -> None:
     statement = _daily_speed_medians_stmt(
         [("2026-06-01", datetime(2026, 6, 1), datetime(2026, 6, 2))],
+        None,
         None,
         None,
         None,
