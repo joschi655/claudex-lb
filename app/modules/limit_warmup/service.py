@@ -612,15 +612,20 @@ class LimitWarmupService:
         accounts: list[Account],
         settings: DashboardSettings,
         latest_primary: dict[str, UsageHistory],
+        latest_secondary: dict[str, UsageHistory] | None = None,
     ) -> None:
-        """Warm Claude accounts whose five-hour window has closed.
+        """Warm Claude accounts whose five-hour or weekly window has closed.
 
         Deliberately not routed through ``run_after_usage_refresh``: that method
         reasons about before/after snapshots produced by polling ChatGPT's usage
         API, whose shape Anthropic's endpoint does not share. This path works
         from stored window state instead -- the reset timestamp recorded from the
         last response or usage poll says when the window ends, and each warmup
-        response rewrites it five hours forward, so the trigger re-arms itself.
+        response rewrites it forward, so the trigger re-arms itself.
+
+        ``latest_secondary`` is optional so a caller that only knows about the
+        five-hour window keeps its old behaviour rather than silently losing the
+        weekly trigger.
         """
         if not settings.limit_warmup_enabled:
             return
@@ -639,6 +644,7 @@ class LimitWarmupService:
             return
 
         latest_attempts = await self._warmup_repo.latest_by_account([account.id for account in candidates])
+        secondary_by_account = latest_secondary or {}
         now_epoch = naive_utc_to_epoch(utcnow())
         semaphore = asyncio.Semaphore(_MAX_CONCURRENT_WARMUP_SENDS)
 
@@ -648,7 +654,11 @@ class LimitWarmupService:
                 cooldown_seconds=settings.limit_warmup_cooldown_seconds,
             ):
                 continue
-            candidate = _anthropic_elapsed_window_candidate(latest_primary.get(account.id), now=now_epoch)
+            candidate = _anthropic_warmup_candidate(
+                primary=latest_primary.get(account.id),
+                secondary=secondary_by_account.get(account.id),
+                now=now_epoch,
+            )
             if candidate is None:
                 continue
             attempt = await self._warmup_repo.try_create_attempt(
@@ -920,8 +930,13 @@ class _WarmupCandidate:
     window: str
 
 
-def _anthropic_elapsed_window_candidate(entry: UsageHistory | None, *, now: int) -> _WarmupCandidate | None:
-    """A candidate iff the account has a five-hour window and it is not running.
+def _anthropic_elapsed_window_candidate(
+    entry: UsageHistory | None,
+    *,
+    now: int,
+    window: str = "primary",
+) -> _WarmupCandidate | None:
+    """A candidate iff the account has this window and it is not running.
 
     ``entry is None`` -- "never recorded a window" -- is what excludes
     usage-based seats: they bill against a budget, report no window either in
@@ -934,16 +949,45 @@ def _anthropic_elapsed_window_candidate(entry: UsageHistory | None, *, now: int)
     leave. Before the usage poll existed this state was invisible -- the stored
     row kept the spent window's old reset timestamp, and an elapsed timestamp
     was the only available signal.
+
+    ``seven_day`` answers in the same shape and is anchored the same way, so the
+    test is the window's own, not the five-hour one's.
     """
     if entry is None:
         return None
     if entry.reset_at is None:
         # Zero rather than a missing timestamp so the attempt record dedupes on
         # "the closed-window state", which is what is being acted on.
-        return _WarmupCandidate(reset_at=_NO_WINDOW_RESET_AT, window="primary")
+        return _WarmupCandidate(reset_at=_NO_WINDOW_RESET_AT, window=window)
     if entry.reset_at > now:
         return None
-    return _WarmupCandidate(reset_at=entry.reset_at, window="primary")
+    return _WarmupCandidate(reset_at=entry.reset_at, window=window)
+
+
+def _anthropic_warmup_candidate(
+    *,
+    primary: UsageHistory | None,
+    secondary: UsageHistory | None,
+    now: int,
+) -> _WarmupCandidate | None:
+    """The window this account needs opened, five-hour first.
+
+    Both of a Claude seat's rolling windows start at the account's first request
+    rather than on a calendar, so either can sit closed while the account is
+    idle -- and a weekly window left unstarted pushes the *next* weekly reset out
+    by however long the account stayed quiet. That is the whole reason warmup
+    exists, and it was only ever applied to the five hours.
+
+    One ping opens every closed window at once, so when both have run out the
+    five-hour attempt already covers the weekly one and a second request would
+    buy nothing. The weekly window earns its own ping only in the case the
+    five-hour trigger cannot see: the short window still running while the
+    weekly one has run out.
+    """
+    elapsed_primary = _anthropic_elapsed_window_candidate(primary, now=now, window="primary")
+    if elapsed_primary is not None:
+        return elapsed_primary
+    return _anthropic_elapsed_window_candidate(secondary, now=now, window="secondary")
 
 
 def _selected_windows(value: str) -> tuple[str, ...]:

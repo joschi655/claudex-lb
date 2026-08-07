@@ -734,7 +734,7 @@ class AccountsService:
         return result
 
     async def trigger_limit_warmup(self, account_id: str) -> ManualWarmupResult | None:
-        """Open one Claude five-hour window on demand.
+        """Open one Claude window on demand.
 
         Independent of the scheduled-warmup setting: an operator asking for a
         window now is a different decision from asking the scheduler to manage
@@ -749,25 +749,35 @@ class AccountsService:
                 f"limit warm-up trigger is not supported for {account.provider or PROVIDER_OPENAI} accounts"
             )
         # Paused is allowed: the operator parks an account to keep it out of
-        # rotation, and its five-hour window still has to be kept alive.
+        # rotation, and its windows still have to be kept alive.
         if account.status not in (AccountStatus.ACTIVE, AccountStatus.PAUSED):
             raise AccountNotWarmableError(f"Account is {account.status.value} and cannot be warmed")
-        if not await self._has_five_hour_window(account_id):
-            # No recorded five-hour window means the seat has none to open --
+        if not await self._has_rolling_window(account_id):
+            # No recorded rolling window means the seat has none to open --
             # a usage-based seat, or an account that has never served a request.
-            raise AccountNotWarmableError("Account has no recorded five-hour window, so there is no window to open")
+            raise AccountNotWarmableError("Account has no recorded rolling window, so there is no window to open")
         settings = await get_settings_cache().get()
         return await build_background_limit_warmup_service().warm_account_now(
             account=account,
             settings=settings,
         )
 
-    async def _has_five_hour_window(self, account_id: str) -> bool:
+    async def _has_rolling_window(self, account_id: str) -> bool:
+        """Whether this seat has a window a ping could open.
+
+        Presence of the row is the whole test. A row whose reset timestamp is
+        absent is a window that has *run out*, which is precisely the state
+        warmup exists to leave -- refusing it would turn the trigger off exactly
+        when it is needed. Only a seat that reports no window at all, which is
+        how a usage-based seat reports, has nothing to open.
+        """
         if self._usage_repo is None:
             return False
-        latest = await self._usage_repo.latest_by_account(window="primary", account_ids=[account_id])
-        entry = latest.get(account_id)
-        return entry is not None and entry.reset_at is not None
+        for window in ("primary", "secondary"):
+            latest = await self._usage_repo.latest_by_account(window=window, account_ids=[account_id])
+            if latest.get(account_id) is not None:
+                return True
+        return False
 
     async def set_routing_policy(self, account_id: str, routing_policy: str) -> bool:
         result = await self._repo.update_routing_policy(account_id, routing_policy)

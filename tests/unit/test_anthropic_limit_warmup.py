@@ -53,6 +53,17 @@ def _primary_window(account_id: str, *, reset_at: int | None, used_percent: floa
     )
 
 
+def _secondary_window(account_id: str, *, reset_at: int | None, used_percent: float = 40.0) -> UsageHistory:
+    return UsageHistory(
+        account_id=account_id,
+        used_percent=used_percent,
+        reset_at=reset_at,
+        window="secondary",
+        window_minutes=10080,
+        recorded_at=utcnow(),
+    )
+
+
 def _epoch_now() -> int:
     return naive_utc_to_epoch(utcnow())
 
@@ -103,11 +114,13 @@ async def _run(
     accounts: list[Account],
     settings: DashboardSettings,
     latest_primary: dict[str, UsageHistory],
+    latest_secondary: dict[str, UsageHistory] | None = None,
 ) -> None:
     await service.run_anthropic_window_refresh(
         accounts=accounts,
         settings=settings,
         latest_primary=latest_primary,
+        latest_secondary=latest_secondary,
     )
 
 
@@ -167,6 +180,124 @@ async def test_a_window_that_is_not_running_is_warmed() -> None:
 
     assert sender.calls == [(account.id, ANTHROPIC_WARMUP_MODEL, "Say OK.")]
     assert [row.status for row in repo.rows] == ["succeeded"]
+
+
+@pytest.mark.asyncio
+async def test_a_closed_weekly_window_is_warmed_while_the_five_hour_window_runs() -> None:
+    """The case the five-hour trigger cannot see.
+
+    A weekly window is anchored to the account's first request exactly like the
+    short one, so leaving it unstarted pushes the next weekly reset out by
+    however long the account stays idle. The five-hour window running is no
+    reason to leave that alone.
+    """
+    account = _anthropic_account()
+    sender = RecordingSender()
+    service, repo, _ = _service(sender=sender)
+
+    await _run(
+        service,
+        accounts=[account],
+        settings=_settings(),
+        latest_primary={account.id: _primary_window(account.id, reset_at=_epoch_now() + 3600)},
+        latest_secondary={account.id: _secondary_window(account.id, reset_at=None, used_percent=0.0)},
+    )
+
+    assert sender.calls == [(account.id, ANTHROPIC_WARMUP_MODEL, "Say OK.")]
+    # Filed under its own window, so it dedupes against weekly state rather than
+    # against whatever the five-hour trigger last did.
+    assert [(row.window, row.status) for row in repo.rows] == [("secondary", "succeeded")]
+
+
+@pytest.mark.asyncio
+async def test_an_elapsed_weekly_reset_is_warmed() -> None:
+    """The pre-poll signal for a closed window: a reset timestamp in the past."""
+    account = _anthropic_account()
+    sender = RecordingSender()
+    service, repo, _ = _service(sender=sender)
+
+    await _run(
+        service,
+        accounts=[account],
+        settings=_settings(),
+        latest_primary={account.id: _primary_window(account.id, reset_at=_epoch_now() + 3600)},
+        latest_secondary={account.id: _secondary_window(account.id, reset_at=_epoch_now() - 60)},
+    )
+
+    assert [call[0] for call in sender.calls] == [account.id]
+    assert [row.window for row in repo.rows] == ["secondary"]
+
+
+@pytest.mark.asyncio
+async def test_a_running_weekly_window_is_left_alone() -> None:
+    account = _anthropic_account()
+    sender = RecordingSender()
+    service, repo, _ = _service(sender=sender)
+
+    await _run(
+        service,
+        accounts=[account],
+        settings=_settings(),
+        latest_primary={account.id: _primary_window(account.id, reset_at=_epoch_now() + 3600)},
+        latest_secondary={account.id: _secondary_window(account.id, reset_at=_epoch_now() + 86400)},
+    )
+
+    assert sender.calls == []
+    assert repo.rows == []
+
+
+@pytest.mark.asyncio
+async def test_two_closed_windows_cost_one_ping() -> None:
+    """One request opens every closed window, so the weekly one rides along."""
+    account = _anthropic_account()
+    sender = RecordingSender()
+    service, repo, _ = _service(sender=sender)
+
+    await _run(
+        service,
+        accounts=[account],
+        settings=_settings(),
+        latest_primary={account.id: _primary_window(account.id, reset_at=None, used_percent=0.0)},
+        latest_secondary={account.id: _secondary_window(account.id, reset_at=None, used_percent=0.0)},
+    )
+
+    assert len(sender.calls) == 1
+    assert [row.window for row in repo.rows] == ["primary"]
+
+
+@pytest.mark.asyncio
+async def test_a_seat_with_no_weekly_window_is_not_warmed_for_one() -> None:
+    """A usage-based seat records no weekly window either."""
+    account = _anthropic_account()
+    sender = RecordingSender()
+    service, repo, _ = _service(sender=sender)
+
+    await _run(
+        service,
+        accounts=[account],
+        settings=_settings(),
+        latest_primary={account.id: _primary_window(account.id, reset_at=_epoch_now() + 3600)},
+        latest_secondary={},
+    )
+
+    assert sender.calls == []
+    assert repo.rows == []
+
+
+@pytest.mark.asyncio
+async def test_a_caller_that_omits_weekly_state_keeps_the_five_hour_trigger() -> None:
+    account = _anthropic_account()
+    sender = RecordingSender()
+    service, repo, _ = _service(sender=sender)
+
+    await _run(
+        service,
+        accounts=[account],
+        settings=_settings(),
+        latest_primary={account.id: _primary_window(account.id, reset_at=_epoch_now() - 60)},
+    )
+
+    assert [row.window for row in repo.rows] == ["primary"]
 
 
 @pytest.mark.asyncio
