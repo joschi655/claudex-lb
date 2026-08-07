@@ -86,7 +86,7 @@ async def _import_openai_account(async_client, *, email: str, account_id: str) -
     return generate_unique_account_id(account_id, email)
 
 
-async def _record_primary_window(account_id: str, *, reset_at: int, used_percent: float = 94.0) -> None:
+async def _record_primary_window(account_id: str, *, reset_at: int | None, used_percent: float = 94.0) -> None:
     async with SessionLocal() as session:
         await UsageRepository(session).add_entry(
             account_id,
@@ -94,6 +94,18 @@ async def _record_primary_window(account_id: str, *, reset_at: int, used_percent
             window="primary",
             reset_at=reset_at,
             window_minutes=300,
+        )
+        await session.commit()
+
+
+async def _record_weekly_window(account_id: str, *, reset_at: int | None, used_percent: float = 0.0) -> None:
+    async with SessionLocal() as session:
+        await UsageRepository(session).add_entry(
+            account_id,
+            used_percent=used_percent,
+            window="secondary",
+            reset_at=reset_at,
+            window_minutes=10080,
         )
         await session.commit()
 
@@ -186,7 +198,7 @@ async def test_trigger_reports_an_upstream_failure_without_pausing_the_account(a
 
 
 @pytest.mark.asyncio
-async def test_trigger_refuses_an_account_with_no_five_hour_window(async_client, monkeypatch):
+async def test_trigger_refuses_an_account_with_no_rolling_window(async_client, monkeypatch):
     account_id = await _import_claude_account(async_client, "warmup-no-window@example.com")
     sent = _queue_warmup_upstream(monkeypatch, _FakeUpstreamResponse(200))
 
@@ -195,6 +207,37 @@ async def test_trigger_refuses_an_account_with_no_five_hour_window(async_client,
     assert response.status_code == 409
     assert response.json()["error"]["code"] == "account_not_warmable"
     assert sent == []
+
+
+@pytest.mark.asyncio
+async def test_trigger_warms_an_account_whose_window_has_run_out(async_client, monkeypatch):
+    """A window with no reset has run out; that is what warm-up is for.
+
+    The gate reads the row's presence, not its reset timestamp — otherwise the
+    trigger switches itself off in exactly the state an operator reaches for it.
+    """
+    account_id = await _import_claude_account(async_client, "warmup-window-spent@example.com")
+    await _record_primary_window(account_id, reset_at=None, used_percent=0.0)
+    sent = _queue_warmup_upstream(monkeypatch, _FakeUpstreamResponse(200))
+
+    response = await async_client.post(f"/api/accounts/{account_id}/limit-warmup/trigger")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["sent"] is True
+    assert len(sent) == 1
+
+
+@pytest.mark.asyncio
+async def test_trigger_warms_an_account_that_only_reports_a_weekly_window(async_client, monkeypatch):
+    account_id = await _import_claude_account(async_client, "warmup-weekly-only@example.com")
+    await _record_weekly_window(account_id, reset_at=naive_utc_to_epoch(utcnow()) + 86_400, used_percent=12.0)
+    sent = _queue_warmup_upstream(monkeypatch, _FakeUpstreamResponse(200))
+
+    response = await async_client.post(f"/api/accounts/{account_id}/limit-warmup/trigger")
+
+    assert response.status_code == 200, response.text
+    assert response.json()["sent"] is True
+    assert len(sent) == 1
 
 
 @pytest.mark.asyncio

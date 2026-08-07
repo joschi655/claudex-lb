@@ -253,18 +253,20 @@ class UsageRefreshScheduler:
 
             await self._poll_anthropic_usage(accounts)
 
-            # Re-read after the poll: warmup keys off the five-hour window, and
-            # the poll is what may just have corrected it.
+            # Re-read after the poll: warmup keys off the stored windows, and the
+            # poll is what may just have corrected them.
             async with get_background_session() as session:
                 usage_repo = UsageRepository(session)
                 settings_repo = SettingsRepository(session)
                 latest_primary = await usage_repo.latest_by_account(window="primary")
+                latest_secondary = await usage_repo.latest_by_account(window="secondary")
                 dashboard_settings = await settings_repo.get_or_create()
                 detach_session_objects(session)
             await build_background_limit_warmup_service().run_anthropic_window_refresh(
                 accounts=accounts,
                 settings=dashboard_settings,
                 latest_primary=latest_primary,
+                latest_secondary=latest_secondary,
             )
         except Exception:
             logger.exception("Anthropic window refresh failed")
