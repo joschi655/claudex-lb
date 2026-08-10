@@ -96,6 +96,8 @@ AnthropicWindowIngestor = Callable[[str, Mapping[str, str]], Awaitable[None]]
 class LimitWarmupAttemptsRepository(Protocol):
     async def latest_by_account(self, account_ids: list[str]) -> dict[str, AccountLimitWarmup]: ...
 
+    async def latest_by_account_window(self, account_ids: list[str]) -> dict[str, dict[str, AccountLimitWarmup]]: ...
+
     async def try_create_attempt(
         self,
         *,
@@ -643,23 +645,36 @@ class LimitWarmupService:
         if not candidates:
             return
 
-        latest_attempts = await self._warmup_repo.latest_by_account([account.id for account in candidates])
+        latest_attempts = await self._warmup_repo.latest_by_account_window([account.id for account in candidates])
         secondary_by_account = latest_secondary or {}
         now_epoch = naive_utc_to_epoch(utcnow())
+        cooldown_seconds = settings.limit_warmup_cooldown_seconds
+        closed_window_key = _closed_window_attempt_key(now_epoch, cooldown_seconds)
         semaphore = asyncio.Semaphore(_MAX_CONCURRENT_WARMUP_SENDS)
 
         for account in candidates:
-            if _in_cooldown(
-                latest_attempts.get(account.id),
-                cooldown_seconds=settings.limit_warmup_cooldown_seconds,
-            ):
-                continue
             candidate = _anthropic_warmup_candidate(
                 primary=latest_primary.get(account.id),
                 secondary=secondary_by_account.get(account.id),
                 now=now_epoch,
+                closed_window_key=closed_window_key,
             )
             if candidate is None:
+                continue
+            # The cooldown is read for the window actually being acted on. The
+            # two windows close on their own schedules -- a weekly reset at 07:00
+            # says nothing about when the five hours run out -- so charging a
+            # weekly ping against the five-hour window would delay the next short
+            # window by up to a full cooldown, for no reason.
+            #
+            # Selecting the candidate first is what keeps this from doubling the
+            # ping rate: when both windows are closed the five-hour one wins on
+            # precedence every tick, so a failed attempt is retried on its own
+            # cooldown instead of falling through to the weekly window.
+            if _in_cooldown(
+                latest_attempts.get(account.id, {}).get(candidate.window),
+                cooldown_seconds=cooldown_seconds,
+            ):
                 continue
             attempt = await self._warmup_repo.try_create_attempt(
                 account_id=account.id,
@@ -930,11 +945,33 @@ class _WarmupCandidate:
     window: str
 
 
+def _closed_window_attempt_key(now: int, cooldown_seconds: int) -> int:
+    """The dedupe key for a window that reports no reset timestamp.
+
+    An attempt is keyed by the reset timestamp of the window it acts on, which
+    for a *running* window is a natural identity: it is stable while that window
+    lasts and different for the next one. A **closed** window has no such
+    timestamp, and the constant that stood in for one turned the dedupe guard
+    into a permanent lockout -- the key never changed, so the first attempt an
+    account ever made against a closed window blocked every later one, for the
+    life of the row. That is the opposite of what the guard is for, and it is
+    silent: the account simply stops being warmed.
+
+    The observation time, bucketed to the cooldown, restores the intended
+    meaning. Two replicas evaluating the same closed window in the same period
+    still collapse to one attempt, and the next period is a new key, so the
+    trigger re-arms exactly as often as the cooldown would allow anyway.
+    """
+    period = max(1, cooldown_seconds)
+    return now - (now % period)
+
+
 def _anthropic_elapsed_window_candidate(
     entry: UsageHistory | None,
     *,
     now: int,
     window: str = "primary",
+    closed_window_key: int = _NO_WINDOW_RESET_AT,
 ) -> _WarmupCandidate | None:
     """A candidate iff the account has this window and it is not running.
 
@@ -956,9 +993,10 @@ def _anthropic_elapsed_window_candidate(
     if entry is None:
         return None
     if entry.reset_at is None:
-        # Zero rather than a missing timestamp so the attempt record dedupes on
-        # "the closed-window state", which is what is being acted on.
-        return _WarmupCandidate(reset_at=_NO_WINDOW_RESET_AT, window=window)
+        # A stand-in timestamp, so the attempt record dedupes on "the
+        # closed-window state observed now" rather than on a constant that can
+        # never come round again. See ``_closed_window_attempt_key``.
+        return _WarmupCandidate(reset_at=closed_window_key, window=window)
     if entry.reset_at > now:
         return None
     return _WarmupCandidate(reset_at=entry.reset_at, window=window)
@@ -969,6 +1007,7 @@ def _anthropic_warmup_candidate(
     primary: UsageHistory | None,
     secondary: UsageHistory | None,
     now: int,
+    closed_window_key: int = _NO_WINDOW_RESET_AT,
 ) -> _WarmupCandidate | None:
     """The window this account needs opened, five-hour first.
 
@@ -984,10 +1023,14 @@ def _anthropic_warmup_candidate(
     five-hour trigger cannot see: the short window still running while the
     weekly one has run out.
     """
-    elapsed_primary = _anthropic_elapsed_window_candidate(primary, now=now, window="primary")
+    elapsed_primary = _anthropic_elapsed_window_candidate(
+        primary, now=now, window="primary", closed_window_key=closed_window_key
+    )
     if elapsed_primary is not None:
         return elapsed_primary
-    return _anthropic_elapsed_window_candidate(secondary, now=now, window="secondary")
+    return _anthropic_elapsed_window_candidate(
+        secondary, now=now, window="secondary", closed_window_key=closed_window_key
+    )
 
 
 def _selected_windows(value: str) -> tuple[str, ...]:
