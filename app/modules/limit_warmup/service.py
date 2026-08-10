@@ -51,9 +51,9 @@ _RESET_CONFIRMED_MIN_JUMP_SECONDS = 60
 # Persist the upstream value, but treat nearby values as the same staggered-idle
 # cycle. This avoids every boundary inherent in stateless timestamp bucketing.
 _IDLE_RESET_AT_JITTER_TOLERANCE_SECONDS = 5
-# Stands in for the reset timestamp of a window that is not running, so an
-# attempt against that state has a stable dedupe key.
-_NO_WINDOW_RESET_AT = 0
+# A window that is not running has no reset timestamp to key its attempt on. The
+# stand-in is derived per evaluation rather than fixed here -- see
+# ``_closed_window_attempt_key`` for why a constant was the wrong shape.
 
 
 @dataclass(frozen=True, slots=True)
@@ -970,8 +970,8 @@ def _anthropic_elapsed_window_candidate(
     entry: UsageHistory | None,
     *,
     now: int,
+    closed_window_key: int,
     window: str = "primary",
-    closed_window_key: int = _NO_WINDOW_RESET_AT,
 ) -> _WarmupCandidate | None:
     """A candidate iff the account has this window and it is not running.
 
@@ -1007,7 +1007,7 @@ def _anthropic_warmup_candidate(
     primary: UsageHistory | None,
     secondary: UsageHistory | None,
     now: int,
-    closed_window_key: int = _NO_WINDOW_RESET_AT,
+    closed_window_key: int,
 ) -> _WarmupCandidate | None:
     """The window this account needs opened, five-hour first.
 
