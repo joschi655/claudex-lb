@@ -21,9 +21,26 @@ def test_parses_fraction_utilization_and_reset():
     assert snapshot.has_any
 
 
-def test_accepts_already_percent_values():
-    snapshot = parse_unified_usage({"anthropic-ratelimit-unified-5h-utilization": "73"})
-    assert snapshot.primary_used_percent == 73.0
+def test_an_over_limit_fraction_reads_as_spent_not_empty():
+    """Regression: a spent window reported itself as 1% used.
+
+    Utilization does not stop at 1 — an account 4% over its window reports
+    ``1.04``. The parser used to treat anything above 1 as an already-percent
+    figure, so 104% became 1.04%: not just wrong, inverted. Because a 429 carries
+    these headers too, the account's own rejection rewrote it as fresh and the
+    balancer routed straight back to it.
+
+    Observed live on a Claude Pro seat whose five-hour window was genuinely at
+    100% per ``/api/oauth/usage``.
+    """
+    for raw in ("1.0", "1.04", "1.5", "2"):
+        snapshot = parse_unified_usage({"anthropic-ratelimit-unified-5h-utilization": raw})
+        assert snapshot.primary_used_percent == 100.0, raw
+
+
+def test_a_value_just_over_one_is_never_read_as_a_low_percentage():
+    snapshot = parse_unified_usage({"anthropic-ratelimit-unified-7d-utilization": "1.04"})
+    assert snapshot.secondary_used_percent == 100.0
 
 
 def test_case_insensitive_headers():
