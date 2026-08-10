@@ -39,3 +39,7 @@
 - [x] 5.3 `openspec validate warm-the-weekly-claude-window --strict`.
 - [ ] 5.4 Deploy and confirm against live accounts: an account whose weekly window has run
       out while its five-hour window runs gets a ping, and its weekly reset moves forward.
+      Deployed. The five-hour half of the trigger is live-proven (see
+      `retry-closed-window-warmups` 5.5), but no weekly window has closed since — the
+      three live seats reset at 06:00, 10:00 and 15:00 on later days, so the weekly path
+      is still unobserved in production.

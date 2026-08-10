@@ -41,5 +41,8 @@
 - [x] 5.4 Deploy. Confirmed on the running container: the closed-window key is now a
       moving value and advances with the cooldown period, both windows still select
       their own candidate, and the previously-blocking row is inert.
-- [ ] 5.5 Confirm an actual scheduled warm-up lands once a window next closes — all
-      three accounts were mid-window at deploy time, so this waits on the clock.
+- [x] 5.5 Confirm an actual scheduled warm-up lands once a window next closes.
+      `joschibreitfeld@gmail.com`'s five-hour window elapsed at 12:49:59; a scheduled
+      warm-up fired 30s later keyed on that reset, succeeded, and its response headers
+      opened a fresh window (0% used, reset 17:50). Request logged with
+      `source=limit_warmup`, `request_kind=warmup`.
