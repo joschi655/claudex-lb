@@ -70,6 +70,12 @@ class _BackgroundLimitWarmupRepository:
             detach_session_objects(session)
             return attempts
 
+    async def latest_by_account_window(self, account_ids: list[str]) -> dict[str, dict[str, AccountLimitWarmup]]:
+        async with get_background_session() as session:
+            attempts = await LimitWarmupRepository(session).latest_by_account_window(account_ids)
+            detach_session_objects(session)
+            return attempts
+
     async def try_create_attempt(
         self,
         *,
