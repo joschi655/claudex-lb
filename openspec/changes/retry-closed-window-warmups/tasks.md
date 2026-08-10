@@ -16,8 +16,10 @@
 
 ## 3. Live data
 
-- [ ] 3.1 Close out the stuck `pending` attempt on `ge37wuc@matlab.rbg.tum.de` so the
-      audit trail carries no permanent in-flight row.
+- [x] 3.1 Close out the stuck `pending` attempt on `ge37wuc@matlab.rbg.tum.de` so the
+      audit trail carries no permanent in-flight row. Attempt 2 (window `primary`,
+      key `0`, opened 2026-08-05 13:18) marked `failed` / `warmup_never_completed`;
+      no stranded rows remain.
 
 ## 4. Tests
 
@@ -36,4 +38,8 @@
 - [x] 5.1 `uv run pytest` for the touched modules.
 - [x] 5.2 `uv run ruff check` / format.
 - [x] 5.3 `openspec validate retry-closed-window-warmups --strict`.
-- [ ] 5.4 Deploy, then confirm matlab is warmed again once its window next closes.
+- [x] 5.4 Deploy. Confirmed on the running container: the closed-window key is now a
+      moving value and advances with the cooldown period, both windows still select
+      their own candidate, and the previously-blocking row is inert.
+- [ ] 5.5 Confirm an actual scheduled warm-up lands once a window next closes — all
+      three accounts were mid-window at deploy time, so this waits on the clock.
