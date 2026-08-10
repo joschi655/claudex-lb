@@ -18,5 +18,7 @@
 - [x] 3.1 `uv run pytest` for the touched modules and the wider Anthropic surface.
 - [x] 3.2 `uv run ruff check` / format.
 - [x] 3.3 `openspec validate read-over-limit-utilization-as-spent --strict`.
-- [ ] 3.4 Deploy, then confirm the affected account's stored window matches
-      `/api/oauth/usage` instead of reading ~1%.
+- [x] 3.4 Deploy, then confirm the affected account's stored window matches
+      `/api/oauth/usage` instead of reading ~1%. `joschibreitfeld@gmail.com` five-hour
+      window read `1.04` before and `100.0` after, against `/api/oauth/usage`'s
+      authoritative `100.0`.
