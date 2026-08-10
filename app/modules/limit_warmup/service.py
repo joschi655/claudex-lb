@@ -455,6 +455,21 @@ class LimitWarmupService:
         if not selected_windows:
             return
 
+        # This whole method reasons about before/after snapshots from the ChatGPT
+        # usage API, and resolves a model out of the OpenAI registry. A Claude
+        # seat has neither, and it already has a pass of its own, so letting one
+        # through here does not merely waste a lookup: `_resolve_model` finds
+        # nothing for a Claude plan and files a `skipped` attempt against the
+        # window's *next* reset timestamp, which then occupies the dedupe key the
+        # Anthropic pass needs when that window actually closes. One bogus row
+        # silently costs a real warm-up.
+        #
+        # Filtered here rather than at the caller because it is this method's
+        # protocol assumption, and the caller hands over every account it has.
+        accounts = [account for account in accounts if not is_anthropic_provider(account.provider or "")]
+        if not accounts:
+            return
+
         account_ids = [account.id for account in accounts]
         latest_attempts = await self._warmup_repo.latest_by_account(account_ids)
         sender = self._sender

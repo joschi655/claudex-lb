@@ -317,6 +317,39 @@ async def test_a_caller_that_omits_weekly_state_keeps_the_five_hour_trigger() ->
 
 
 @pytest.mark.asyncio
+async def test_the_chatgpt_pass_leaves_claude_accounts_alone() -> None:
+    """Regression: the ChatGPT pass filed a bogus attempt that cost a real warm-up.
+
+    ``run_after_usage_refresh`` reasons about ChatGPT usage-API snapshots and
+    resolves a model from the OpenAI registry, but its caller hands it every
+    account. For a Claude seat the model lookup finds nothing and records a
+    `skipped` attempt keyed on that window's *next* reset — which then occupies
+    the key the Anthropic pass needs when the window actually closes.
+
+    Observed live: julius crossed 100%, its five-hour window rolled to a reset at
+    15:39, and the ChatGPT pass immediately booked that timestamp.
+    """
+    account = _anthropic_account()
+    sender = RecordingSender()
+    service, repo, _ = _service(sender=sender)
+    now = _epoch_now()
+    spent = {account.id: _primary_window(account.id, reset_at=now - 60, used_percent=100.0)}
+    reset = {account.id: _primary_window(account.id, reset_at=now + 18_000, used_percent=0.0)}
+
+    await service.run_after_usage_refresh(
+        accounts=[account],
+        settings=_settings(),
+        before_primary=spent,
+        before_secondary={},
+        after_primary=reset,
+        after_secondary={},
+    )
+
+    assert sender.calls == []
+    assert repo.rows == []
+
+
+@pytest.mark.asyncio
 async def test_a_closed_window_is_warmed_again_in_a_later_period() -> None:
     """Regression: the closed-window trigger used to fire once per account, ever.
 
