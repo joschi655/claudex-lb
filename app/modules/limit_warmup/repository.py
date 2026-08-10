@@ -42,6 +42,38 @@ class LimitWarmupRepository:
         result = await self._session.execute(stmt)
         return {entry.account_id: entry for entry in result.scalars().all()}
 
+    async def latest_by_account_window(self, account_ids: list[str]) -> dict[str, dict[str, AccountLimitWarmup]]:
+        """The latest attempt per ``(account, window)``, not per account.
+
+        A per-account view collapses windows that close on unrelated schedules,
+        so a cooldown earned by one of them silently holds the other back.
+        """
+        if not account_ids:
+            return {}
+        subq = (
+            select(
+                AccountLimitWarmup.id.label("warmup_id"),
+                func.row_number()
+                .over(
+                    partition_by=(AccountLimitWarmup.account_id, AccountLimitWarmup.window),
+                    order_by=(AccountLimitWarmup.attempted_at.desc(), AccountLimitWarmup.id.desc()),
+                )
+                .label("row_number"),
+            )
+            .where(AccountLimitWarmup.account_id.in_(account_ids))
+            .subquery()
+        )
+        stmt = (
+            select(AccountLimitWarmup)
+            .join(subq, AccountLimitWarmup.id == subq.c.warmup_id)
+            .where(subq.c.row_number == 1)
+        )
+        result = await self._session.execute(stmt)
+        latest: dict[str, dict[str, AccountLimitWarmup]] = {}
+        for entry in result.scalars().all():
+            latest.setdefault(entry.account_id, {})[entry.window] = entry
+        return latest
+
     async def latest_attempt_for_account(self, account_id: str) -> AccountLimitWarmup | None:
         stmt = (
             select(AccountLimitWarmup)

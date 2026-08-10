@@ -84,6 +84,17 @@ class FakeWarmupRepo:
                     result[row.account_id] = row
         return result
 
+    async def latest_by_account_window(self, account_ids: list[str]) -> dict[str, dict[str, AccountLimitWarmup]]:
+        result: dict[str, dict[str, AccountLimitWarmup]] = {}
+        for row in self.rows:
+            if row.account_id not in account_ids:
+                continue
+            by_window = result.setdefault(row.account_id, {})
+            current = by_window.get(row.window)
+            if current is None or row.attempted_at > current.attempted_at:
+                by_window[row.window] = row
+        return result
+
     async def try_create_attempt(
         self,
         *,

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterator, Mapping
+from contextlib import contextmanager
+from datetime import timedelta
 from typing import Any, cast
+from unittest.mock import patch
 
 import pytest
 
@@ -9,6 +12,7 @@ from app.core.anthropic.warmup import ANTHROPIC_WARMUP_MODEL
 from app.core.providers import PROVIDER_ANTHROPIC, PROVIDER_OPENAI
 from app.core.utils.time import naive_utc_to_epoch, utcnow
 from app.db.models import Account, AccountStatus, DashboardSettings, UsageHistory
+from app.modules.limit_warmup import service as warmup_service
 from app.modules.limit_warmup.service import (
     LIMIT_WARMUP_REQUEST_KIND,
     LimitWarmupSendResult,
@@ -66,6 +70,18 @@ def _secondary_window(account_id: str, *, reset_at: int | None, used_percent: fl
 
 def _epoch_now() -> int:
     return naive_utc_to_epoch(utcnow())
+
+
+@contextmanager
+def _clock_advanced_by(delta: timedelta) -> Iterator[None]:
+    """Move the warmup service's clock forward.
+
+    Patched in the service module rather than at the source, so both the cooldown
+    check and the closed-window key see the same later moment.
+    """
+    real = warmup_service.utcnow
+    with patch.object(warmup_service, "utcnow", lambda: real() + delta):
+        yield
 
 
 class RecordingSender:
@@ -297,6 +313,125 @@ async def test_a_caller_that_omits_weekly_state_keeps_the_five_hour_trigger() ->
         latest_primary={account.id: _primary_window(account.id, reset_at=_epoch_now() - 60)},
     )
 
+    assert [row.window for row in repo.rows] == ["primary"]
+
+
+@pytest.mark.asyncio
+async def test_a_closed_window_is_warmed_again_in_a_later_period() -> None:
+    """Regression: the closed-window trigger used to fire once per account, ever.
+
+    A closed window has no reset timestamp, and the constant that stood in for
+    one made the attempt table's dedupe guard permanent — the first attempt an
+    account made against a closed window blocked every later one. Observed live:
+    an account went 46 hours with a dead five-hour window because a *pending*
+    attempt from three days earlier still held the key.
+    """
+    account = _anthropic_account()
+    sender = RecordingSender()
+    repo = FakeWarmupRepo()
+    service, _, _ = _service(sender=sender, warmup_repo=repo)
+    settings = _settings(limit_warmup_cooldown_seconds=3600)
+    closed = {account.id: _primary_window(account.id, reset_at=None, used_percent=0.0)}
+
+    await _run(service, accounts=[account], settings=settings, latest_primary=closed)
+    assert len(sender.calls) == 1
+
+    # Same period: still one attempt, which is what the guard is for.
+    await _run(service, accounts=[account], settings=settings, latest_primary=closed)
+    assert len(sender.calls) == 1
+
+    # A later period re-arms the trigger instead of locking it out forever.
+    with _clock_advanced_by(timedelta(hours=2)):
+        await _run(service, accounts=[account], settings=settings, latest_primary=closed)
+    assert len(sender.calls) == 2
+    assert [row.reset_at for row in repo.rows][0] != [row.reset_at for row in repo.rows][1]
+
+
+@pytest.mark.asyncio
+async def test_a_stale_pending_attempt_does_not_lock_the_account_out() -> None:
+    """The live failure exactly: a never-completed attempt held the only key."""
+    account = _anthropic_account()
+    sender = RecordingSender()
+    repo = FakeWarmupRepo()
+    # The row that poisoned matlab: window 'primary', the old constant key,
+    # left 'pending' by a restart mid-flight days earlier.
+    await repo.try_create_attempt(
+        account_id=account.id,
+        window="primary",
+        reset_at=0,
+        model=ANTHROPIC_WARMUP_MODEL,
+        attempted_at=utcnow() - timedelta(days=3),
+    )
+    service, _, _ = _service(sender=sender, warmup_repo=repo)
+
+    await _run(
+        service,
+        accounts=[account],
+        settings=_settings(),
+        latest_primary={account.id: _primary_window(account.id, reset_at=None, used_percent=0.0)},
+    )
+
+    assert [call[0] for call in sender.calls] == [account.id]
+
+
+@pytest.mark.asyncio
+async def test_a_weekly_ping_does_not_delay_the_next_five_hour_ping() -> None:
+    """The two windows close on unrelated schedules, so they cool down apart.
+
+    A weekly reset at 07:00 says nothing about when the five hours run out.
+    Charging the weekly ping against the five-hour window would hold the next
+    short window closed for up to a full cooldown — a fifth of its length.
+    """
+    account = _anthropic_account()
+    sender = RecordingSender()
+    repo = FakeWarmupRepo()
+    service, _, _ = _service(sender=sender, warmup_repo=repo)
+    settings = _settings(limit_warmup_cooldown_seconds=3600)
+
+    # Weekly closes first, while the five-hour window is still running.
+    await _run(
+        service,
+        accounts=[account],
+        settings=settings,
+        latest_primary={account.id: _primary_window(account.id, reset_at=_epoch_now() + 1800)},
+        latest_secondary={account.id: _secondary_window(account.id, reset_at=None, used_percent=0.0)},
+    )
+    assert [row.window for row in repo.rows] == ["secondary"]
+
+    # Half an hour later — inside the cooldown — the five hours run out.
+    await _run(
+        service,
+        accounts=[account],
+        settings=settings,
+        latest_primary={account.id: _primary_window(account.id, reset_at=_epoch_now() - 60)},
+        latest_secondary={account.id: _secondary_window(account.id, reset_at=_epoch_now() + 600_000)},
+    )
+
+    assert [row.window for row in repo.rows] == ["secondary", "primary"]
+    assert len(sender.calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_a_failed_ping_is_not_retried_against_the_other_window() -> None:
+    """Per-window cooldowns must not double the ping rate when a ping fails."""
+    account = _anthropic_account()
+    sender = RecordingSender(
+        LimitWarmupSendResult(request_id="req-1", success=False, latency_ms=5, error_code="overloaded_error")
+    )
+    repo = FakeWarmupRepo()
+    service, _, _ = _service(sender=sender, warmup_repo=repo)
+    settings = _settings(limit_warmup_cooldown_seconds=3600)
+    both_closed = {
+        "latest_primary": {account.id: _primary_window(account.id, reset_at=None, used_percent=0.0)},
+        "latest_secondary": {account.id: _secondary_window(account.id, reset_at=None, used_percent=0.0)},
+    }
+
+    await _run(service, accounts=[account], settings=settings, **both_closed)
+    await _run(service, accounts=[account], settings=settings, **both_closed)
+
+    # The five-hour window wins on precedence every tick, so the retry waits on
+    # its own cooldown rather than falling through to the weekly window.
+    assert len(sender.calls) == 1
     assert [row.window for row in repo.rows] == ["primary"]
 
 
