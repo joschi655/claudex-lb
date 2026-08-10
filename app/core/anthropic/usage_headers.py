@@ -41,6 +41,26 @@ def parse_unified_usage(headers: Mapping[str, str]) -> AnthropicUsageSnapshot:
 
 
 def _utilization_percent(raw: str | None) -> float | None:
+    """Read a unified rate-limit utilization header as a percentage.
+
+    The header is a fraction of the window, and it does not stop at 1: an account
+    that has gone over reports ``1.04`` for 104%. Treating a value above 1 as an
+    "already a percentage" figure -- the tolerance this parser used to carry --
+    turns that into 1.04%, which is not merely wrong but inverted. It says the
+    window is empty at the exact moment it is spent.
+
+    That misreading is self-sustaining, because a 429 carries these headers too.
+    Observed live: an account hit its five-hour limit, its own 429 rewrote the
+    stored window to 1.04% used, the balancer read that as a fresh account and
+    routed to it again, and the next 429 wrote 1.04% once more.
+
+    The tolerance is gone rather than widened. There is no value in ``(1, 100]``
+    that can be told apart from a fraction by inspection, and the fraction is the
+    contract. A format change upstream is now recoverable in a way it was not
+    when this parser was written: the usage poll reads the same two windows from
+    ``/api/oauth/usage`` on its own percentage scale, so every account is
+    corrected within a poll cycle instead of relying on a guess here.
+    """
     if raw is None:
         return None
     try:
@@ -49,10 +69,7 @@ def _utilization_percent(raw: str | None) -> float | None:
         return None
     if value < 0:
         return None
-    # Anthropic reports utilization as a 0-1 fraction; tolerate an already-percent
-    # value (0-100) too. Values at or below 1 are treated as a fraction.
-    percent = value * 100 if value <= 1 else value
-    return min(100.0, percent)
+    return min(100.0, value * 100)
 
 
 def _epoch(raw: str | None) -> int | None:
