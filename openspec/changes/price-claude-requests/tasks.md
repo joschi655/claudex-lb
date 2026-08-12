@@ -62,5 +62,10 @@
 ## 7. Verification
 
 - [x] 7.1 `uv run pytest` and `bun run test` green
-- [ ] 7.2 Deploy, then confirm against live: new Claude rows carry a cost and a
-      cache-write count, and the backfilled history stops reading as $0
+- [x] 7.2 Deploy, then confirm against live: new Claude rows carry a cost and a
+      cache-write count, and the backfilled history stops reading as $0.
+      Confirmed 2026-08-12: 6,866 of 6,943 Anthropic rows priced (the remaining
+      77 are error rows with no tokens), $1,240.90 total against $0 before. A
+      request logged after the deploy recorded 325,278 cache reads and 1,068
+      cache writes against 326,348 total input, priced at $0.18470 — the same
+      request charged flat at the base input rate would have read $1.65

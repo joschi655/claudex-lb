@@ -66,4 +66,7 @@
 - [x] 6.2 `uv run ruff check` / format.
 - [x] 6.3 `openspec validate poll-anthropic-usage-api --strict`.
 - [ ] 6.4 Deploy and confirm against live accounts: the stale row corrects itself and the
-      usage-based seat shows its budget.
+      usage-based seat shows its budget. The fix for 4.4 is deployed and the live seat
+      reports the data (budget 83.9% used, $160.72 of $1,000; extra credits $175.68 of
+      $200), but this stays open until the rendered row has actually been looked at —
+      skipping exactly that step is what let 4.2 ship half-done.
