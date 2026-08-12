@@ -36,6 +36,11 @@
 - [x] 4.1 Add the spend block to `AccountSummary` and populate it in the accounts mapper
       from the `budget` usage row.
 - [x] 4.2 Render the spend bar in the accounts view for accounts that report a budget.
+- [x] 4.4 Render it in the compact account list row too. 4.2 was completed against the
+      account *detail* panel only, and every branch in the list row keys off a rolling
+      window, so a budget seat rendered with no quota information at all -- the one
+      outcome the requirement names explicitly. Task 6.4, which would have caught it
+      against the live check24 seat, was never run.
 - [x] 4.3 Surface the budget in the menu-bar payload so a usage-based seat shows a number
       instead of nothing.
 

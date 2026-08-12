@@ -308,4 +308,61 @@ describe("AccountListItem", () => {
 
     expect(screen.queryByText("99+")).not.toBeInTheDocument();
   });
+
+  // A usage-based seat bills against a dollar budget and reports no rolling
+  // window. Every other row branch keys off a window, so before this the row
+  // rendered no quota information at all -- which the capability spec
+  // explicitly forbids.
+  function budgetSeat() {
+    return createAccountSummary({
+      usage: {
+        primaryRemainingPercent: null,
+        secondaryRemainingPercent: null,
+        monthlyRemainingPercent: null,
+      },
+      resetAtPrimary: null,
+      resetAtSecondary: null,
+      resetAtMonthly: null,
+      windowMinutesPrimary: null,
+      windowMinutesSecondary: null,
+      windowMinutesMonthly: null,
+      spendBudget: {
+        usedPercent: 84,
+        used: 840,
+        limit: 1000,
+        remaining: 160,
+        currency: "USD",
+        resetAt: null,
+      },
+    });
+  }
+
+  it("shows the budget for a seat whose quota is dollars rather than a window", () => {
+    render(<AccountListItem account={budgetSeat()} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.getByText("Budget")).toBeInTheDocument();
+    // The bar reads left-to-spend, matching how a window bar reads.
+    expect(screen.getByTestId("mini-quota-track-budget-fill")).toHaveStyle({ width: "16%" });
+    expect(screen.getByText("$160.00 of $1,000.00 left")).toBeInTheDocument();
+  });
+
+  it("does not present a budget seat as having no quota at all", () => {
+    render(<AccountListItem account={budgetSeat()} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.queryByText("5h")).not.toBeInTheDocument();
+    expect(screen.queryByText("Weekly")).not.toBeInTheDocument();
+    expect(screen.getByTestId("mini-quota-track-budget")).toBeInTheDocument();
+  });
+
+  it("leaves a window account's rows untouched", () => {
+    const account = createAccountSummary({
+      usage: { primaryRemainingPercent: 64, secondaryRemainingPercent: 73 },
+    });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.getByText("5h")).toBeInTheDocument();
+    expect(screen.getByText("Weekly")).toBeInTheDocument();
+    expect(screen.queryByTestId("mini-quota-track-budget")).not.toBeInTheDocument();
+  });
 });

@@ -11,6 +11,7 @@ import { ProviderBadge } from "@/components/provider-badge";
 import type { NextUpMark } from "@/features/accounts/next-up";
 import type {
   AccountRoutingPolicy,
+  AccountSpendBudget,
   AccountSummary,
 } from "@/features/accounts/schemas";
 import { normalizeStatus } from "@/utils/account-status";
@@ -71,7 +72,15 @@ export function AccountListItem({
     !monthlyOnly && hasPrimaryWindow && (quotaDisplay !== "weekly" || !hasSecondaryWindow);
   const showSecondaryRow =
     !monthlyOnly && hasSecondaryWindow && (quotaDisplay !== "5h" || !hasPrimaryWindow);
-  const visibleQuotaRows = Number(showPrimaryRow) + Number(showSecondaryRow) + Number(showMonthlyRow);
+  // A usage-based seat bills against a dollar budget and reports no rolling
+  // window at all. Without this the row renders no quota information whatsoever
+  // -- the one thing the spec says such an account must not do -- because every
+  // other branch keys off a window it will never have.
+  const spendBudget = account.spendBudget ?? null;
+  const showBudgetRow =
+    spendBudget != null && !hasPrimaryWindow && !hasSecondaryWindow && !hasMonthlyWindow;
+  const visibleQuotaRows =
+    Number(showPrimaryRow) + Number(showSecondaryRow) + Number(showMonthlyRow) + Number(showBudgetRow);
   const showRoutingPolicy = status !== "reauth" && status !== "deactivated";
   const warmupLabel = account.limitWarmupEnabled ? "Warm-up on" : "Warm-up off";
   const warmupMeta = account.limitWarmup
@@ -148,6 +157,9 @@ export function AccountListItem({
             percent={secondary}
             resetAt={account.resetAtSecondary}
           />
+        ) : null}
+        {showBudgetRow && spendBudget ? (
+          <MiniBudgetRow budget={spendBudget} />
         ) : null}
       </div>
       <div className="mt-2 flex min-w-0 items-center justify-between gap-2 text-[10px] text-muted-foreground">
@@ -263,6 +275,46 @@ function MiniQuotaRow({
       </div>
     </div>
   );
+}
+
+// The budget's counterpart to MiniQuotaRow. The bar reads left-to-spend so it
+// fills and empties the same way a window bar does; showing "used" here would
+// make a nearly-spent budget look like a nearly-full window.
+function MiniBudgetRow({ budget }: { budget: AccountSpendBudget }) {
+  const remainingPercent = Math.max(0, Math.min(100, 100 - budget.usedPercent));
+  const remaining = formatBudgetAmount(budget.remaining, budget.currency);
+  const limit = formatBudgetAmount(budget.limit, budget.currency);
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center justify-between text-[11px]">
+        <span className="text-muted-foreground">Budget</span>
+        <span className="tabular-nums font-medium">
+          {formatPercentNullable(remainingPercent)}
+        </span>
+      </div>
+      <MiniQuotaBar
+        aria-label="Budget remaining"
+        percent={remainingPercent}
+        testId="mini-quota-track-budget"
+      />
+      <div className="text-[10px] text-muted-foreground">
+        {remaining && limit ? `${remaining} of ${limit} left` : formatMiniQuotaResetLabel(budget.resetAt ?? null)}
+      </div>
+    </div>
+  );
+}
+
+function formatBudgetAmount(
+  amount: number | null | undefined,
+  currency: string | null | undefined,
+): string | null {
+  if (amount == null || !Number.isFinite(amount)) return null;
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: currency ?? "USD",
+    maximumFractionDigits: 2,
+  }).format(amount);
 }
 
 function formatMiniQuotaResetLabel(resetAt: string | null): string {
