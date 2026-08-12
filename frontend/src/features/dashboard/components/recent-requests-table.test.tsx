@@ -125,11 +125,13 @@ describe("RecentRequestsTable", () => {
              latencyFirstTokenMs: null,
             latencyQueueMs: null,
              cachedInputTokens: 200,
+             cacheWriteInputTokens: null,
              reasoningEffort: "high",
              costUsd: 0.01,
              costBreakdown: {
                inputUsd: 0.004,
                cachedInputUsd: 0.001,
+               cacheWriteUsd: null,
                outputUsd: 0.005,
                totalUsd: 0.01,
              },
@@ -206,6 +208,7 @@ describe("RecentRequestsTable", () => {
             outputTokens: 200,
             outputTokensRaw: 200,
             cachedInputTokens: 0,
+            cacheWriteInputTokens: null,
             reasoningEffort: null,
             costUsd: 0,
             costBreakdown: null,
@@ -255,6 +258,7 @@ describe("RecentRequestsTable", () => {
             outputTokens: 200,
             outputTokensRaw: null,
             cachedInputTokens: 0,
+            cacheWriteInputTokens: null,
             reasoningEffort: null,
             costUsd: 0,
             costBreakdown: null,
@@ -308,6 +312,7 @@ describe("RecentRequestsTable", () => {
             latencyFirstTokenMs: null,
             latencyQueueMs: null,
             cachedInputTokens: null,
+            cacheWriteInputTokens: null,
             reasoningEffort: null,
             costUsd: null,
             costBreakdown: null,
@@ -340,6 +345,7 @@ describe("RecentRequestsTable", () => {
             latencyFirstTokenMs: null,
             latencyQueueMs: null,
             cachedInputTokens: null,
+            cacheWriteInputTokens: null,
             reasoningEffort: null,
             costUsd: 0,
             costBreakdown: null,
@@ -395,6 +401,7 @@ describe("RecentRequestsTable", () => {
             latencyFirstTokenMs: null,
             latencyQueueMs: null,
             cachedInputTokens: null,
+            cacheWriteInputTokens: null,
             reasoningEffort: null,
             costUsd: 0,
             costBreakdown: null,
@@ -427,6 +434,7 @@ describe("RecentRequestsTable", () => {
             latencyFirstTokenMs: null,
             latencyQueueMs: null,
             cachedInputTokens: null,
+            cacheWriteInputTokens: null,
             reasoningEffort: null,
             costUsd: 0,
             costBreakdown: null,
@@ -473,6 +481,7 @@ describe("RecentRequestsTable", () => {
              latencyFirstTokenMs: null,
             latencyQueueMs: null,
              cachedInputTokens: null,
+             cacheWriteInputTokens: null,
              reasoningEffort: null,
              costUsd: 0,
              costBreakdown: null,
@@ -520,6 +529,7 @@ describe("RecentRequestsTable", () => {
              latencyFirstTokenMs: null,
             latencyQueueMs: null,
              cachedInputTokens: null,
+             cacheWriteInputTokens: null,
              reasoningEffort: null,
              costUsd: 0,
              costBreakdown: null,
@@ -568,11 +578,13 @@ describe("RecentRequestsTable", () => {
             latencyFirstTokenMs: null,
             latencyQueueMs: null,
             cachedInputTokens: 200,
+            cacheWriteInputTokens: null,
             reasoningEffort: null,
             costUsd: 0.01,
             costBreakdown: {
               inputUsd: 0.004,
               cachedInputUsd: 0.002,
+              cacheWriteUsd: null,
               outputUsd: 0.004,
               totalUsd: 0.01,
             },
@@ -590,6 +602,122 @@ describe("RecentRequestsTable", () => {
     expect(costSection).toHaveTextContent("800 Input ($0.00)");
     expect(costSection).toHaveTextContent("200 Cached ($0.00)");
     expect(costSection).toHaveTextContent("400 Output ($0.00)");
+  });
+
+  it("breaks a cache write out of the input it would otherwise be counted in", () => {
+    render(
+      <RecentRequestsTable
+        {...PAGINATION_PROPS}
+        accounts={[]}
+        requests={[
+          {
+            requestedAt: ISO,
+            accountId: "acc-cache-write",
+            provider: "anthropic",
+            planType: "claude_pro",
+            apiKeyName: "Key Cost",
+            apiKeyId: "key-cost",
+            requestId: "req-cache-write",
+            requestKind: "normal",
+            model: "claude-opus-5",
+            source: null,
+            serviceTier: null,
+            requestedServiceTier: null,
+            actualServiceTier: null,
+            transport: "http",
+            ...NULL_USERAGENT_METADATA,
+            status: "ok",
+            errorCode: null,
+            errorMessage: null,
+            ...NULL_FAILURE_METADATA,
+            tokens: 1400,
+            inputTokens: 1000,
+            outputTokens: 400,
+            outputTokensRaw: null,
+            latencyFirstTokenMs: null,
+            latencyQueueMs: null,
+            cachedInputTokens: 600,
+            cacheWriteInputTokens: 300,
+            reasoningEffort: null,
+            costUsd: 0.01,
+            costBreakdown: {
+              inputUsd: 0.0005,
+              cachedInputUsd: 0.0003,
+              cacheWriteUsd: 0.0019,
+              outputUsd: 0.01,
+              totalUsd: 0.0127,
+            },
+            latencyMs: 100,
+          },
+        ]}
+      />,
+    );
+
+    const dialog = openRequestDetails();
+    const costSection = within(dialog).getByText("Cost").closest("div.space-y-2");
+
+    // 1000 total input less 600 read and 300 written leaves 100 uncached. Without
+    // subtracting the writes the first segment would claim 400.
+    expect(costSection).toHaveTextContent("100 Input");
+    expect(costSection).toHaveTextContent("600 Cached");
+    expect(costSection).toHaveTextContent("300 Cache write");
+  });
+
+  it("omits the cache write segment for a row that never recorded one", () => {
+    render(
+      <RecentRequestsTable
+        {...PAGINATION_PROPS}
+        accounts={[]}
+        requests={[
+          {
+            requestedAt: ISO,
+            accountId: "acc-no-cache-write",
+            provider: "openai",
+            planType: "plus",
+            apiKeyName: "Key Cost",
+            apiKeyId: "key-cost",
+            requestId: "req-no-cache-write",
+            requestKind: "normal",
+            model: "gpt-5.1",
+            source: null,
+            serviceTier: null,
+            requestedServiceTier: null,
+            actualServiceTier: null,
+            transport: "http",
+            ...NULL_USERAGENT_METADATA,
+            status: "ok",
+            errorCode: null,
+            errorMessage: null,
+            ...NULL_FAILURE_METADATA,
+            tokens: 1400,
+            inputTokens: 1000,
+            outputTokens: 400,
+            outputTokensRaw: null,
+            latencyFirstTokenMs: null,
+            latencyQueueMs: null,
+            cachedInputTokens: 200,
+            cacheWriteInputTokens: null,
+            reasoningEffort: null,
+            costUsd: 0.01,
+            costBreakdown: {
+              inputUsd: 0.004,
+              cachedInputUsd: 0.002,
+              cacheWriteUsd: null,
+              outputUsd: 0.004,
+              totalUsd: 0.01,
+            },
+            latencyMs: 100,
+          },
+        ]}
+      />,
+    );
+
+    const dialog = openRequestDetails();
+    const costSection = within(dialog).getByText("Cost").closest("div.space-y-2");
+
+    expect(costSection).not.toHaveTextContent("Cache write");
+    // The uncached figure is unchanged by a null counter.
+    expect(costSection).toHaveTextContent("800 Input");
   });
 
   it("shows the full user agent in request details when present", () => {
@@ -627,6 +755,7 @@ describe("RecentRequestsTable", () => {
             latencyFirstTokenMs: null,
             latencyQueueMs: null,
             cachedInputTokens: null,
+            cacheWriteInputTokens: null,
             reasoningEffort: null,
             costUsd: 0,
             costBreakdown: null,
@@ -690,6 +819,7 @@ describe("RecentRequestsTable", () => {
             latencyFirstTokenMs: null,
             latencyQueueMs: null,
             cachedInputTokens: null,
+            cacheWriteInputTokens: null,
             reasoningEffort: null,
             costUsd: 0,
             costBreakdown: null,
@@ -745,11 +875,13 @@ describe("RecentRequestsTable", () => {
             latencyFirstTokenMs: null,
             latencyQueueMs: null,
             cachedInputTokens: 0,
+            cacheWriteInputTokens: null,
             reasoningEffort: null,
             costUsd: 0.01,
             costBreakdown: {
               inputUsd: 0.01,
               cachedInputUsd: null,
+              cacheWriteUsd: null,
               outputUsd: null,
               totalUsd: 0.01,
             },
@@ -797,11 +929,13 @@ describe("RecentRequestsTable", () => {
             latencyFirstTokenMs: null,
             latencyQueueMs: null,
             cachedInputTokens: 200,
+            cacheWriteInputTokens: null,
             reasoningEffort: null,
             costUsd: 0.01,
             costBreakdown: {
               inputUsd: 0.006,
               cachedInputUsd: 0.004,
+              cacheWriteUsd: null,
               outputUsd: null,
               totalUsd: 0.01,
             },
@@ -854,11 +988,13 @@ describe("RecentRequestsTable", () => {
             latencyFirstTokenMs: null,
             latencyQueueMs: null,
             cachedInputTokens: 200,
+            cacheWriteInputTokens: null,
             reasoningEffort: null,
             costUsd: null,
             costBreakdown: {
               inputUsd: 0.006,
               cachedInputUsd: 0.004,
+              cacheWriteUsd: null,
               outputUsd: null,
               totalUsd: null,
             },
@@ -913,6 +1049,7 @@ describe("RecentRequestsTable", () => {
             latencyFirstTokenMs: null,
             latencyQueueMs: null,
             cachedInputTokens: null,
+            cacheWriteInputTokens: null,
             reasoningEffort: null,
             costUsd: 0,
             costBreakdown: null,
@@ -974,6 +1111,7 @@ describe("RecentRequestsTable", () => {
             latencyFirstTokenMs: null,
             latencyQueueMs: null,
             cachedInputTokens: null,
+            cacheWriteInputTokens: null,
             reasoningEffort: null,
             costUsd: 0,
             costBreakdown: null,
@@ -1031,11 +1169,13 @@ describe("RecentRequestsTable", () => {
             latencyFirstTokenMs: null,
             latencyQueueMs: null,
             cachedInputTokens: null,
+            cacheWriteInputTokens: null,
             reasoningEffort: null,
             costUsd: 4.321234,
             costBreakdown: {
               inputUsd: null,
               cachedInputUsd: null,
+              cacheWriteUsd: null,
               outputUsd: null,
               totalUsd: 4.321234,
             },

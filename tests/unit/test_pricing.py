@@ -352,3 +352,173 @@ def test_calculate_costs_uses_service_tier():
     result = calculate_costs(items, DEFAULT_PRICING_MODELS, DEFAULT_MODEL_ALIASES)
 
     assert result.total_usd_7d == pytest.approx(35.0)
+
+
+def _price(model: str) -> ModelPrice:
+    resolved = get_pricing_for_model(model, DEFAULT_PRICING_MODELS, DEFAULT_MODEL_ALIASES)
+    assert resolved is not None, model
+    return resolved[1]
+
+
+@pytest.mark.parametrize(
+    ("model", "canonical"),
+    [
+        ("claude-opus-5", "claude-opus-5"),
+        ("claude-opus-5-20260401", "claude-opus-5"),
+        ("claude-haiku-4-5-20251001", "claude-haiku-4-5"),
+        ("claude-sonnet-5", "claude-sonnet-5"),
+        ("claude-opus-4-8", "claude-opus-4-8"),
+        ("CLAUDE-OPUS-5", "claude-opus-5"),
+    ],
+)
+def test_claude_models_and_snapshot_aliases_resolve(model: str, canonical: str) -> None:
+    resolved = get_pricing_for_model(model, DEFAULT_PRICING_MODELS, DEFAULT_MODEL_ALIASES)
+    assert resolved is not None
+    assert resolved[0] == canonical
+
+
+def test_claude_point_releases_do_not_collapse_into_one_entry() -> None:
+    """4.8 and 4.7 must not both fall through a broader `claude-opus-4*` alias.
+
+    They price the same today, which is exactly what would let a wrong alias go
+    unnoticed until a future release prices differently.
+    """
+    assert get_pricing_for_model("claude-opus-4-8", DEFAULT_PRICING_MODELS, DEFAULT_MODEL_ALIASES)[0] == (
+        "claude-opus-4-8"
+    )
+    assert get_pricing_for_model("claude-opus-4-7", DEFAULT_PRICING_MODELS, DEFAULT_MODEL_ALIASES)[0] == (
+        "claude-opus-4-7"
+    )
+
+
+def test_claude_pricing_has_no_long_context_premium() -> None:
+    """Claude 4.6+ carries the full 1M window at one rate.
+
+    A threshold copied from the gpt-5.4 entry would invent a premium above 200K
+    that Anthropic does not charge.
+    """
+    for model in ("claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"):
+        price = _price(model)
+        assert price.long_context_threshold_tokens is None
+        assert price.long_context_input_per_1m is None
+
+
+def test_claude_cache_rates_match_the_published_multipliers() -> None:
+    for model in ("claude-fable-5", "claude-opus-5", "claude-sonnet-5", "claude-haiku-4-5"):
+        price = _price(model)
+        assert price.cached_input_per_1m == pytest.approx(price.input_per_1m * 0.1)
+        assert price.cache_write_per_1m == pytest.approx(price.input_per_1m * 1.25)
+
+
+def test_sonnet_5_is_priced_at_the_standard_two_dollar_rate() -> None:
+    """The $3/$15 increase scheduled for 2026-09-01 was cancelled.
+
+    Pricing it at $3/$15 would overstate every Sonnet request by half.
+    """
+    price = _price("claude-sonnet-5")
+    assert price.input_per_1m == 2.0
+    assert price.output_per_1m == 10.0
+
+
+def test_three_input_parts_are_each_charged_once() -> None:
+    price = _price("claude-opus-5")
+    usage = UsageTokens(
+        input_tokens=1600,
+        output_tokens=200,
+        cached_input_tokens=1000,
+        cache_write_input_tokens=500,
+    )
+
+    breakdown = calculate_cost_breakdown_from_usage(usage, price)
+
+    assert breakdown is not None
+    assert breakdown.input_usd == pytest.approx(100 / 1_000_000 * 5.0)
+    assert breakdown.cached_input_usd == pytest.approx(1000 / 1_000_000 * 0.5)
+    assert breakdown.cache_write_usd == pytest.approx(500 / 1_000_000 * 6.25)
+    assert breakdown.output_usd == pytest.approx(200 / 1_000_000 * 25.0)
+
+
+def test_breakdown_components_sum_to_the_total() -> None:
+    price = _price("claude-opus-5")
+    usage = UsageTokens(
+        input_tokens=9_000,
+        output_tokens=1_500,
+        cached_input_tokens=7_000,
+        cache_write_input_tokens=1_500,
+    )
+
+    breakdown = calculate_cost_breakdown_from_usage(usage, price)
+
+    assert breakdown is not None
+    assert breakdown.total_usd == pytest.approx(
+        breakdown.input_usd + breakdown.cached_input_usd + breakdown.cache_write_usd + breakdown.output_usd
+    )
+
+
+def test_cache_writes_cost_more_than_the_same_tokens_uncached() -> None:
+    """The whole reason the counter is stored: writes are a premium, not a discount."""
+    price = _price("claude-opus-5")
+    as_write = calculate_cost_from_usage(
+        UsageTokens(input_tokens=1000, output_tokens=0, cache_write_input_tokens=1000),
+        price,
+    )
+    as_uncached = calculate_cost_from_usage(UsageTokens(input_tokens=1000, output_tokens=0), price)
+
+    assert as_write > as_uncached
+    assert as_write == pytest.approx(as_uncached * 1.25)
+
+
+def test_model_without_a_cache_write_rate_prices_writes_as_input() -> None:
+    """Every OpenAI entry is in this position; none of their costs may move."""
+    price = _price("gpt-5.4")
+    assert price.cache_write_per_1m is None
+
+    with_writes = calculate_cost_from_usage(
+        UsageTokens(input_tokens=1000, output_tokens=0, cache_write_input_tokens=400),
+        price,
+    )
+    without_writes = calculate_cost_from_usage(UsageTokens(input_tokens=1000, output_tokens=0), price)
+
+    assert with_writes == pytest.approx(without_writes)
+
+
+def test_cache_parts_cannot_bill_more_input_than_the_request_had() -> None:
+    price = _price("claude-opus-5")
+    usage = UsageTokens(
+        input_tokens=100,
+        output_tokens=0,
+        cached_input_tokens=90,
+        cache_write_input_tokens=90,
+    )
+
+    breakdown = calculate_cost_breakdown_from_usage(usage, price)
+
+    assert breakdown is not None
+    # 90 reads leave 10 tokens of headroom, so the writes are clamped to 10 and
+    # nothing is left uncached.
+    assert breakdown.input_usd == pytest.approx(0.0)
+    assert breakdown.cached_input_usd == pytest.approx(90 / 1_000_000 * 0.5)
+    assert breakdown.cache_write_usd == pytest.approx(10 / 1_000_000 * 6.25)
+
+
+def test_claude_code_shaped_request_is_dominated_by_cache_reads() -> None:
+    """A realistic shape, to catch a rate that is off by a factor of ten.
+
+    Real relay traffic runs about 89% cache reads; at the base input rate the
+    same request would cost roughly six times as much.
+    """
+    price = _price("claude-opus-5")
+    usage = UsageTokens(
+        input_tokens=200_000,
+        output_tokens=1_000,
+        cached_input_tokens=178_000,
+        cache_write_input_tokens=20_000,
+    )
+
+    total = calculate_cost_from_usage(usage, price)
+    priced_flat = (200_000 / 1_000_000 * 5.0) + (1_000 / 1_000_000 * 25.0)
+
+    assert total == pytest.approx(
+        2_000 / 1_000_000 * 5.0 + 178_000 / 1_000_000 * 0.5 + 20_000 / 1_000_000 * 6.25 + 1_000 / 1_000_000 * 25.0
+    )
+    assert total < priced_flat / 3

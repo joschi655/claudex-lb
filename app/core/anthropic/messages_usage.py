@@ -11,6 +11,12 @@ writes as three disjoint counters, but ``request_logs`` treats
 ``cached_input_tokens`` as a subset of ``input_tokens`` (the cost path computes
 billable input as the difference). Summing the three on the way in is what makes
 the stored row mean the same thing for both providers.
+
+The cache writes are carried through as their own field as well as into the
+total, because they are billed above the base input rate (1.25x for a 5-minute
+entry) while cache reads are billed below it. Folding them into the total alone
+would leave them indistinguishable from uncached input and therefore priced as
+if they were.
 """
 
 from __future__ import annotations
@@ -36,12 +42,20 @@ class AnthropicMessageUsage:
     model: str | None = None
     input_tokens: int | None = None
     cached_input_tokens: int | None = None
+    cache_write_input_tokens: int | None = None
     output_tokens: int | None = None
 
     @property
     def has_any(self) -> bool:
         return any(
-            value is not None for value in (self.model, self.input_tokens, self.cached_input_tokens, self.output_tokens)
+            value is not None
+            for value in (
+                self.model,
+                self.input_tokens,
+                self.cached_input_tokens,
+                self.cache_write_input_tokens,
+                self.output_tokens,
+            )
         )
 
 
@@ -132,6 +146,8 @@ class SseUsageAccumulator:
             merged = replace(merged, input_tokens=update.input_tokens)
         if update.cached_input_tokens is not None:
             merged = replace(merged, cached_input_tokens=update.cached_input_tokens)
+        if update.cache_write_input_tokens is not None:
+            merged = replace(merged, cache_write_input_tokens=update.cache_write_input_tokens)
         if update.output_tokens is not None:
             merged = replace(merged, output_tokens=update.output_tokens)
         self._usage = merged
@@ -157,6 +173,7 @@ def _usage_from_usage_object(usage: dict[str, object]) -> AnthropicMessageUsage:
     return AnthropicMessageUsage(
         input_tokens=total_input,
         cached_input_tokens=cache_read,
+        cache_write_input_tokens=cache_write,
         output_tokens=output,
     )
 

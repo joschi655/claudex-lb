@@ -319,6 +319,11 @@ class RequestLog(Base):
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cached_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # Prompt-cache writes, a second disjoint subset of ``input_tokens`` beside
+    # ``cached_input_tokens``. Nullable rather than defaulted to zero so a row
+    # written before the counter existed stays distinguishable from a request
+    # that genuinely wrote nothing to cache.
+    cache_write_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     reasoning_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cost_usd: Mapped[float | None] = mapped_column(Float, nullable=True)
     reasoning_effort: Mapped[str | None] = mapped_column(String, nullable=True)

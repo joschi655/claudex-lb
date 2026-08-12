@@ -107,6 +107,7 @@ class _PendingRequestLog:
     input_tokens: int | None = None
     output_tokens: int | None = None
     cached_input_tokens: int | None = None
+    cache_write_input_tokens: int | None = None
 
 
 class AnthropicProxyService:
@@ -427,6 +428,7 @@ class AnthropicProxyService:
                 input_tokens=usage.input_tokens,
                 output_tokens=usage.output_tokens,
                 cached_input_tokens=usage.cached_input_tokens,
+                cache_write_input_tokens=usage.cache_write_input_tokens,
             )
         )
 
@@ -477,6 +479,7 @@ class AnthropicProxyService:
                     input_tokens=row.input_tokens,
                     output_tokens=row.output_tokens,
                     cached_input_tokens=row.cached_input_tokens,
+                    cache_write_input_tokens=row.cache_write_input_tokens,
                     latency_ms=row.latency_ms,
                     latency_first_token_ms=row.latency_first_token_ms,
                     status=row.status,

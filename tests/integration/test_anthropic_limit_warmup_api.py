@@ -35,9 +35,7 @@ class _FakeUpstreamResponse:
         self.closed = True
 
 
-def _queue_warmup_upstream(
-    monkeypatch: pytest.MonkeyPatch, response: _FakeUpstreamResponse
-) -> list[dict[str, object]]:
+def _queue_warmup_upstream(monkeypatch: pytest.MonkeyPatch, response: _FakeUpstreamResponse) -> list[dict[str, object]]:
     sent: list[dict[str, object]] = []
 
     async def _fake_open_messages(url: str, *, body: bytes, headers: Mapping[str, str], idle_timeout_seconds: float):

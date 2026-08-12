@@ -105,6 +105,7 @@ async def test_request_logs_api_returns_recent(async_client, db_setup):
     assert latest["costBreakdown"] == {
         "inputUsd": None,
         "cachedInputUsd": None,
+        "cacheWriteUsd": None,
         "outputUsd": None,
         "totalUsd": None,
     }
@@ -124,6 +125,9 @@ async def test_request_logs_api_returns_recent(async_client, db_setup):
     assert older["costBreakdown"] == {
         "inputUsd": None,
         "cachedInputUsd": None,
+        # Shares the input branch's guard: a row that cannot resolve its input
+        # components cannot resolve the cache-write one either.
+        "cacheWriteUsd": None,
         "outputUsd": pytest.approx(0.002),
         "totalUsd": pytest.approx(0.002125),
     }

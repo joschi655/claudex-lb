@@ -4,6 +4,7 @@ from typing import cast as typing_cast
 
 from app.core.usage.logs import (
     RequestLogLike,
+    cache_write_input_tokens_from_log,
     cached_input_tokens_from_log,
     cost_breakdown_from_log,
     output_tokens_from_log,
@@ -70,6 +71,7 @@ def to_request_log_entry(log: RequestLog, *, api_key_name: str | None = None) ->
         output_tokens=output_tokens_from_log(log_like),
         output_tokens_raw=log.output_tokens,
         cached_input_tokens=cached_input_tokens_from_log(log_like),
+        cache_write_input_tokens=cache_write_input_tokens_from_log(log_like),
         cost_usd=cost_breakdown.total_usd,
         cost_breakdown=RequestLogCostBreakdown(**cost_breakdown.__dict__),
         latency_ms=log.latency_ms,

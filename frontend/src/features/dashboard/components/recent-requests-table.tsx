@@ -93,8 +93,14 @@ function formatRequestCostSummary(request: RequestLog | null): string | null {
   const totalUsd = request.costBreakdown?.totalUsd ?? request.costUsd;
   const segments: string[] = [];
   const cachedInputTokens = request.cachedInputTokens ?? 0;
+  // Cache writes are the third disjoint part of the input total, billed above
+  // the base rate while reads are billed below it. Subtracting both is what
+  // leaves the uncached input the first segment claims to describe.
+  const cacheWriteInputTokens = request.cacheWriteInputTokens ?? 0;
   const nonCachedInputTokens =
-    request.inputTokens == null ? null : Math.max(0, request.inputTokens - cachedInputTokens);
+    request.inputTokens == null
+      ? null
+      : Math.max(0, request.inputTokens - cachedInputTokens - cacheWriteInputTokens);
 
   if (nonCachedInputTokens != null && request.costBreakdown?.inputUsd != null) {
     segments.push(
@@ -105,6 +111,12 @@ function formatRequestCostSummary(request: RequestLog | null): string | null {
   if (request.cachedInputTokens != null && request.costBreakdown?.cachedInputUsd != null) {
     segments.push(
       `${formatCompactNumber(request.cachedInputTokens)} Cached (${formatCurrency(request.costBreakdown.cachedInputUsd)})`,
+    );
+  }
+
+  if (request.cacheWriteInputTokens != null && request.costBreakdown?.cacheWriteUsd != null) {
+    segments.push(
+      `${formatCompactNumber(request.cacheWriteInputTokens)} Cache write (${formatCurrency(request.costBreakdown.cacheWriteUsd)})`,
     );
   }
 

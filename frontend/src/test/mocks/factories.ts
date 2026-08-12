@@ -378,11 +378,13 @@ export function createRequestLogEntry(
 		inputTokens: 1200,
 		outputTokens: 600,
 		cachedInputTokens: 320,
+		cacheWriteInputTokens: null,
 		reasoningEffort: null,
 		costUsd: 0.0132,
 		costBreakdown: {
 			inputUsd: 0.0054,
 			cachedInputUsd: 0.0012,
+			cacheWriteUsd: null,
 			outputUsd: 0.0066,
 			totalUsd: 0.0132,
 		},

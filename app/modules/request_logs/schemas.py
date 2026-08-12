@@ -10,6 +10,7 @@ from app.modules.shared.schemas import DashboardModel
 class RequestLogCostBreakdown(DashboardModel):
     input_usd: float | None = None
     cached_input_usd: float | None = None
+    cache_write_usd: float | None = None
     output_usd: float | None = None
     total_usd: float | None = None
 
@@ -50,6 +51,7 @@ class RequestLogEntry(DashboardModel):
     output_tokens: int | None = None
     output_tokens_raw: int | None = None
     cached_input_tokens: int | None = None
+    cache_write_input_tokens: int | None = None
     reasoning_effort: str | None = None
     cost_usd: float | None = None
     cost_breakdown: RequestLogCostBreakdown = Field(default_factory=RequestLogCostBreakdown)

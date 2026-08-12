@@ -80,9 +80,7 @@ class TestNonStreamingParse:
         assert usage.output_tokens is None
 
     def test_negative_and_non_integer_counts_are_ignored(self) -> None:
-        body = json.dumps(
-            {"model": "claude-opus-5", "usage": {"input_tokens": -3, "output_tokens": "many"}}
-        ).encode()
+        body = json.dumps({"model": "claude-opus-5", "usage": {"input_tokens": -3, "output_tokens": "many"}}).encode()
         usage = parse_message_usage(body)
         assert usage.input_tokens is None
         assert usage.output_tokens is None
@@ -167,3 +165,49 @@ class TestStreamingAccumulator:
         accumulator.feed(b"data: " + padded + b"\n")
 
         assert accumulator.usage.input_tokens is None
+
+
+class TestCacheWriteCounter:
+    """Cache writes are billed at 1.25x base input while reads are billed at 0.1x.
+
+    Folding them into the input total alone leaves them indistinguishable from
+    uncached input, and therefore priced as if they were uncached.
+    """
+
+    def test_buffered_response_keeps_the_counter(self) -> None:
+        body = json.dumps(
+            {
+                "model": "claude-opus-5",
+                "usage": {
+                    "input_tokens": 10,
+                    "cache_read_input_tokens": 90,
+                    "cache_creation_input_tokens": 5,
+                    "output_tokens": 42,
+                },
+            }
+        ).encode()
+
+        usage = parse_message_usage(body)
+
+        assert usage.input_tokens == 105
+        assert usage.cached_input_tokens == 90
+        assert usage.cache_write_input_tokens == 5
+
+    def test_absent_cache_creation_records_no_counter(self) -> None:
+        body = json.dumps({"model": "claude-opus-5", "usage": {"input_tokens": 10, "output_tokens": 3}}).encode()
+
+        usage = parse_message_usage(body)
+
+        assert usage.cache_write_input_tokens is None
+
+    def test_streamed_counter_survives_later_deltas(self) -> None:
+        accumulator = SseUsageAccumulator()
+        accumulator.feed(_message_start(input_tokens=10, cache_read_input_tokens=90, cache_creation_input_tokens=5))
+        accumulator.feed(_sse("message_delta", {"type": "message_delta", "usage": {"output_tokens": 42}}))
+
+        assert accumulator.usage.cache_write_input_tokens == 5
+        assert accumulator.usage.cached_input_tokens == 90
+        assert accumulator.usage.output_tokens == 42
+
+    def test_counter_alone_makes_usage_present(self) -> None:
+        assert AnthropicMessageUsage(cache_write_input_tokens=5).has_any

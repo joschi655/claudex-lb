@@ -547,6 +547,9 @@ async def test_request_logs_partial_rows_keep_nullable_cost_breakdown_shape(asyn
     assert entry["costBreakdown"] == {
         "inputUsd": pytest.approx(round((900 / 1_000_000) * 1.25, 6)),
         "cachedInputUsd": pytest.approx(round((100 / 1_000_000) * 0.125, 6)),
+        # A row with no recorded cache writes charges none, on a model that
+        # states no separate write rate either.
+        "cacheWriteUsd": 0.0,
         "outputUsd": None,
         "totalUsd": None,
     }

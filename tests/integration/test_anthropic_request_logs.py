@@ -147,13 +147,18 @@ async def test_successful_completion_is_logged_with_usage(async_client, monkeypa
     assert log.model == "claude-opus-5"
     assert log.input_tokens == 105
     assert log.cached_input_tokens == 90
+    assert log.cache_write_input_tokens == 5
     assert log.output_tokens == 42
     assert log.latency_ms is not None
     assert log.useragent == "claude-cli/2.1.0 (external, cli)"
     assert log.useragent_group == "claude-cli"
     assert log.transport == "http"
-    # Subscription seats have no marginal per-request price.
-    assert log.cost_usd is None
+    # Priced at Opus 5 list rates, with each of the three input parts charged
+    # once: 10 uncached at $5/M, 90 cache reads at $0.50/M, 5 cache writes at
+    # $6.25/M, 42 output at $25/M. Subscription seats are billed nothing for
+    # this request; the figure is what it would have cost on the API, which is
+    # the same basis every other provider's rows already use.
+    assert log.cost_usd == pytest.approx(10 / 1e6 * 5.0 + 90 / 1e6 * 0.5 + 5 / 1e6 * 6.25 + 42 / 1e6 * 25.0)
     assert log.account_id is not None
 
 
