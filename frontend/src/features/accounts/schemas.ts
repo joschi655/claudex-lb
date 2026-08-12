@@ -96,7 +96,8 @@ export const AccountSummarySchema = z.object({
   workspaceLabel: z.string().nullable().optional(),
   seatType: z.string().nullable().optional(),
   planType: z.string(),
-  routingPolicy: z.enum(["normal", "burn_first", "preserve", "pinned"]).optional(),
+  routingPolicy: z.enum(["normal", "burn_first", "preserve"]).optional(),
+  pinned: z.boolean().optional(),
   lastServedAt: z.string().nullable().optional(),
   paceMarginPrimaryPct: z.number().nullable().optional(),
   paceMarginSecondaryPct: z.number().nullable().optional(),
@@ -261,11 +262,12 @@ export const AccountUsageResetConsumeResponseSchema = z.object({
   accountStatusAfter: z.string(),
 });
 
+// The pin is deliberately absent: it lives on its own field, so an account can
+// be pinned and `preserve` at once and returns to `preserve` when the pin lifts.
 const AccountRoutingPolicySchema = z.enum([
   "normal",
   "burn_first",
   "preserve",
-  "pinned",
 ]);
 
 // Every gate is nullable and independently optional: omitting a field leaves the
@@ -311,6 +313,31 @@ export const AccountRoutingPolicyUpdateRequestSchema = z.object({
 export const AccountRoutingPolicyUpdateResponseSchema = z.object({
   accountId: z.string(),
   routingPolicy: AccountRoutingPolicySchema,
+});
+
+export const AccountPinUpdateRequestSchema = z.object({
+  pinned: z.boolean(),
+});
+
+export const AccountPinUpdateResponseSchema = z.object({
+  accountId: z.string(),
+  pinned: z.boolean(),
+  // Echoed back so an unpin can show which policy the account fell back to.
+  routingPolicy: AccountRoutingPolicySchema,
+});
+
+// Who serves next, per provider. `certain` is false when the configured strategy
+// draws at random among weighted candidates -- the account named is then the
+// front-runner rather than a promise, and the UI has to say so.
+export const NextAccountEntrySchema = z.object({
+  provider: z.string(),
+  accountId: z.string().nullable().optional(),
+  certain: z.boolean().default(true),
+  errorMessage: z.string().nullable().optional(),
+});
+
+export const NextAccountsResponseSchema = z.object({
+  nextUp: z.array(NextAccountEntrySchema).default([]),
 });
 
 export const AccountUpdateRequestSchema = z.object({
@@ -393,6 +420,8 @@ export type ConsumeRateLimitResetCreditResponse = z.infer<
   typeof ConsumeRateLimitResetCreditResponseSchema
 >;
 export type AccountRoutingPolicy = z.infer<typeof AccountRoutingPolicySchema>;
+export type NextAccountEntry = z.infer<typeof NextAccountEntrySchema>;
+export type NextAccountsResponse = z.infer<typeof NextAccountsResponseSchema>;
 export type AccountAliasResponse = z.infer<typeof AccountAliasResponseSchema>;
 export type AccountLimitWarmupStatus = z.infer<
   typeof AccountLimitWarmupStatusSchema

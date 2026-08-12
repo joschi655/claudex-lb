@@ -91,7 +91,11 @@ const AccountAliasPayloadSchema = z.object({
 });
 
 const AccountRoutingPolicyPayloadSchema = z.object({
-  routingPolicy: z.enum(["normal", "burn_first", "preserve", "pinned"]),
+  routingPolicy: z.enum(["normal", "burn_first", "preserve"]),
+});
+
+const AccountPinPayloadSchema = z.object({
+  pinned: z.boolean(),
 });
 
 const SettingsPayloadSchema = z.looseObject({
@@ -796,6 +800,26 @@ export const handlers = [
     return HttpResponse.json({ accounts: state.accounts });
   }),
 
+  // Declared ahead of the ":accountId" routes so the literal path is not read
+  // as an account id -- the same ordering the server itself needs.
+  http.get("/api/accounts/next-up", () => {
+    const seen = new Set<string>();
+    const nextUp = state.accounts
+      .filter((account) => account.status === "active")
+      .filter((account) => {
+        const provider = account.provider ?? "openai";
+        if (seen.has(provider)) return false;
+        seen.add(provider);
+        return true;
+      })
+      .map((account) => ({
+        provider: account.provider ?? "openai",
+        accountId: account.accountId,
+        certain: account.pinned === true,
+      }));
+    return HttpResponse.json({ nextUp });
+  }),
+
   http.post("/api/accounts/import", async () => {
     const sequence = state.accounts.length + 1;
     const created = createAccountSummary({
@@ -925,6 +949,41 @@ export const handlers = [
       });
     },
   ),
+
+  http.put("/api/accounts/:accountId/pin", async ({ params, request }) => {
+    const accountId = String(params.accountId);
+    const account = findAccount(accountId);
+    if (!account) {
+      return HttpResponse.json(
+        { error: { code: "account_not_found", message: "Account not found" } },
+        { status: 404 },
+      );
+    }
+    const payload = await parseJsonBody(request, AccountPinPayloadSchema);
+    if (!payload) {
+      return HttpResponse.json(
+        {
+          error: { code: "validation_error", message: "Invalid pin payload" },
+        },
+        { status: 422 },
+      );
+    }
+    if (payload.pinned) {
+      for (const other of state.accounts) {
+        if (other.accountId === accountId) continue;
+        if ((other.provider ?? "openai") !== (account.provider ?? "openai")) continue;
+        other.pinned = false;
+      }
+    }
+    account.pinned = payload.pinned;
+    // The routing policy is deliberately untouched: that is the whole point of
+    // the pin having its own field.
+    return HttpResponse.json({
+      accountId,
+      pinned: account.pinned,
+      routingPolicy: account.routingPolicy ?? "normal",
+    });
+  }),
 
   http.patch("/api/accounts/:accountId", async ({ params, request }) => {
     const accountId = String(params.accountId);

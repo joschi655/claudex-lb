@@ -66,21 +66,31 @@ async def _set_policy(async_client, account_id: str, policy: str):
     )
 
 
+async def _set_pin(async_client, account_id: str, pinned: bool):
+    return await async_client.put(f"/api/accounts/{account_id}/pin", json={"pinned": pinned})
+
+
 async def _policies(async_client) -> dict[str, str]:
     response = await async_client.get("/api/accounts")
     assert response.status_code == 200, response.text
     return {account["accountId"]: account["routingPolicy"] for account in response.json()["accounts"]}
 
 
+async def _pins(async_client) -> dict[str, bool]:
+    response = await async_client.get("/api/accounts")
+    assert response.status_code == 200, response.text
+    return {account["accountId"]: account["pinned"] for account in response.json()["accounts"]}
+
+
 @pytest.mark.asyncio
 async def test_pin_is_accepted_and_reported(async_client):
     account_id = await _import_account(async_client, "pin-one@example.com", "acct-pin-1")
 
-    response = await _set_policy(async_client, account_id, "pinned")
+    response = await _set_pin(async_client, account_id, True)
 
     assert response.status_code == 200, response.text
-    assert response.json()["routingPolicy"] == "pinned"
-    assert (await _policies(async_client))[account_id] == "pinned"
+    assert response.json()["pinned"] is True
+    assert (await _pins(async_client))[account_id] is True
 
 
 @pytest.mark.asyncio
@@ -88,25 +98,39 @@ async def test_pinning_demotes_the_previous_pin(async_client):
     first = await _import_account(async_client, "pin-a@example.com", "acct-pin-a")
     second = await _import_account(async_client, "pin-b@example.com", "acct-pin-b")
 
-    assert (await _set_policy(async_client, first, "pinned")).status_code == 200
-    assert (await _set_policy(async_client, second, "pinned")).status_code == 200
+    assert (await _set_pin(async_client, first, True)).status_code == 200
+    assert (await _set_pin(async_client, second, True)).status_code == 200
 
-    policies = await _policies(async_client)
-    assert policies[second] == "pinned"
-    assert policies[first] == "normal"
+    pins = await _pins(async_client)
+    assert pins[second] is True
+    assert pins[first] is False
 
 
 @pytest.mark.asyncio
-async def test_pinning_leaves_other_routing_policies_alone(async_client):
-    kept = await _import_account(async_client, "pin-keep@example.com", "acct-pin-keep")
-    target = await _import_account(async_client, "pin-target@example.com", "acct-pin-target")
+async def test_pinning_leaves_the_account_routing_policy_alone(async_client):
+    """The whole point of the separate field: the policy survives the pin."""
+    account_id = await _import_account(async_client, "pin-keep@example.com", "acct-pin-keep")
+    assert (await _set_policy(async_client, account_id, "preserve")).status_code == 200
 
-    assert (await _set_policy(async_client, kept, "preserve")).status_code == 200
-    assert (await _set_policy(async_client, target, "pinned")).status_code == 200
+    assert (await _set_pin(async_client, account_id, True)).status_code == 200
 
-    policies = await _policies(async_client)
-    assert policies[kept] == "preserve"
-    assert policies[target] == "pinned"
+    assert (await _policies(async_client))[account_id] == "preserve"
+    assert (await _pins(async_client))[account_id] is True
+
+
+@pytest.mark.asyncio
+async def test_unpinning_restores_the_policy_the_account_already_had(async_client):
+    account_id = await _import_account(async_client, "pin-restore@example.com", "acct-pin-restore")
+    assert (await _set_policy(async_client, account_id, "burn_first")).status_code == 200
+    assert (await _set_pin(async_client, account_id, True)).status_code == 200
+
+    response = await _set_pin(async_client, account_id, False)
+
+    assert response.status_code == 200, response.text
+    assert response.json()["pinned"] is False
+    # Echoed back so the caller can see the fallback without a second read.
+    assert response.json()["routingPolicy"] == "burn_first"
+    assert (await _policies(async_client))[account_id] == "burn_first"
 
 
 @pytest.mark.asyncio
@@ -114,29 +138,29 @@ async def test_pinning_is_scoped_to_one_provider(async_client):
     codex = await _import_account(async_client, "pin-codex@example.com", "acct-pin-codex")
     claude = await _import_claude_account(async_client, "pin-claude@example.com")
 
-    assert (await _set_policy(async_client, codex, "pinned")).status_code == 200
-    assert (await _set_policy(async_client, claude, "pinned")).status_code == 200
+    assert (await _set_pin(async_client, codex, True)).status_code == 200
+    assert (await _set_pin(async_client, claude, True)).status_code == 200
 
-    policies = await _policies(async_client)
-    assert policies[claude] == "pinned"
-    assert policies[codex] == "pinned"
-
-
-@pytest.mark.asyncio
-async def test_unpinning_is_an_ordinary_policy_write(async_client):
-    account_id = await _import_account(async_client, "pin-off@example.com", "acct-pin-off")
-
-    assert (await _set_policy(async_client, account_id, "pinned")).status_code == 200
-    assert (await _set_policy(async_client, account_id, "normal")).status_code == 200
-
-    assert (await _policies(async_client))[account_id] == "normal"
+    pins = await _pins(async_client)
+    assert pins[claude] is True
+    assert pins[codex] is True
 
 
 @pytest.mark.asyncio
 async def test_pinning_an_unknown_account_is_not_found(async_client):
-    response = await _set_policy(async_client, "does-not-exist", "pinned")
+    response = await _set_pin(async_client, "does-not-exist", True)
 
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_the_pin_is_no_longer_a_routing_policy_value(async_client):
+    """A pin written the old way must be rejected, not silently stored."""
+    account_id = await _import_account(async_client, "pin-legacy@example.com", "acct-pin-legacy")
+
+    response = await _set_policy(async_client, account_id, "pinned")
+
+    assert response.status_code == 422
 
 
 @pytest.mark.asyncio

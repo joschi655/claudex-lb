@@ -3,22 +3,35 @@
 `claudex-lb.1m.ts` is a [SwiftBar](https://github.com/swiftbar/SwiftBar) menu-bar
 plugin for claudex-lb with one section per provider — **Claude ✳ (anthropic)**
 and **Codex ⇄ (openai)**, they are separate assistants and never affect each
-other. Per section it shows which account the load balancer is currently
-serving (5h/weekly windows, request counts, cost, last request) and lets you
-pin any account manually or return to auto load-balancing.
+other. Per section it shows which account the load balancer will serve the
+**next** request from (5h/weekly windows, request counts, cost, last request)
+and lets you pin any account manually or return to auto load-balancing.
 
 It is a pure dashboard-API client: no server changes, no credential custody.
-"Current" is the account of the most recent proxied request per provider (a
-proxy for "live", not ground truth while several accounts are active).
+"Next" comes from `GET /api/accounts/next-up`, which runs the pool's own
+selector as a dry run — it takes no lease and changes nothing. The newest
+request log row used to answer this instead, which was wrong in exactly the
+cases worth looking at: right after a pin, a pause, or a window running out it
+went on naming the previous account until fresh traffic arrived, and on an idle
+pool it never caught up.
 
-- **Pin an account**: reactivates the target first, then pauses every other
-  pausable account **of the same provider** (the pool is never empty; a failed
-  target-reactivate aborts before anything is paused). Provider scoping is
-  enforced client-side on each account's `provider` field — deployed servers
-  may ignore the `?provider=` query param, so the plugin never relies on it.
-- **Auto mode (per section)**: reactivates that provider's paused accounts.
+The line reads **"Likely next"** when the configured routing strategy draws at
+random among the accounts with capacity, so a coin flip is never shown as a
+settled answer. A pin, a deterministic strategy, or a single candidate makes it
+exact. If the server reports that nothing can serve, the menu says so rather
+than guessing a name.
+
+- **Pin an account**: writes `PUT /api/accounts/<id>/pin`, then reactivates the
+  target if it was paused (in that order, so a failed pin leaves nothing
+  half-applied). Other accounts stay live rather than being paused, so failover
+  has somewhere to go. The pin is its own field: an account keeps its routing
+  policy while pinned and returns to it when the pin lifts. Provider scoping is
+  enforced client-side on each account's `provider` field — deployed servers may
+  ignore the `?provider=` query param, so the plugin never relies on it.
+- **Auto mode (per section)**: clears that provider's pin, drops any leftover
+  `burn_first` mark, and reactivates its paused accounts.
 - Menu bar title: `✳71% ⇄69%` — remaining window percent per provider's
-  current account, `📌` when manually pinned.
+  next account, `📌` when manually pinned.
 
 ## Requirements
 

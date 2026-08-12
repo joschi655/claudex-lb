@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import APIRouter, Depends, File, Request, Response, UploadFile
 
 from app.core.audit.service import AuditService
@@ -16,8 +18,15 @@ from app.core.exceptions import (
     DashboardNotFoundError,
     DashboardUpstreamError,
 )
+from app.core.providers import PROVIDER_ANTHROPIC, PROVIDER_OPENAI
 from app.core.upstream_proxy import UpstreamProxyRouteError
-from app.dependencies import AccountsContext, get_accounts_context
+from app.dependencies import (
+    AccountsContext,
+    get_accounts_context,
+    get_anthropic_proxy_service_for_app,
+    get_proxy_service_for_app,
+)
+from app.modules.accounts.mappers import normalize_account_routing_policy
 from app.modules.accounts.repository import AccountIdentityConflictError, PaceGateUpdate
 from app.modules.accounts.schemas import (
     AccountAliasRequest,
@@ -33,6 +42,8 @@ from app.modules.accounts.schemas import (
     AccountPaceGatesUpdateRequest,
     AccountPaceGatesUpdateResponse,
     AccountPauseResponse,
+    AccountPinUpdateRequest,
+    AccountPinUpdateResponse,
     AccountProbeRequest,
     AccountProbeResponse,
     AccountReactivateResponse,
@@ -45,6 +56,8 @@ from app.modules.accounts.schemas import (
     AccountUsageResetConsumeRequest,
     AccountUsageResetConsumeResponse,
     AccountUsageResetCreditsResponse,
+    NextAccountEntry,
+    NextAccountsResponse,
 )
 from app.modules.accounts.service import (
     AccountNotProbableError,
@@ -55,6 +68,8 @@ from app.modules.accounts.service import (
     InvalidAuthJsonError,
     ProviderActionUnsupportedError,
 )
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/api/accounts",
@@ -69,6 +84,40 @@ async def list_accounts(
 ) -> AccountsResponse:
     accounts = await context.service.list_accounts()
     return AccountsResponse(accounts=accounts)
+
+
+@router.get("/next-up", response_model=NextAccountsResponse)
+async def get_next_accounts(request: Request) -> NextAccountsResponse:
+    """Which account each provider would route a new request to.
+
+    Asked of the running proxy services rather than recomputed here: the answer
+    turns on runtime state — leases, cooldowns, health tiers — that only the
+    instances actually serving traffic hold. Each provider is answered
+    independently, and one provider failing to answer does not hide the other.
+
+    Declared above ``/{account_id}/trends`` so the literal path is not captured
+    as an account id.
+    """
+    entries: list[NextAccountEntry] = []
+    for provider, resolve in (
+        (PROVIDER_OPENAI, get_proxy_service_for_app(request.app).preview_next_account),
+        (PROVIDER_ANTHROPIC, get_anthropic_proxy_service_for_app(request.app).preview_next_account),
+    ):
+        try:
+            preview = await resolve()
+        except Exception:
+            logger.warning("Next-account preview failed provider=%s", provider, exc_info=True)
+            entries.append(NextAccountEntry(provider=provider, account_id=None, error_message="Preview unavailable"))
+            continue
+        entries.append(
+            NextAccountEntry(
+                provider=provider,
+                account_id=preview.account_id,
+                certain=preview.certain,
+                error_message=preview.error_message,
+            )
+        )
+    return NextAccountsResponse(next_up=entries)
 
 
 @router.get("/{account_id}/trends", response_model=AccountTrendsResponse)
@@ -403,6 +452,26 @@ async def update_account_routing_policy(
     if not success:
         raise DashboardNotFoundError("Account not found", code="account_not_found")
     return AccountRoutingPolicyUpdateResponse(account_id=account_id, routing_policy=payload.routing_policy)
+
+
+@router.put("/{account_id}/pin", response_model=AccountPinUpdateResponse)
+async def update_account_pin(
+    account_id: str,
+    payload: AccountPinUpdateRequest,
+    _write_access=Depends(require_dashboard_write_access),
+    context: AccountsContext = Depends(get_accounts_context),
+) -> AccountPinUpdateResponse:
+    account = await context.service.set_pinned(account_id, payload.pinned)
+    if account is None:
+        raise DashboardNotFoundError("Account not found", code="account_not_found")
+    return AccountPinUpdateResponse(
+        account_id=account_id,
+        pinned=bool(account.pinned),
+        # Normalized like the account summary's copy: a row still carrying the
+        # legacy "pinned" value would otherwise reach a client that no longer
+        # accepts it as a policy.
+        routing_policy=normalize_account_routing_policy(account.routing_policy),
+    )
 
 
 @router.put("/{account_id}/pace-gates", response_model=AccountPaceGatesUpdateResponse)

@@ -31,6 +31,7 @@ const EXPECTED_ENDPOINTS = [
 	"GET /api/request-logs/options",
 	// accounts
 	"GET /api/accounts",
+	"GET /api/accounts/next-up",
 	"POST /api/accounts/import",
 	"PATCH /api/accounts/:accountId",
 	"POST /api/accounts/:accountId/pause",
@@ -39,6 +40,7 @@ const EXPECTED_ENDPOINTS = [
 	"PUT /api/accounts/:accountId/alias",
 	"PUT /api/accounts/:accountId/limit-warmup",
 	"PUT /api/accounts/:accountId/routing-policy",
+	"PUT /api/accounts/:accountId/pin",
 	"GET /api/accounts/:accountId/trends",
 	"GET /api/accounts/:accountId/usage-reset-credits",
 	"POST /api/accounts/:accountId/usage-reset-credits/consume",

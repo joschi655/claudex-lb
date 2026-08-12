@@ -4,7 +4,7 @@ from datetime import datetime
 
 from app.db.models import Account, AccountStatus, UsageHistory
 from app.modules.accounts import mappers
-from app.modules.accounts.mappers import _effective_status_from_usage, _normalize_account_routing_policy
+from app.modules.accounts.mappers import _effective_status_from_usage, normalize_account_routing_policy
 
 
 def _usage(
@@ -165,8 +165,11 @@ def test_effective_status_keeps_paused_account_paused_with_usable_credits() -> N
 
 
 def test_normalize_account_routing_policy() -> None:
-    assert _normalize_account_routing_policy("normal") == "normal"
-    assert _normalize_account_routing_policy("burn_first") == "burn_first"
-    assert _normalize_account_routing_policy("preserve") == "preserve"
-    assert _normalize_account_routing_policy("legacy") == "normal"
-    assert _normalize_account_routing_policy(None) == "normal"
+    assert normalize_account_routing_policy("normal") == "normal"
+    assert normalize_account_routing_policy("burn_first") == "burn_first"
+    assert normalize_account_routing_policy("preserve") == "preserve"
+    assert normalize_account_routing_policy("legacy") == "normal"
+    assert normalize_account_routing_policy(None) == "normal"
+    # "pinned" is the legacy value that actually exists in the wild: a row the
+    # migration has not reached must not reach a client as a routing policy.
+    assert normalize_account_routing_policy("pinned") == "normal"

@@ -86,6 +86,7 @@ from app.core.openai.requests import (
     ResponsesCompactRequest,
     ResponsesRequest,
 )
+from app.core.providers import PROVIDER_OPENAI
 from app.core.resilience.network_recovery import PROCESS_NETWORK_UNAVAILABLE_CODE
 from app.core.resilience.network_recovery import (
     ProcessNetworkRecovery as ProcessNetworkRecovery,
@@ -741,6 +742,7 @@ from app.modules.proxy.load_balancer import (
     AccountLeaseKind,
     AccountSelection,
     LoadBalancer,
+    NextAccountPreview,
     effective_account_concurrency_caps,
 )
 from app.modules.proxy.repo_bundle import ProxyRepoFactory
@@ -967,6 +969,43 @@ class ProxyService(
         self._http_bridge_lock = anyio.Lock()
         self._work_admission: WorkAdmissionController | None = None
         self._request_log_tasks: set[asyncio.Task[None]] = set()
+
+    async def preview_next_account(self) -> NextAccountPreview:
+        """Which Codex account a new request would land on.
+
+        Delegated to this service rather than to a fresh balancer because the
+        answer depends on runtime state — leases, cooldowns, health tiers — that
+        lives only on the instance actually serving Codex traffic.
+        """
+        settings = await get_settings_cache().get()
+        strategy = _routing_strategy(settings)
+        scoped_account_ids: set[str] | None = None
+        if strategy == "single_account":
+            # The strategy names the account outright, but naming it is not the
+            # same as it being able to serve: the relay scopes selection to that
+            # one id and still runs every eligibility filter, so a paused or
+            # rate-limited seat yields no account at all. Echoing the configured
+            # id here would report a dead seat as "Next" -- and the list replaces
+            # the status badge with that, hiding the very state that matters.
+            account_id = (settings.single_account_id or "").strip()
+            if not account_id:
+                return NextAccountPreview(
+                    account_id=None,
+                    error_message="No account selected for single-account routing",
+                    certain=True,
+                )
+            scoped_account_ids = {account_id}
+        return await self._load_balancer.preview_next_account(
+            provider=PROVIDER_OPENAI,
+            routing_strategy=strategy,
+            prefer_earlier_reset_accounts=bool(getattr(settings, "prefer_earlier_reset_accounts", False)),
+            prefer_earlier_reset_window=_prefer_earlier_reset_window(settings),
+            relative_availability_power=_relative_availability_power(settings),
+            relative_availability_top_k=_relative_availability_top_k(settings),
+            budget_threshold_pct=_sticky_reallocation_primary_budget_threshold_pct(settings),
+            secondary_budget_threshold_pct=_sticky_reallocation_secondary_budget_threshold_pct(settings),
+            account_ids=scoped_account_ids,
+        )
 
     def _get_work_admission(self) -> WorkAdmissionController:
         if self._work_admission is None:

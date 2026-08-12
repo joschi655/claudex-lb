@@ -13,8 +13,11 @@ import {
 import { AccountListItem } from "@/features/accounts/components/account-list-item";
 import { AddAccountDialog } from "@/features/accounts/components/add-account-dialog";
 import { WindowsOauthHelp } from "@/features/accounts/components/windows-oauth-help";
-import type { AccountSummary } from "@/features/accounts/schemas";
-import { servingAccountIds } from "@/features/accounts/serving";
+import { nextUpMarks } from "@/features/accounts/next-up";
+import type {
+  AccountSummary,
+  NextAccountsResponse,
+} from "@/features/accounts/schemas";
 import {
   ACCOUNT_SORT_OPTIONS,
   DEFAULT_ACCOUNT_SORT_MODE,
@@ -28,6 +31,7 @@ const STATUS_FILTER_OPTIONS = ["all", "active", "paused", "rate_limited", "quota
 
 export type AccountListProps = {
   accounts: AccountSummary[];
+  nextUp?: NextAccountsResponse;
   selectedAccountId: string | null;
   onSelect: (accountId: string) => void;
   onOpenImport: () => void;
@@ -39,6 +43,7 @@ export type AccountListProps = {
 
 export function AccountList({
   accounts,
+  nextUp,
   selectedAccountId,
   onSelect,
   onOpenImport,
@@ -54,9 +59,9 @@ export function AccountList({
   const quotaDisplay = useAccountQuotaDisplayStore((s) => s.quotaDisplay);
   const activeSortMode = sortMode ?? DEFAULT_ACCOUNT_SORT_MODE;
 
-  // Computed over every account, not the filtered view: a search or status
-  // filter must not promote the second-newest account to "serving".
-  const serving = useMemo(() => servingAccountIds(accounts), [accounts]);
+  // Keyed by account id rather than position, so a search or status filter that
+  // hides the next account cannot promote whoever takes its place in the list.
+  const nextAccounts = useMemo(() => nextUpMarks(nextUp), [nextUp]);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -167,7 +172,7 @@ export function AccountList({
               account={account}
               selected={account.accountId === selectedAccountId}
               showAccountId={account.isEmailDuplicate === true}
-              serving={serving.has(account.accountId)}
+              nextUp={nextAccounts.get(account.accountId) ?? null}
               onSelect={onSelect}
             />
           ))

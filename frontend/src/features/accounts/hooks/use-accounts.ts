@@ -9,6 +9,7 @@ import {
   exportAccountAuth,
   getAccountTrends,
   getAccountUsageResetCredits,
+  getNextAccounts,
   getRateLimitResetCredits,
   importAccount,
   listAccounts,
@@ -19,6 +20,7 @@ import {
   updateAccount,
   updateAccountLimitWarmup,
   updateAccountPaceGates,
+  updateAccountPin,
   updateAccountRoutingPolicy,
 } from "@/features/accounts/api";
 import type {
@@ -30,6 +32,10 @@ import type {
 async function invalidateAccountRelatedQueries(queryClient: ReturnType<typeof useQueryClient>, accountId?: string) {
   const invalidations = [
     queryClient.invalidateQueries({ queryKey: ["accounts", "list"] }),
+    // Anything that changes an account changes who serves next: pausing,
+    // pinning, and re-authenticating all move the answer immediately, well
+    // before the next poll would notice.
+    queryClient.invalidateQueries({ queryKey: ["accounts", "next-up"] }),
     queryClient.invalidateQueries({ queryKey: ["dashboard", "overview"] }),
     queryClient.invalidateQueries({ queryKey: ["dashboard", "projections"] }),
   ];
@@ -201,6 +207,24 @@ export function useAccountMutations() {
     },
   });
 
+  const pinMutation = useMutation({
+    mutationFn: ({ accountId, pinned }: { accountId: string; pinned: boolean }) =>
+      updateAccountPin(accountId, pinned),
+    onSuccess: (data) => {
+      // Naming the policy on unpin is the point of echoing it back: the old
+      // pin flattened it, and an operator needs to see where the seat landed.
+      toast.success(
+        data.pinned
+          ? "Account pinned"
+          : `Account unpinned; routing policy ${data.routingPolicy.replace("_", " ")}`,
+      );
+      void invalidateAccountRelatedQueries(queryClient);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Pin update failed");
+    },
+  });
+
   const paceGatesMutation = useMutation({
     mutationFn: ({
       accountId,
@@ -249,6 +273,10 @@ export function useAccountMutations() {
         `Rate-limit window${resetCount === 1 ? "" : "s"} reset (${resetCount})`,
       );
       void queryClient.invalidateQueries({ queryKey: ["accounts", "list"] });
+      // Redeeming a credit is the mutation that flips an account from
+      // rate_limited back to active, so it is exactly the one that changes who
+      // serves next.
+      void queryClient.invalidateQueries({ queryKey: ["accounts", "next-up"] });
       void queryClient.invalidateQueries({ queryKey: ["accounts", "trends"] });
       void queryClient.invalidateQueries({ queryKey: ["accounts", "reset-credits"] });
       void queryClient.invalidateQueries({ queryKey: ["dashboard", "overview"] });
@@ -270,6 +298,7 @@ export function useAccountMutations() {
     exportAuthMutation,
     limitWarmupMutation,
     routingPolicyMutation,
+    pinMutation,
     paceGatesMutation,
     updateMutation,
     resetCreditConsumeMutation,
@@ -305,6 +334,22 @@ export function useAccountUsageResetCredits(accountId: string | null) {
     queryFn: () => getAccountUsageResetCredits(accountId!),
     enabled: !!accountId,
     staleTime: 60_000,
+  });
+}
+
+/**
+ * Which account each provider would route the next request to.
+ *
+ * Polled on the same cadence as the account list, since the two are read
+ * together and a next-up answer that lags the account beside it is worse than
+ * no answer at all.
+ */
+export function useNextAccounts() {
+  return useQuery({
+    queryKey: ["accounts", "next-up"],
+    queryFn: getNextAccounts,
+    refetchInterval: 30_000,
+    refetchIntervalInBackground: false,
   });
 }
 

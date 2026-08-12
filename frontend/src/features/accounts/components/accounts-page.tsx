@@ -15,6 +15,7 @@ import { AuthExportDialog } from "@/features/accounts/components/auth-export-dia
 import {
   useAccounts,
   useAccountUsageResetCredits,
+  useNextAccounts,
 } from "@/features/accounts/hooks/use-accounts";
 import {
   DEFAULT_ACCOUNT_SORT_MODE,
@@ -50,9 +51,11 @@ export function AccountsPage() {
     updateMutation,
     deleteMutation,
     routingPolicyMutation,
+    pinMutation,
     paceGatesMutation,
     exportAuthMutation,
   } = useAccounts();
+  const nextAccountsQuery = useNextAccounts();
   const { upstreamProxyQuery, accountBindingMutation, testEndpointMutation } = useUpstreamProxyAdmin();
   const oauth = useOauth();
   const canWrite = useAuthStore((state) => state.canWrite);
@@ -120,6 +123,7 @@ export function AccountsPage() {
     limitWarmupMutation.isPending ||
     deleteMutation.isPending ||
     routingPolicyMutation.isPending ||
+    pinMutation.isPending ||
     exportAuthMutation.isPending ||
     updateMutation.isPending ||
     accountBindingMutation.isPending ||
@@ -135,6 +139,7 @@ export function AccountsPage() {
     getErrorMessageOrNull(limitWarmupMutation.error) ||
     getErrorMessageOrNull(deleteMutation.error) ||
     getErrorMessageOrNull(routingPolicyMutation.error) ||
+    getErrorMessageOrNull(pinMutation.error) ||
     getErrorMessageOrNull(exportAuthMutation.error) ||
     getErrorMessageOrNull(updateMutation.error) ||
     getErrorMessageOrNull(upstreamProxyQuery.error) ||
@@ -172,6 +177,7 @@ export function AccountsPage() {
             >
               <AccountList
                 accounts={accounts}
+                nextUp={nextAccountsQuery.data}
                 selectedAccountId={resolvedSelectedAccountId}
                 onSelect={handleSelectAccount}
                 sortMode={accountSortMode}
@@ -224,6 +230,9 @@ export function AccountsPage() {
                 accountId,
                 routingPolicy,
               })
+            }
+            onPinChange={(accountId, pinned) =>
+              void pinMutation.mutateAsync({ accountId, pinned })
             }
             onPaceGatesChange={(accountId, gates) =>
               void paceGatesMutation.mutateAsync({ accountId, gates })

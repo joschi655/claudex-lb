@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Gauge } from "lucide-react";
 
 import { Input } from "@/components/ui/input";
@@ -106,12 +106,15 @@ function PaceGateField({
 }) {
   const stored = account[gate.key] ?? null;
   const [draft, setDraft] = useState(stored === null ? "" : String(stored));
+  const [seeded, setSeeded] = useState(stored);
 
   // A refetch after a save (or a change made from the menu bar) is the source of
-  // truth; re-seed the field from it unless the operator is mid-edit.
-  useEffect(() => {
+  // truth; re-seed the field from it. Adjusted during render rather than in an
+  // effect, so the input never paints one frame of the stale value first.
+  if (seeded !== stored) {
+    setSeeded(stored);
     setDraft(stored === null ? "" : String(stored));
-  }, [stored]);
+  }
 
   const inputId = `${gate.key}-${account.accountId}`;
   const commit = () => {

@@ -44,6 +44,7 @@ export type AccountDetailProps = {
     accountId: string,
     routingPolicy: AccountRoutingPolicy,
   ) => void;
+  onPinChange: (accountId: string, pinned: boolean) => void;
   onPaceGatesChange: (accountId: string, gates: AccountPaceGatesUpdate) => void;
   onSecurityWorkAuthorizedChange: (accountId: string, enabled: boolean) => void;
   upstreamProxyAdmin?: UpstreamProxyAdmin | null;
@@ -70,6 +71,7 @@ export function AccountDetail({
   onResetCredit,
   onLimitWarmupChange,
   onRoutingPolicyChange,
+  onPinChange,
   onPaceGatesChange,
   onSecurityWorkAuthorizedChange,
   upstreamProxyAdmin = null,
@@ -184,6 +186,7 @@ export function AccountDetail({
         onResetCredit={onResetCredit}
         onLimitWarmupChange={onLimitWarmupChange}
         onRoutingPolicyChange={onRoutingPolicyChange}
+        onPinChange={onPinChange}
         onPaceGatesChange={onPaceGatesChange}
         onSecurityWorkAuthorizedChange={onSecurityWorkAuthorizedChange}
       />

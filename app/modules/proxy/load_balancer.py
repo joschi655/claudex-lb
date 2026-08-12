@@ -6,6 +6,7 @@ import json
 import logging
 import time
 from collections.abc import Collection, Mapping
+from copy import copy
 from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import TYPE_CHECKING, Iterable, Literal
@@ -19,7 +20,6 @@ from app.core.balancer import (
     QUOTA_EXCEEDED_COOLDOWN_SECONDS,
     RATE_LIMITED_MIN_COOLDOWN_SECONDS,
     ROUTING_POLICY_BURN_FIRST,
-    ROUTING_POLICY_PINNED,
     ROUTING_POLICY_PRESERVE,
     TRAFFIC_CLASS_FOREGROUND,
     TRAFFIC_CLASS_OPPORTUNISTIC,
@@ -33,7 +33,6 @@ from app.core.balancer import (
     handle_permanent_failure,
     handle_quota_exceeded,
     handle_rate_limit,
-    is_pinned,
     pinned_states,
     select_account,
 )
@@ -113,10 +112,12 @@ _ACCOUNT_ROUTING_POLICIES = frozenset(
         _ROUTING_POLICY_NORMAL,
         ROUTING_POLICY_BURN_FIRST,
         ROUTING_POLICY_PRESERVE,
-        ROUTING_POLICY_PINNED,
     }
 )
 _ADDITIONAL_QUOTA_ROUTING_POLICIES = _ACCOUNT_ROUTING_POLICIES | frozenset({"inherit"})
+# Strategies that draw at random among weighted candidates. Every other strategy
+# takes the minimum of a sort key, so its next pick is reproducible.
+_RANDOMIZED_ROUTING_STRATEGIES = frozenset({"capacity_weighted", "relative_availability"})
 OPPORTUNISTIC_BURN_WINDOW_CLOSED = "opportunistic_burn_window_closed"
 
 AccountLeaseKind = Literal["response_create", "stream"]
@@ -147,6 +148,17 @@ class AccountLease:
     kind: AccountLeaseKind
     acquired_at: float
     estimated_tokens: float = 0.0
+
+
+@dataclass(frozen=True, slots=True)
+class NextAccountPreview:
+    """Who a new request would land on, computed without taking the account."""
+
+    account_id: str | None
+    error_message: str | None
+    # False when the configured strategy draws at random among weighted
+    # candidates: the account named is then the front-runner, not a promise.
+    certain: bool = True
 
 
 @dataclass
@@ -327,6 +339,94 @@ class LoadBalancer:
             ]
             for lease in stale:
                 self._release_account_lease_locked(lease, reason="stale")
+
+    async def preview_next_account(
+        self,
+        *,
+        provider: str = PROVIDER_OPENAI,
+        routing_strategy: RoutingStrategy = "capacity_weighted",
+        prefer_earlier_reset_accounts: bool = False,
+        prefer_earlier_reset_window: ResetPreferenceWindow = "secondary",
+        relative_availability_power: float = 2.0,
+        relative_availability_top_k: int = 5,
+        budget_threshold_pct: float = 95.0,
+        secondary_budget_threshold_pct: float = 100.0,
+        account_ids: Collection[str] | None = None,
+    ) -> NextAccountPreview:
+        """Which account a new request would land on, without taking it.
+
+        Answers the question an operator actually asks -- who serves *next* -- as
+        opposed to who served last, which is all a request log can say and which
+        is wrong for exactly the case that matters: after a pin, a pause, or a
+        window running out, the account that just served is the one that is about
+        to stop.
+
+        Read-only, and deliberately so in two places that are easy to get wrong.
+        It runs against a *copy* of the runtime entries, because ``_build_states``
+        writes health-tier bookkeeping back into whatever runtime it is handed --
+        a preview sharing ``self._runtime`` would let a dashboard poll latch an
+        account into ``draining``. And it runs the same selector the relay runs,
+        ``_select_account_preferring_budget_safe`` with the same budget
+        thresholds and quota-planner costs, because the bare ``select_account``
+        skips the budget filter and would name accounts the relay deliberately
+        passes over.
+
+        Two honest caveats travel with the answer. ``certain`` is False when the
+        configured strategy draws at random among weighted candidates, where the
+        preview reports the front-runner rather than a promise. And the answer is
+        for a *new* session: a request carrying an established session id follows
+        that session's account instead.
+
+        Concurrency caps are not modelled, because the cap that applies depends
+        on the lease kind of the request that has not arrived yet.
+        """
+        scoped_account_ids = None if account_ids is None else set(account_ids)
+        selection_inputs = await self._load_selection_inputs(
+            model=None,
+            provider=provider,
+            account_ids=scoped_account_ids,
+        )
+        if not selection_inputs.accounts:
+            return NextAccountPreview(
+                account_id=None,
+                error_message=selection_inputs.error_message or "No accounts available",
+                certain=True,
+            )
+        async with self._runtime_lock:
+            runtime_snapshot = {account_id: copy(state) for account_id, state in self._runtime.items()}
+        states, _ = _build_states(
+            accounts=selection_inputs.accounts,
+            latest_primary=selection_inputs.latest_primary,
+            latest_secondary=selection_inputs.latest_secondary,
+            latest_monthly=selection_inputs.latest_monthly,
+            runtime=runtime_snapshot,
+            routing_policy_override=selection_inputs.routing_policy_override,
+            ignore_standard_quota_account_ids=selection_inputs.ignore_standard_quota_account_ids,
+        )
+        result = _select_account_preferring_budget_safe(
+            states,
+            prefer_earlier_reset=prefer_earlier_reset_accounts,
+            prefer_earlier_reset_window=prefer_earlier_reset_window,
+            routing_strategy=routing_strategy,
+            relative_availability_power=relative_availability_power,
+            relative_availability_top_k=relative_availability_top_k,
+            budget_threshold_pct=budget_threshold_pct,
+            secondary_budget_threshold_pct=secondary_budget_threshold_pct,
+            deterministic_probe=True,
+            ignore_standard_quota=False,
+            routing_costs_by_account_id=build_routing_costs(
+                settings=selection_inputs.quota_planner_settings,
+                states=states,
+                now=datetime.now(timezone.utc),
+            ),
+        )
+        if result.account is None:
+            return NextAccountPreview(account_id=None, error_message=result.error_message, certain=True)
+        return NextAccountPreview(
+            account_id=result.account.account_id,
+            error_message=None,
+            certain=_preview_is_certain(routing_strategy, states, result.account),
+        )
 
     async def select_account(
         self,
@@ -1673,6 +1773,7 @@ class LoadBalancer:
             plan_type=account.plan_type,
             capacity_credits=usage_core.capacity_for_plan(account.plan_type, "secondary"),
             routing_policy=routing_policy,
+            pinned=bool(getattr(account, "pinned", False)),
             ignore_standard_quota=False,
             pace_margin_primary_pct=account.pace_margin_primary_pct,
             pace_margin_secondary_pct=account.pace_margin_secondary_pct,
@@ -1837,14 +1938,10 @@ def _build_states(
             secondary_entry=secondary_entry,
             runtime=runtime.setdefault(account.id, RuntimeState()),
         )
-        if (
-            routing_policy_override is not None
-            and account.id in ignore_standard_quota_account_ids
-            # An additional quota overrides the account's *ranking* tier. A pin
-            # is not one, so it survives: the operator pinned the account, not a
-            # preference for one quota pool.
-            and not is_pinned(state)
-        ):
+        # An additional quota overrides the account's ranking tier. The pin is no
+        # longer one of those, so it needs no exemption here: it lives on its own
+        # field and this override cannot reach it.
+        if routing_policy_override is not None and account.id in ignore_standard_quota_account_ids:
             state.routing_policy = routing_policy_override
         state.ignore_standard_quota = account.id in ignore_standard_quota_account_ids
         states.append(state)
@@ -2360,6 +2457,7 @@ def _state_from_account(
         inflight_streams=runtime.inflight_streams,
         leased_tokens=runtime.leased_tokens,
         routing_policy=routing_policy,
+        pinned=bool(getattr(account, "pinned", False)),
         pace_margin_primary_pct=account.pace_margin_primary_pct,
         pace_margin_secondary_pct=account.pace_margin_secondary_pct,
         pre_reset_window_minutes=account.pre_reset_window_minutes,
@@ -2757,6 +2855,31 @@ def _state_above_sticky_budget_threshold(
     return (used_percent is not None and used_percent > budget_threshold_pct) or (
         secondary_used_percent is not None and secondary_used_percent > secondary_threshold
     )
+
+
+def _preview_is_certain(
+    routing_strategy: RoutingStrategy,
+    states: list[AccountState],
+    selected: AccountState,
+) -> bool:
+    """Whether the previewed account is the answer or merely the front-runner.
+
+    Read from the account that was actually selected, not from the pool that was
+    offered. A pin only decides the outcome when the pinned account survived
+    eligibility -- ``select_account`` applies the pin over the accounts that got
+    through, so a pinned account that is rate limited or cooling down leaves the
+    pool ranking normally. Asking "is anything pinned?" instead would report a
+    coin flip as a certainty in precisely the case the pin exists for: the
+    pinned window running out.
+
+    A pool with one candidate has nothing to draw between, so it is exact under
+    every strategy.
+    """
+    if routing_strategy not in _RANDOMIZED_ROUTING_STRATEGIES:
+        return True
+    if selected.pinned:
+        return True
+    return len(states) == 1
 
 
 def _select_account_preferring_budget_safe(

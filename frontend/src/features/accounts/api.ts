@@ -12,7 +12,10 @@ import {
   AccountLimitWarmupUpdateResponseSchema,
   AccountPaceGatesUpdateRequestSchema,
   AccountPaceGatesUpdateResponseSchema,
+  AccountPinUpdateRequestSchema,
+  AccountPinUpdateResponseSchema,
   AccountUpdateRequestSchema,
+  NextAccountsResponseSchema,
   AccountsResponseSchema,
   AccountRoutingPolicyUpdateRequestSchema,
   AccountRoutingPolicyUpdateResponseSchema,
@@ -104,6 +107,20 @@ export function updateAccountRoutingPolicy(
     AccountRoutingPolicyUpdateResponseSchema,
     { body: payload },
   );
+}
+
+export function updateAccountPin(accountId: string, pinned: boolean) {
+  const payload = AccountPinUpdateRequestSchema.parse({ pinned });
+  return put(
+    `${ACCOUNTS_BASE_PATH}/${encodeURIComponent(accountId)}/pin`,
+    AccountPinUpdateResponseSchema,
+    { body: payload },
+  );
+}
+
+/** Which account each provider would route a new request to, right now. */
+export function getNextAccounts() {
+  return get(`${ACCOUNTS_BASE_PATH}/next-up`, NextAccountsResponseSchema);
 }
 
 export function updateAccountPaceGates(

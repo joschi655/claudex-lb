@@ -31,7 +31,7 @@ from app.modules.rate_limit_reset_credits.store import (
 )
 from app.modules.usage.mappers import usage_history_to_window_row
 
-_ACCOUNT_ROUTING_POLICIES = frozenset({"burn_first", "normal", "preserve", "pinned"})
+_ACCOUNT_ROUTING_POLICIES = frozenset({"burn_first", "normal", "preserve"})
 _RESET_CREDITS_INELIGIBLE_STATUSES = frozenset(
     {AccountStatus.PAUSED, AccountStatus.REAUTH_REQUIRED, AccountStatus.DEACTIVATED}
 )
@@ -324,7 +324,8 @@ def _account_to_summary(
         seat_type=account.seat_type,
         plan_type=plan_type,
         status=effective_status.value,
-        routing_policy=_normalize_account_routing_policy(account.routing_policy),
+        routing_policy=normalize_account_routing_policy(account.routing_policy),
+        pinned=bool(getattr(account, "pinned", False)),
         pace_margin_primary_pct=account.pace_margin_primary_pct,
         pace_margin_secondary_pct=account.pace_margin_secondary_pct,
         pre_reset_window_minutes=account.pre_reset_window_minutes,
@@ -365,7 +366,7 @@ def _account_to_summary(
     )
 
 
-def _normalize_account_routing_policy(value: str | None) -> str:
+def normalize_account_routing_policy(value: str | None) -> str:
     if value in _ACCOUNT_ROUTING_POLICIES:
         return value
     return "normal"

@@ -8,6 +8,7 @@ import { useAccountQuotaDisplayStore } from "@/hooks/use-account-quota-display";
 import { StatusBadge } from "@/components/status-badge";
 import { MiniQuotaBar } from "@/components/mini-quota-bar";
 import { ProviderBadge } from "@/components/provider-badge";
+import type { NextUpMark } from "@/features/accounts/next-up";
 import type {
   AccountRoutingPolicy,
   AccountSummary,
@@ -25,7 +26,8 @@ export type AccountListItemProps = {
   account: AccountSummary;
   selected: boolean;
   showAccountId?: boolean;
-  serving?: boolean;
+  /** Set when this account is the one the pool would route the next request to. */
+  nextUp?: NextUpMark | null;
   onSelect: (accountId: string) => void;
 };
 
@@ -33,7 +35,7 @@ export function AccountListItem({
   account,
   selected,
   showAccountId = false,
-  serving = false,
+  nextUp = null,
   onSelect,
 }: AccountListItemProps) {
   const blurred = usePrivacyStore((s) => s.blurred);
@@ -106,6 +108,7 @@ export function AccountListItem({
             {emailSubtitle ? <><span className={blurred ? "privacy-blur" : undefined}>{emailSubtitle}</span> | {slotSubtitle}{idSuffix}</> : <>{slotSubtitle}{idSuffix}</>}
           </p>
         </div>
+        {showRoutingPolicy && account.pinned === true ? <PinnedBadge /> : null}
         {showRoutingPolicy ? (
           <RoutingPolicyBadge
             policy={account.routingPolicy as AccountRoutingPolicy | undefined}
@@ -117,7 +120,7 @@ export function AccountListItem({
             aria-label="Trusted Access for Cyber"
           />
         ) : null}
-        {serving ? <ServingBadge /> : <StatusBadge status={status} />}
+        {nextUp ? <NextUpBadge certain={nextUp.certain} /> : <StatusBadge status={status} />}
       </div>
       <div
         className={cn(
@@ -155,20 +158,43 @@ export function AccountListItem({
   );
 }
 
-// Replaces the status badge rather than sitting beside it: "serving" already
-// implies active, and a second badge on the one row that matters costs the
-// width the account name needs.
-function ServingBadge() {
+// Replaces the status badge rather than sitting beside it: being next already
+// implies the account is able to serve, and a second badge on the one row that
+// matters costs the width the account name needs.
+//
+// "Next" rather than "Serving": the pool reports where a new request would go,
+// which is answerable on an idle pool and stays right through a pin, a pause,
+// or a limit — all the moments a last-request badge went stale.
+function NextUpBadge({ certain }: { certain: boolean }) {
   return (
     <Badge
       variant="outline"
       className="shrink-0 gap-1.5 border-blue-500/20 bg-blue-500/15 px-1.5 text-[11px] text-blue-700 dark:text-blue-400"
+      title={
+        certain
+          ? "The next request lands here"
+          : "Most likely next: the routing strategy draws at random among the accounts with capacity"
+      }
     >
       <span className="relative flex h-1.5 w-1.5" aria-hidden>
         <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-current opacity-75" />
         <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-current" />
       </span>
-      Serving
+      {certain ? "Next" : "Likely next"}
+    </Badge>
+  );
+}
+
+// Sits beside the routing policy, not in place of it: the pin says this account
+// is the only candidate, the policy says how it ranks once the pin is gone.
+function PinnedBadge() {
+  return (
+    <Badge
+      variant="outline"
+      className="shrink-0 gap-1 border-emerald-300 bg-emerald-50 px-1.5 text-[11px] text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
+    >
+      <Pin className="h-3 w-3" aria-hidden="true" />
+      Pinned
     </Badge>
   );
 }
@@ -178,17 +204,6 @@ function RoutingPolicyBadge({
 }: {
   policy: AccountRoutingPolicy | undefined;
 }) {
-  if (policy === "pinned") {
-    return (
-      <Badge
-        variant="outline"
-        className="shrink-0 gap-1 border-emerald-300 bg-emerald-50 px-1.5 text-[11px] text-emerald-700 dark:border-emerald-500/30 dark:bg-emerald-500/10 dark:text-emerald-300"
-      >
-        <Pin className="h-3 w-3" aria-hidden="true" />
-        Pinned
-      </Badge>
-    );
-  }
   if (policy === "burn_first") {
     return (
       <Badge

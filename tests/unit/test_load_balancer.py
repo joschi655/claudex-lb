@@ -5303,7 +5303,7 @@ def test_budget_safe_selection_puts_the_pin_ahead_of_the_health_tier():
             "chosen",
             AccountStatus.ACTIVE,
             used_percent=99.0,
-            routing_policy="pinned",
+            pinned=True,
             health_tier=HEALTH_TIER_DRAINING,
         ),
     ]
@@ -5322,7 +5322,7 @@ def test_budget_safe_selection_puts_the_pin_ahead_of_the_health_tier():
 def test_budget_safe_selection_falls_through_when_the_pin_cannot_serve():
     states = [
         AccountState("normal", AccountStatus.ACTIVE, used_percent=1.0, routing_policy="normal"),
-        AccountState("chosen", AccountStatus.PAUSED, used_percent=1.0, routing_policy="pinned"),
+        AccountState("chosen", AccountStatus.PAUSED, used_percent=1.0, pinned=True),
     ]
 
     result = _select_account_preferring_budget_safe(
@@ -5339,7 +5339,7 @@ def test_budget_safe_selection_falls_through_when_the_pin_cannot_serve():
 def test_budget_safe_selection_honours_the_pin_under_drain_strategies():
     states = [
         AccountState("normal", AccountStatus.ACTIVE, used_percent=1.0, routing_policy="normal"),
-        AccountState("chosen", AccountStatus.ACTIVE, used_percent=99.0, routing_policy="pinned"),
+        AccountState("chosen", AccountStatus.ACTIVE, used_percent=99.0, pinned=True),
     ]
 
     result = _select_account_preferring_budget_safe(

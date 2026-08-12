@@ -592,4 +592,86 @@ describe("AccountList", () => {
       ),
     ).not.toBeInTheDocument();
   });
+  it("marks only the account the pool named, even when a filter hides it", async () => {
+    // A filtered-out account must not hand its badge to whoever is now on top:
+    // the mark is keyed by account id, never by position in the list.
+    const user = userEvent.setup();
+    const accounts = [
+      {
+        accountId: "acc-next",
+        email: "chosen@example.com",
+        displayName: "Chosen",
+        planType: "plus",
+        status: "active",
+        limitWarmupEnabled: false,
+        additionalQuotas: [],
+      },
+      {
+        accountId: "acc-other",
+        email: "other@example.com",
+        displayName: "Other",
+        planType: "plus",
+        status: "active",
+        limitWarmupEnabled: false,
+        additionalQuotas: [],
+      },
+    ];
+
+    render(
+      <AccountList
+        accounts={accounts}
+        nextUp={{
+          nextUp: [
+            { provider: "anthropic", accountId: "acc-next", certain: true },
+          ],
+        }}
+        selectedAccountId="acc-next"
+        onSelect={vi.fn()}
+        onOpenImport={() => {}}
+        onOpenOauth={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Next")).toBeInTheDocument();
+
+    await user.type(screen.getByPlaceholderText("Search accounts..."), "other");
+
+    expect(screen.getByText("other@example.com")).toBeInTheDocument();
+    expect(screen.queryByText("Next")).not.toBeInTheDocument();
+  });
+
+  it("marks nobody when the pool named nobody", () => {
+    render(
+      <AccountList
+        accounts={[
+          {
+            accountId: "acc-1",
+            email: "primary@example.com",
+            displayName: "Primary",
+            planType: "plus",
+            status: "active",
+            limitWarmupEnabled: false,
+            additionalQuotas: [],
+          },
+        ]}
+        nextUp={{
+          nextUp: [
+            {
+              provider: "anthropic",
+              accountId: null,
+              certain: true,
+              errorMessage: "No accounts available",
+            },
+          ],
+        }}
+        selectedAccountId="acc-1"
+        onSelect={vi.fn()}
+        onOpenImport={() => {}}
+        onOpenOauth={() => {}}
+      />,
+    );
+
+    expect(screen.queryByText("Next")).not.toBeInTheDocument();
+    expect(screen.getByText("Active")).toBeInTheDocument();
+  });
 });

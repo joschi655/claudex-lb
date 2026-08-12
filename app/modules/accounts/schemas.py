@@ -122,7 +122,11 @@ class AccountSummary(DashboardModel):
     workspace_label: str | None = None
     seat_type: str | None = None
     plan_type: str
-    routing_policy: str = Field(default="normal", pattern=r"^(normal|burn_first|preserve|pinned)$")
+    routing_policy: str = Field(default="normal", pattern=r"^(normal|burn_first|preserve)$")
+    # Sits above the routing policy rather than inside it: a pinned account is
+    # the pool's only route while the pin holds, and returns to its own policy
+    # the moment it is lifted.
+    pinned: bool = False
     pace_margin_primary_pct: float | None = None
     pace_margin_secondary_pct: float | None = None
     pre_reset_window_minutes: int | None = None
@@ -249,11 +253,40 @@ class AccountLimitWarmupTriggerResponse(DashboardModel):
 
 
 class AccountRoutingPolicyUpdateRequest(DashboardModel):
-    routing_policy: str = Field(pattern=r"^(normal|burn_first|preserve|pinned)$")
+    routing_policy: str = Field(pattern=r"^(normal|burn_first|preserve)$")
 
 
 class AccountRoutingPolicyUpdateResponse(DashboardModel):
     account_id: str
+    routing_policy: str
+
+
+class NextAccountEntry(DashboardModel):
+    """Who serves next for one provider, and how firm that answer is."""
+
+    provider: str
+    account_id: str | None = None
+    # False when the configured strategy draws at random among weighted
+    # candidates: the account named is the front-runner, not a promise.
+    certain: bool = True
+    # Why nothing would be selected — an empty pool, every account gated, and so
+    # on. Present only when ``account_id`` is null.
+    error_message: str | None = None
+
+
+class NextAccountsResponse(DashboardModel):
+    next_up: List[NextAccountEntry] = Field(default_factory=list)
+
+
+class AccountPinUpdateRequest(DashboardModel):
+    pinned: bool
+
+
+class AccountPinUpdateResponse(DashboardModel):
+    account_id: str
+    pinned: bool
+    # Echoed back so a caller that just lifted a pin can see which policy the
+    # account fell back to without a second read.
     routing_policy: str
 
 

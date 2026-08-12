@@ -240,6 +240,67 @@ describe("AccountListItem", () => {
     expect(screen.getByText("3")).toBeInTheDocument();
   });
 
+  it("marks the account the pool named as next", () => {
+    const account = createAccountSummary({ status: "active" });
+
+    render(
+      <AccountListItem
+        account={account}
+        selected={false}
+        nextUp={{ certain: true }}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Next")).toBeInTheDocument();
+    // The badge replaces the status: being next already says the account can serve.
+    expect(screen.queryByText("Active")).not.toBeInTheDocument();
+  });
+
+  it("hedges when the pool reported the answer as uncertain", () => {
+    const account = createAccountSummary({ status: "active" });
+
+    render(
+      <AccountListItem
+        account={account}
+        selected={false}
+        nextUp={{ certain: false }}
+        onSelect={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Likely next")).toBeInTheDocument();
+  });
+
+  it("shows the status when this account is not next", () => {
+    const account = createAccountSummary({ status: "active" });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.queryByText("Next")).not.toBeInTheDocument();
+    expect(screen.queryByText("Likely next")).not.toBeInTheDocument();
+  });
+
+  it("shows the pin beside the routing policy, not instead of it", () => {
+    // The two are orthogonal now: a preserved seat that is pinned is still
+    // preserved, and the list has to say so or the pin looks destructive.
+    const account = createAccountSummary({ pinned: true, routingPolicy: "preserve" });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.getByText("Pinned")).toBeInTheDocument();
+    expect(screen.getByText("Preserve")).toBeInTheDocument();
+  });
+
+  it("shows no pin for an unpinned account", () => {
+    const account = createAccountSummary({ pinned: false, routingPolicy: "normal" });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.queryByText("Pinned")).not.toBeInTheDocument();
+    expect(screen.getByText("Normal")).toBeInTheDocument();
+  });
+
   it("hides the reset-credit badge when no credits are available", () => {
     const account = createAccountSummary({ availableResetCredits: 0 });
 

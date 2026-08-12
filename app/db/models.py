@@ -53,7 +53,6 @@ class AccountRoutingPolicy(str, Enum):
     NORMAL = "normal"
     BURN_FIRST = "burn_first"
     PRESERVE = "preserve"
-    PINNED = "pinned"
 
 
 class StickySessionKind(str, Enum):
@@ -101,6 +100,19 @@ class Account(Base):
         String,
         default="normal",
         server_default=text("'normal'"),
+        nullable=False,
+    )
+    # The operator pin sits above the routing policy rather than inside it, so
+    # lifting the pin returns the account to the policy it already had instead of
+    # to a guess. See openspec/specs/account-routing/spec.md.
+    pinned: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
+        # false() rather than text("0"): PostgreSQL renders the two differently
+        # ("DEFAULT false" against "DEFAULT 0"), and the startup drift check then
+        # compares a boolean against an integer and refuses to boot. Every other
+        # Boolean in this file uses false()/true() for the same reason.
+        server_default=false(),
         nullable=False,
     )
     # Pace gates. NULL means the gate is off, which is the default for every

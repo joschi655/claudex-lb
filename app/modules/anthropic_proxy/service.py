@@ -44,7 +44,7 @@ from app.db.session import get_background_session
 from app.modules.accounts.auth_manager import AccountsRepositoryPort, AuthManager
 from app.modules.anthropic_proxy.schemas import anthropic_error_body, error_type_for_status
 from app.modules.proxy.account_cache import get_account_selection_cache
-from app.modules.proxy.load_balancer import LoadBalancer
+from app.modules.proxy.load_balancer import LoadBalancer, NextAccountPreview
 from app.modules.proxy.service import _routing_strategy as resolve_routing_strategy
 from app.modules.request_logs.repository import RequestLogsRepository
 from app.modules.usage.repository import UsageRepository
@@ -132,6 +132,18 @@ class AnthropicProxyService:
         self._log_tasks: set[asyncio.Task[None]] = set()
         # account_id -> (last write monotonic, last primary used pct).
         self._usage_write_state: dict[str, tuple[float, float]] = {}
+
+    async def preview_next_account(self) -> NextAccountPreview:
+        """Which Claude account a new relay would land on.
+
+        Delegated to this service rather than to a fresh balancer because the
+        answer depends on runtime state — leases, cooldowns, health tiers — that
+        lives only on the instance actually serving Claude traffic.
+        """
+        return await self._load_balancer.preview_next_account(
+            provider=PROVIDER_ANTHROPIC,
+            routing_strategy=resolve_routing_strategy(await get_settings_cache().get()),
+        )
 
     async def relay(
         self,

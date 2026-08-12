@@ -24,6 +24,7 @@ describe("AccountActions", () => {
         onSecurityWorkAuthorizedChange={vi.fn()}
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={onRoutingPolicyChange}
+        onPinChange={vi.fn()}
         onPaceGatesChange={() => {}}
       />,
     );
@@ -32,6 +33,102 @@ describe("AccountActions", () => {
     expect(
       screen.getByRole("combobox", { name: "Routing policy" }),
     ).toHaveTextContent("Normal");
+  });
+
+  it("keeps the pin out of the routing policy selector", async () => {
+    // The pin used to be a fourth policy value, which made pinning a preserved
+    // seat destroy the fact that it was preserved.
+    const user = userEvent.setup();
+    const account = createAccountSummary({ routingPolicy: "preserve" });
+
+    render(
+      <AccountActions
+        account={account}
+        busy={false}
+        onPause={vi.fn()}
+        onResume={vi.fn()}
+        onProbe={vi.fn()}
+        onDelete={vi.fn()}
+        onReauth={vi.fn()}
+        onExportAuth={vi.fn()}
+        onResetCredit={vi.fn()}
+        onSecurityWorkAuthorizedChange={vi.fn()}
+        onLimitWarmupChange={vi.fn()}
+        onRoutingPolicyChange={vi.fn()}
+        onPinChange={vi.fn()}
+        onPaceGatesChange={() => {}}
+      />,
+    );
+
+    await user.click(screen.getByRole("combobox", { name: "Routing policy" }));
+
+    expect(screen.getByRole("option", { name: "Normal" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Preserve" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Burn first" })).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "Pinned" })).not.toBeInTheDocument();
+  });
+
+  it("pins through its own control, leaving the policy where it was", async () => {
+    const user = userEvent.setup();
+    const onPinChange = vi.fn();
+    const onRoutingPolicyChange = vi.fn();
+    const account = createAccountSummary({ routingPolicy: "preserve", pinned: false });
+
+    render(
+      <AccountActions
+        account={account}
+        busy={false}
+        onPause={vi.fn()}
+        onResume={vi.fn()}
+        onProbe={vi.fn()}
+        onDelete={vi.fn()}
+        onReauth={vi.fn()}
+        onExportAuth={vi.fn()}
+        onResetCredit={vi.fn()}
+        onSecurityWorkAuthorizedChange={vi.fn()}
+        onLimitWarmupChange={vi.fn()}
+        onRoutingPolicyChange={onRoutingPolicyChange}
+        onPinChange={onPinChange}
+        onPaceGatesChange={() => {}}
+      />,
+    );
+
+    await user.click(screen.getByRole("switch", { name: /Pin to this account/i }));
+
+    expect(onPinChange).toHaveBeenCalledWith(account.accountId, true);
+    expect(onRoutingPolicyChange).not.toHaveBeenCalled();
+    expect(
+      screen.getByRole("combobox", { name: "Routing policy" }),
+    ).toHaveTextContent("Preserve");
+  });
+
+  it("unpins a pinned account", async () => {
+    const user = userEvent.setup();
+    const onPinChange = vi.fn();
+    const account = createAccountSummary({ pinned: true });
+
+    render(
+      <AccountActions
+        account={account}
+        busy={false}
+        onPause={vi.fn()}
+        onResume={vi.fn()}
+        onProbe={vi.fn()}
+        onDelete={vi.fn()}
+        onReauth={vi.fn()}
+        onExportAuth={vi.fn()}
+        onResetCredit={vi.fn()}
+        onSecurityWorkAuthorizedChange={vi.fn()}
+        onLimitWarmupChange={vi.fn()}
+        onRoutingPolicyChange={vi.fn()}
+        onPinChange={onPinChange}
+        onPaceGatesChange={() => {}}
+      />,
+    );
+
+    await user.click(screen.getByRole("switch", { name: /Pin to this account/i }));
+
+    expect(onPinChange).toHaveBeenCalledWith(account.accountId, false);
   });
 
   it("renders re-authenticate action for re-auth required accounts", () => {
@@ -52,6 +149,7 @@ describe("AccountActions", () => {
         onSecurityWorkAuthorizedChange={vi.fn()}
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
+        onPinChange={vi.fn()}
         onPaceGatesChange={() => {}}
       />,
     );
@@ -86,6 +184,7 @@ describe("AccountActions", () => {
         onSecurityWorkAuthorizedChange={vi.fn()}
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
+        onPinChange={vi.fn()}
         onPaceGatesChange={() => {}}
       />,
     );
@@ -117,6 +216,7 @@ describe("AccountActions", () => {
           onSecurityWorkAuthorizedChange={vi.fn()}
           onLimitWarmupChange={vi.fn()}
           onRoutingPolicyChange={vi.fn()}
+          onPinChange={vi.fn()}
           onPaceGatesChange={() => {}}
         />,
       );
@@ -150,6 +250,7 @@ describe("AccountActions", () => {
         onSecurityWorkAuthorizedChange={vi.fn()}
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
+        onPinChange={vi.fn()}
         onPaceGatesChange={() => {}}
       />,
     );
@@ -184,6 +285,7 @@ describe("AccountActions", () => {
         onSecurityWorkAuthorizedChange={vi.fn()}
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
+        onPinChange={vi.fn()}
         onPaceGatesChange={() => {}}
       />,
     );
@@ -218,6 +320,7 @@ describe("AccountActions", () => {
           onSecurityWorkAuthorizedChange={vi.fn()}
           onLimitWarmupChange={vi.fn()}
           onRoutingPolicyChange={vi.fn()}
+          onPinChange={vi.fn()}
           onPaceGatesChange={() => {}}
         />,
       );
@@ -249,6 +352,7 @@ describe("AccountActions", () => {
         onSecurityWorkAuthorizedChange={vi.fn()}
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
+        onPinChange={vi.fn()}
         onPaceGatesChange={() => {}}
       />,
     );

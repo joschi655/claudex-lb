@@ -2,6 +2,7 @@ import {
   Activity,
   Download,
   Pause,
+  Pin,
   Play,
   RefreshCw,
   RotateCcw,
@@ -45,6 +46,7 @@ export type AccountActionsProps = {
     accountId: string,
     routingPolicy: AccountRoutingPolicy,
   ) => void;
+  onPinChange: (accountId: string, pinned: boolean) => void;
   onPaceGatesChange: (accountId: string, gates: AccountPaceGatesUpdate) => void;
 };
 
@@ -62,6 +64,7 @@ export function AccountActions({
   onSecurityWorkAuthorizedChange,
   onLimitWarmupChange,
   onRoutingPolicyChange,
+  onPinChange,
   onPaceGatesChange,
 }: AccountActionsProps) {
   const showOperatorRecoveryAction =
@@ -108,13 +111,37 @@ export function AccountActions({
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="pinned">Pinned</SelectItem>
               <SelectItem value="burn_first">Burn first</SelectItem>
               <SelectItem value="normal">Normal</SelectItem>
               <SelectItem value="preserve">Preserve</SelectItem>
             </SelectContent>
           </Select>
         </div>
+      ) : null}
+
+      {!showOperatorRecoveryAction ? (
+        <label
+          htmlFor={`account-pinned-${account.accountId}`}
+          className="flex min-w-0 items-center justify-between gap-3 rounded-md border bg-muted/30 px-3 py-2"
+        >
+          <span className="flex min-w-0 flex-col gap-0.5">
+            <span className="flex min-w-0 items-center gap-2 text-sm font-medium">
+              <Pin className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="truncate">Pin to this account</span>
+            </span>
+            <span className="text-[11px] text-muted-foreground">
+              Sends every request here while it can serve. The routing policy
+              above stays as it is, and comes back when the pin lifts.
+            </span>
+          </span>
+          <Switch
+            id={`account-pinned-${account.accountId}`}
+            className="shrink-0"
+            checked={account.pinned ?? false}
+            disabled={busy || readOnly}
+            onCheckedChange={(checked) => onPinChange(account.accountId, checked)}
+          />
+        </label>
       ) : null}
 
       {!showOperatorRecoveryAction ? (

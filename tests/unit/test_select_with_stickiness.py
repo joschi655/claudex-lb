@@ -26,6 +26,7 @@ def _active(
     used_percent: float = 10.0,
     secondary_used_percent: float | None = None,
     routing_policy: str = "normal",
+    pinned: bool = False,
 ) -> AccountState:
     return AccountState(
         account_id,
@@ -33,6 +34,7 @@ def _active(
         used_percent=used_percent,
         secondary_used_percent=secondary_used_percent,
         routing_policy=routing_policy,
+        pinned=pinned,
     )
 
 
@@ -42,6 +44,7 @@ def _rate_limited(
     cooldown_until: float | None = None,
     used_percent: float | None = None,
     routing_policy: str = "normal",
+    pinned: bool = False,
 ) -> AccountState:
     return AccountState(
         account_id,
@@ -52,6 +55,7 @@ def _rate_limited(
         error_count=1,
         last_error_at=time.time(),
         routing_policy=routing_policy,
+        pinned=pinned,
     )
 
 
@@ -1069,7 +1073,7 @@ async def test_burn_first_reallocation_only_when_burn_first_is_selectable():
 async def test_operator_pin_moves_a_session_off_its_sticky_account():
     """A pin outranks session affinity, and the mapping follows it."""
     acc_a = _active("a")
-    acc_b = _active("b", routing_policy="pinned")
+    acc_b = _active("b", pinned=True)
     repo = _make_sticky_repo(existing_account_id="a")
 
     result = await _invoke_stickiness([acc_a, acc_b], "key1", repo)
@@ -1082,7 +1086,7 @@ async def test_operator_pin_moves_a_session_off_its_sticky_account():
 @pytest.mark.asyncio
 async def test_operator_pin_survives_budget_pressure_on_its_own_session():
     """Budget-pressure reallocation must not move a session off the pin."""
-    acc_a = _active("a", used_percent=99.0, routing_policy="pinned")
+    acc_a = _active("a", used_percent=99.0, pinned=True)
     acc_b = _active("b", used_percent=1.0, routing_policy="burn_first")
     repo = _make_sticky_repo(existing_account_id="a")
 
@@ -1098,7 +1102,7 @@ async def test_an_unserviceable_pin_leaves_the_sticky_mapping_alone():
     """A pin that cannot serve must not cost the session its warm-cache account."""
     now = time.time()
     acc_a = _active("a")
-    acc_b = _rate_limited("b", cooldown_until=now + 60, routing_policy="pinned")
+    acc_b = _rate_limited("b", cooldown_until=now + 60, pinned=True)
     repo = _make_sticky_repo(existing_account_id="a")
 
     result = await _invoke_stickiness([acc_a, acc_b], "key1", repo)

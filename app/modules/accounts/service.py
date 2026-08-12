@@ -793,6 +793,18 @@ class AccountsService:
             get_account_selection_cache().invalidate()
         return result
 
+    async def set_pinned(self, account_id: str, pinned: bool) -> Account | None:
+        """Pin or unpin one account and report the row as it now stands.
+
+        The account is returned rather than a bool so the caller can report the
+        routing policy the account fell back to on unpin, which is the whole
+        reason the pin is a separate field.
+        """
+        if not await self._repo.set_pinned(account_id, pinned):
+            return None
+        get_account_selection_cache().invalidate()
+        return await self._repo.get_by_id(account_id)
+
     async def set_pace_gates(self, account_id: str, gates: PaceGateUpdate) -> Account | None:
         account = await self._repo.update_pace_gates(account_id, gates)
         if account is not None:

@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   useAccounts,
   useAccountUsageResetCredits,
+  useNextAccounts,
 } from "@/features/accounts/hooks/use-accounts";
 import { server } from "@/test/mocks/server";
 
@@ -224,5 +225,106 @@ describe("useAccounts", () => {
     const refetchInterval = (query?.options as { refetchInterval?: unknown } | undefined)
       ?.refetchInterval;
     expect(refetchInterval).toBeUndefined();
+  });
+});
+
+describe("useNextAccounts", () => {
+  it("reports the account each provider would serve next", async () => {
+    const queryClient = createTestQueryClient();
+    server.use(
+      http.get("/api/accounts/next-up", () =>
+        HttpResponse.json({
+          nextUp: [
+            { provider: "anthropic", accountId: "claude-b", certain: false },
+            { provider: "openai", accountId: "codex-a", certain: true },
+          ],
+        }),
+      ),
+    );
+
+    const { result } = renderHook(() => useNextAccounts(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.nextUp).toEqual([
+      { provider: "anthropic", accountId: "claude-b", certain: false },
+      { provider: "openai", accountId: "codex-a", certain: true },
+    ]);
+  });
+
+  it("carries a provider that can name nobody", async () => {
+    const queryClient = createTestQueryClient();
+    server.use(
+      http.get("/api/accounts/next-up", () =>
+        HttpResponse.json({
+          nextUp: [
+            {
+              provider: "anthropic",
+              accountId: null,
+              certain: true,
+              errorMessage: "No accounts available",
+            },
+          ],
+        }),
+      ),
+    );
+
+    const { result } = renderHook(() => useNextAccounts(), {
+      wrapper: createWrapper(queryClient),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data?.nextUp[0]?.accountId).toBeNull();
+    expect(result.current.data?.nextUp[0]?.errorMessage).toBe("No accounts available");
+  });
+});
+
+describe("pinMutation", () => {
+  it("pins through the pin endpoint and leaves the routing policy alone", async () => {
+    const queryClient = createTestQueryClient();
+    let body: unknown;
+    let path: string | null = null;
+    server.use(
+      http.put("/api/accounts/:accountId/pin", async ({ params, request }) => {
+        path = `/api/accounts/${String(params.accountId)}/pin`;
+        body = await request.json();
+        return HttpResponse.json({
+          accountId: String(params.accountId),
+          pinned: true,
+          routingPolicy: "preserve",
+        });
+      }),
+    );
+    const { result } = renderHook(() => useAccounts(), {
+      wrapper: createWrapper(queryClient),
+    });
+    await waitFor(() => expect(result.current.accountsQuery.isSuccess).toBe(true));
+
+    await result.current.pinMutation.mutateAsync({
+      accountId: "acc-1",
+      pinned: true,
+    });
+
+    expect(path).toBe("/api/accounts/acc-1/pin");
+    expect(body).toEqual({ pinned: true });
+  });
+
+  it("invalidates the next-up answer, which a pin changes immediately", async () => {
+    const queryClient = createTestQueryClient();
+    const { result } = renderHook(() => useAccounts(), {
+      wrapper: createWrapper(queryClient),
+    });
+    await waitFor(() => expect(result.current.accountsQuery.isSuccess).toBe(true));
+    const accountId = result.current.accountsQuery.data?.[0]?.accountId as string;
+    const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+    await result.current.pinMutation.mutateAsync({ accountId, pinned: true });
+
+    await waitFor(() =>
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ["accounts", "next-up"],
+      }),
+    );
   });
 });

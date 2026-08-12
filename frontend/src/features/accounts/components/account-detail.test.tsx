@@ -33,6 +33,7 @@ describe("AccountDetail", () => {
         onResetCredit={vi.fn()}
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={onRoutingPolicyChange}
+        onPinChange={vi.fn()}
         onPaceGatesChange={() => {}}
         onSecurityWorkAuthorizedChange={vi.fn()}
       />,
@@ -65,6 +66,7 @@ describe("AccountDetail", () => {
         onResetCredit={vi.fn()}
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
+        onPinChange={vi.fn()}
         onPaceGatesChange={() => {}}
         onSecurityWorkAuthorizedChange={vi.fn()}
         onProxyBindingSave={onProxyBindingSave}
@@ -100,6 +102,7 @@ describe("AccountDetail", () => {
         onResetCredit={vi.fn()}
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
+        onPinChange={vi.fn()}
         onPaceGatesChange={() => {}}
         onSecurityWorkAuthorizedChange={vi.fn()}
         resetCredits={{ availableCount: 2 }}

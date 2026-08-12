@@ -10,6 +10,7 @@ import type { AccountSummary } from "@/features/accounts/schemas";
 vi.mock("@/features/accounts/hooks/use-accounts", () => ({
   useAccounts: vi.fn(),
   useAccountTrends: vi.fn(() => ({ data: null })),
+  useNextAccounts: vi.fn(() => ({ data: undefined })),
   useAccountUsageResetCredits: vi.fn(() => ({
     data: { rateLimitResetCredits: { availableCount: 3 } },
     isFetching: false,
@@ -122,6 +123,7 @@ describe("AccountsPage", () => {
       setAliasMutation: idleMutation(),
       limitWarmupMutation: idleMutation(),
       routingPolicyMutation: idleMutation(),
+      pinMutation: idleMutation(),
       updateMutation: idleMutation(),
     } as unknown as ReturnType<typeof useAccounts>);
 
@@ -164,6 +166,7 @@ describe("AccountsPage", () => {
       setAliasMutation: idleMutation(),
       limitWarmupMutation: idleMutation(),
       routingPolicyMutation: idleMutation(),
+      pinMutation: idleMutation(),
       updateMutation: idleMutation(),
     } as unknown as ReturnType<typeof useAccounts>);
 
@@ -210,6 +213,7 @@ describe("AccountsPage", () => {
       setAliasMutation: idleMutation(),
       limitWarmupMutation: idleMutation(),
       routingPolicyMutation: idleMutation(),
+      pinMutation: idleMutation(),
       updateMutation: idleMutation(),
     } as unknown as ReturnType<typeof useAccounts>);
 
@@ -267,6 +271,7 @@ describe("AccountsPage", () => {
       setAliasMutation: idleMutation(),
       limitWarmupMutation: idleMutation(),
       routingPolicyMutation: idleMutation(),
+      pinMutation: idleMutation(),
       updateMutation: idleMutation(),
     } as unknown as ReturnType<typeof useAccounts>);
 
@@ -330,6 +335,7 @@ describe("AccountsPage", () => {
       setAliasMutation: idleMutation(),
       limitWarmupMutation: idleMutation(),
       routingPolicyMutation: idleMutation(),
+      pinMutation: idleMutation(),
       updateMutation: idleMutation(),
     } as unknown as ReturnType<typeof useAccounts>);
 

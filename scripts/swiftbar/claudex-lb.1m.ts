@@ -2,7 +2,7 @@
 // 2>/dev/null; for b in "$HOME/.bun/bin/bun" /opt/homebrew/bin/bun /usr/local/bin/bun; do [ -x "$b" ] && exec "$b" "$0" "$@"; done; echo "⇄ bun?"; echo "---"; echo "bun not found — install from https://bun.sh"; exit 0
 
 // <xbar.title>claudex-lb account switcher</xbar.title>
-// <xbar.desc>Claude + Codex sections: shows which account claudex-lb is serving per provider (+quota stats), pins accounts manually, restarts Claude 5h windows, and switches Claude Code between the proxy and a local login.</xbar.desc>
+// <xbar.desc>Claude + Codex sections: shows which account claudex-lb will serve the next request from, per provider (+quota stats), pins accounts manually, restarts Claude 5h windows, and switches Claude Code between the proxy and a local login.</xbar.desc>
 // <xbar.dependencies>bun</xbar.dependencies>
 //
 // SwiftBar plugin for claudex-lb. Bash/TypeScript polyglot: SwiftBar runs it
@@ -117,6 +117,7 @@ interface Account {
   planType?: string;
   status: string;
   routingPolicy?: string;
+  pinned?: boolean;
   paceMarginPrimaryPct?: number | null;
   preResetWindowMinutes?: number | null;
   usage?: AccountUsage | null;
@@ -134,6 +135,13 @@ interface RequestLogEntry {
   accountId?: string | null;
   model: string;
   status: string;
+}
+
+interface NextUpEntry {
+  provider: string;
+  accountId?: string | null;
+  certain?: boolean;
+  errorMessage?: string | null;
 }
 
 function fail(title: string, lines: string[]): never {
@@ -294,6 +302,14 @@ function providerOf(acc: Account): string {
   return acc.provider ?? "openai";
 }
 
+// The pin has its own field. A server that has not been upgraded (or whose
+// migration has not run) still reports it as a routing policy, and reading only
+// the new field there would show "Auto" over a hard-pinned pool and make the
+// Auto button clear nothing.
+function isPinned(acc: Account): boolean {
+  return acc.pinned === true || acc.routingPolicy === "pinned";
+}
+
 // soft=true is for the embedded block: it must raise instead of rendering the
 // plugin-level offline state into somebody else's menu.
 async function allAccounts(cfg: Config, soft = false): Promise<Account[]> {
@@ -315,6 +331,20 @@ async function recentRequests(cfg: Config): Promise<RequestLogEntry[]> {
   }
 }
 
+// Which account each provider would route the *next* request to. The pool runs
+// its own selector as a dry run, so this survives a pin, a pause, or a limit --
+// all the moments the newest request log row goes stale while still looking
+// authoritative. Degrades to [] like the request log: the accounts and pinning
+// menu must render without it.
+async function nextUpAccounts(cfg: Config): Promise<NextUpEntry[]> {
+  try {
+    const data = await apiFetch(cfg, "/api/accounts/next-up", {}, false, true);
+    return data?.nextUp ?? [];
+  } catch {
+    return [];
+  }
+}
+
 function lastFor(requests: RequestLogEntry[], accounts: Account[]): RequestLogEntry | null {
   const ids = new Set(accounts.map((a) => a.accountId));
   return requests.find((r) => r.accountId && ids.has(r.accountId)) ?? null;
@@ -322,11 +352,14 @@ function lastFor(requests: RequestLogEntry[], accounts: Account[]): RequestLogEn
 
 const PAUSABLE = new Set(["active", "rate_limited", "quota_exceeded"]);
 
-// "Switch to this account" writes routing_policy=pinned, which the server
-// treats as a hard override: while the account can serve it is the only
-// candidate, and when it cannot the pool falls back to its automatic rules on
-// its own. The others stay live rather than being paused, so failover has
-// somewhere to go and their five-hour windows can still be restarted.
+// "Switch to this account" sets the account's pin, which the server treats as a
+// hard override: while the account can serve it is the only candidate, and when
+// it cannot the pool falls back to its automatic rules on its own. The others
+// stay live rather than being paused, so failover has somewhere to go and their
+// five-hour windows can still be restarted.
+//
+// The pin is its own field, so it no longer overwrites the routing policy --
+// switching to a seat and back leaves a `preserve` seat still preserved.
 //
 // Reactivating the provider's paused accounts used to be part of this, back
 // when pinning meant pausing everything else. It no longer is: a hard pin does
@@ -341,17 +374,20 @@ async function cmdSwitch(cfg: Config, targetId: string): Promise<void> {
   }
   const scope = providerOf(target);
   const failures: string[] = [];
+  // Pin first, reactivate second. The reverse order leaves a half-applied
+  // switch behind when the pin write fails -- against a server too old to have
+  // the endpoint, the account would be un-paused for nothing.
+  await setPinned(cfg, targetId, true);
   if (target.status === "paused") {
-    // The one exception: a pin on a paused account would never fire.
+    // A pin on a paused account would never fire, so it has to come back.
     try {
       await apiFetch(cfg, `/api/accounts/${targetId}/reactivate`, { method: "POST" });
     } catch (err) {
       failures.push(`reactivate ${name(target)}: ${String(err).slice(0, 50)}`);
     }
   }
-  await setRoutingPolicy(cfg, targetId, "pinned");
-  // The server demotes the provider's previous *pin* itself. A leftover
-  // burn-first mark is a different thing — an old pin from before `pinned`
+  // The server clears the provider's previous *pin* itself. A leftover
+  // burn-first mark is a different thing — an old pin from before the pin
   // existed — and would go on quietly outranking `normal`, so clear it here.
   for (const acc of accounts) {
     if (acc.accountId === targetId || providerOf(acc) !== scope) continue;
@@ -364,6 +400,26 @@ async function cmdSwitch(cfg: Config, targetId: string): Promise<void> {
   }
   if (failures.length > 0) throw new Error(`Pinned ${name(target)}, but: ${failures.join("; ")}`);
   notify(`${name(target)} now serves everything until it runs out`);
+}
+
+async function setPinned(cfg: Config, accountId: string, pinned: boolean): Promise<void> {
+  try {
+    await apiFetch(cfg, `/api/accounts/${accountId}/pin`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ pinned }),
+    });
+  } catch (err) {
+    // The pin moved off routing_policy and onto its own endpoint. A proxy that
+    // predates that has no route here, and answers 405 (the dashboard's
+    // GET-only SPA fallback catches the path) or 404. Say so outright --
+    // otherwise the operator reads "Method Not Allowed" as a broken account.
+    const message = String(err);
+    if (/\b40[45]\b|not found|method not allowed/i.test(message)) {
+      throw new Error("This proxy is older than the pin endpoint — deploy claudex-lb on the server first");
+    }
+    throw err;
+  }
 }
 
 async function setRoutingPolicy(cfg: Config, accountId: string, policy: string): Promise<void> {
@@ -484,8 +540,16 @@ async function cmdAuto(cfg: Config, provider?: string): Promise<void> {
       }
     }
     // Clear both the pin and any leftover burn-first mark: "auto" means quota
-    // and pace decide, and either value would keep overriding that.
-    if (acc.routingPolicy === "pinned" || acc.routingPolicy === "burn_first") {
+    // and pace decide, and either would keep overriding that. They are separate
+    // writes now, so lifting a pin no longer flattens the account's policy.
+    if (isPinned(acc)) {
+      try {
+        await setPinned(cfg, acc.accountId, false);
+      } catch (err) {
+        failures.push(`${name(acc)}: ${String(err).slice(0, 60)}`);
+      }
+    }
+    if (acc.routingPolicy === "burn_first") {
       try {
         await setRoutingPolicy(cfg, acc.accountId, "normal");
       } catch (err) {
@@ -639,7 +703,12 @@ interface Section {
   healthy: Account[];
   manual: boolean;
   preferred: Account | null;
+  /** The account the next request lands on, per the pool's own dry run. */
   current: Account | null;
+  /** False when the pool named a front-runner rather than a settled answer. */
+  certain: boolean;
+  /** Why nobody is next, when the pool answered that nobody is. */
+  noneReason: string | null;
   last: RequestLogEntry | null;
 }
 
@@ -647,6 +716,7 @@ function buildSection(
   def: (typeof PROVIDERS)[number],
   accounts: Account[],
   requests: RequestLogEntry[],
+  nextUp: NextUpEntry[],
 ): Section | null {
   const mine = accounts.filter((a) => providerOf(a) === def.key);
   if (mine.length === 0) return null;
@@ -654,30 +724,55 @@ function buildSection(
   // rate_limited/quota_exceeded accounts are poolable but not healthy.
   const healthy = mine.filter((a) => a.status === "active");
   const pausable = mine.filter((a) => PAUSABLE.has(a.status));
-  // Manual = an explicit burn-first preference, or the legacy shape where every
-  // other account was paused to force one.
-  const preferred = mine.find((a) => a.routingPolicy === "pinned" && a.status === "active") ?? null;
+  // Manual = an explicit pin, or the legacy shape where every other account was
+  // paused to force one.
+  const preferred = mine.find((a) => isPinned(a) && a.status === "active") ?? null;
   const manual = preferred !== null || (healthy.length === 1 && mine.some((a) => a.status === "paused"));
   const last = lastFor(requests, mine);
-  // Which account is serving is a question about traffic, so the newest request
-  // log entry answers it -- not the burn-first marking, which is only a request
-  // the server may decline. A pinned account still gets gated out by its pace
-  // margin, its pre-reset window or its own quota, and reading the pin as truth
-  // made the menu name an account that was serving nothing.
+  // The account named here is the one the *next* request lands on, straight
+  // from the pool's own dry-run selection. The newest request log row used to
+  // answer this, and it was wrong in exactly the cases worth looking at: right
+  // after a pin, a pause, or a limit it goes on naming the previous account
+  // until fresh traffic arrives, and on an idle pool it never catches up.
   //
-  // The pin still shows (as 📌, via `preferred`); it just no longer overrides
-  // the evidence. It does win before any traffic exists, so clicking "switch"
-  // on an idle pool still gives immediate feedback.
+  // Reading the pin as truth was the other failed attempt: a pinned account
+  // still gets gated out by its own quota. The dry run settles both, because it
+  // runs the same eligibility filters the real selection does.
+  const answer = nextUp.find((entry) => entry.provider === def.key) ?? null;
+  const nextAcc = answer?.accountId ? mine.find((a) => a.accountId === answer.accountId) : undefined;
   const lastAcc = last?.accountId ? mine.find((a) => a.accountId === last.accountId) : undefined;
-  const current =
-    (lastAcc && PAUSABLE.has(lastAcc.status) ? lastAcc : null) ||
-    preferred ||
-    healthy[0] ||
-    pausable[0] ||
-    lastAcc ||
-    mine[0] ||
-    null;
-  return { key: def.key, label: def.label, icon: def.icon, accounts: mine, healthy, manual, preferred, current, last };
+  // An answer naming nobody is an answer: the pool has nothing that can serve.
+  // Guessing a name there would reproduce the bug this change removes -- the
+  // menu confidently naming an account that is serving nothing.
+  const answered = answer != null;
+  const nothingEligible = answered && !answer?.accountId;
+  // Everything after `nextAcc` is the offline path: with no answer at all from
+  // the server, a plausible name beats an empty menu.
+  const current = nothingEligible
+    ? null
+    : nextAcc ||
+      preferred ||
+      (lastAcc && PAUSABLE.has(lastAcc.status) ? lastAcc : null) ||
+      healthy[0] ||
+      pausable[0] ||
+      lastAcc ||
+      mine[0] ||
+      null;
+  const certain = nextAcc != null && answer?.certain !== false;
+  const noneReason = nothingEligible ? (answer?.errorMessage ?? "no account can serve") : null;
+  return {
+    key: def.key,
+    label: def.label,
+    icon: def.icon,
+    accounts: mine,
+    healthy,
+    manual,
+    preferred,
+    current,
+    certain,
+    noneReason,
+    last,
+  };
 }
 
 function titlePart(s: Section): string {
@@ -688,12 +783,10 @@ function titlePart(s: Section): string {
   return `${s.icon}${p == null ? "" : pct(p)}${s.manual ? "📌" : ""}`;
 }
 
-// Menu bar text for the embedded block: the remaining percentage on the account
-// that is serving, plus 📌 when the pool is pinned to one account. Falls back to
-// the status when a usage-based seat reports no percentage at all.
-// Menu bar text: how much of the serving account's 5h window is used, the same
-// metric the account lines show. A usage-based seat has no window at all, so fall
-// back to the least-used window in the pool — the one with the most room left.
+// Menu bar text: how much of the next account's 5h window is used, the same
+// metric the account lines show, plus 📌 when the pool is pinned to one account.
+// A usage-based seat has no window at all, so fall back to the least-used window
+// in the pool — the one with the most room left.
 function menuBarTitle(s: Section): string {
   const pin = s.manual ? "📌" : "";
   const own = usedPercent(s.current);
@@ -724,8 +817,11 @@ function renderSection(s: Section, globalWarmup: boolean | null, separator = tru
     `${s.icon} ${s.label}: ${s.manual ? `📌 ${pinnedName} first` : `Auto · ${s.healthy.length}/${s.accounts.length} active`} | size=13`,
   );
   const cur = s.current;
+  if (cur == null && s.noneReason) {
+    console.log(`Next: nobody — ${s.noneReason} | color=#e67e22`);
+  }
   if (cur) {
-    console.log(`Current: ${name(cur)}${cur.planType ? ` (${sane(cur.planType)})` : ""}`);
+    console.log(`${s.certain ? "Next" : "Likely next"}: ${name(cur)}${cur.planType ? ` (${sane(cur.planType)})` : ""}`);
     const p5 = cur.usage?.primaryRemainingPercent;
     if (p5 != null || cur.resetAtPrimary) {
       console.log(`5h window: ${p5 == null ? "–" : `${pct(p5)} left`}${remaining(cur.resetAtPrimary) ? ` · resets ${remaining(cur.resetAtPrimary)}` : ""}`);
@@ -758,15 +854,14 @@ function renderSection(s: Section, globalWarmup: boolean | null, separator = tru
   console.log(`${s.label} accounts (click to serve first)`);
   for (const acc of s.accounts) {
     const isCurrent = cur != null && acc.accountId === cur.accountId;
-    const mark =
-      acc.routingPolicy === "pinned" ? "📌" : isCurrent ? "●" : acc.status === "paused" ? "⏸" : "○";
+    const mark = isPinned(acc) ? "📌" : isCurrent ? "●" : acc.status === "paused" ? "⏸" : "○";
     const line = `${mark} ${name(acc)} — ${badge(acc)}`;
     if (acc.status === "reauth_required" || acc.status === "deactivated") {
       console.log(`--${line} | color=#e74c3c`);
     } else if (acc.status !== "active" && acc.status !== "paused") {
       // rate_limited / quota_exceeded: visible but not a valid pin target
       console.log(`--${line} | color=#e67e22`);
-    } else if (acc.routingPolicy === "pinned") {
+    } else if (isPinned(acc)) {
       // Already pinned; clicking it again would do nothing.
       console.log(`--${line}`);
     } else {
@@ -860,21 +955,23 @@ function renderRouting(): void {
 async function renderClaudeMenu(cfg: Config): Promise<void> {
   let accounts: Account[];
   let requests: RequestLogEntry[];
+  let nextUp: NextUpEntry[];
   let settings: { limitWarmupEnabled?: boolean } | null;
   try {
-    [accounts, requests, settings] = await Promise.all([
+    [accounts, requests, nextUp, settings] = await Promise.all([
       allAccounts(cfg, true),
       recentRequests(cfg),
+      nextUpAccounts(cfg),
       fetchSettings(cfg),
     ]);
   } catch {
     process.exit(1);
   }
-  const section = buildSection(PROVIDERS[0], accounts, requests);
+  const section = buildSection(PROVIDERS[0], accounts, requests, nextUp);
   if (section === null) process.exit(1);
   const globalWarmup = typeof settings?.limitWarmupEnabled === "boolean" ? settings.limitWarmupEnabled : null;
   // The host prints the menu bar title before this block, so hand it the
-  // Claude part on a marker line it strips out again. The title is the serving
+  // Claude part on a marker line it strips out again. The title is the next
   // account's remaining quota and nothing else — that number is the icon.
   console.log(`#TITLE:${menuBarTitle(section)}`);
   renderSection(section, globalWarmup, false);
@@ -882,7 +979,7 @@ async function renderClaudeMenu(cfg: Config): Promise<void> {
   // switches both assistants. `renderSection` is provider-generic — it already
   // limits the 5h-window restarts to anthropic — and a provider with zero
   // accounts renders nothing at all.
-  const codex = buildSection(PROVIDERS[1], accounts, requests);
+  const codex = buildSection(PROVIDERS[1], accounts, requests, nextUp);
   if (codex !== null) renderSection(codex, globalWarmup);
 }
 
@@ -893,24 +990,26 @@ async function renderClaudeMenu(cfg: Config): Promise<void> {
 async function renderMenuBlocks(cfg: Config): Promise<void> {
   let accounts: Account[];
   let requests: RequestLogEntry[];
+  let nextUp: NextUpEntry[];
   let settings: { limitWarmupEnabled?: boolean } | null;
   try {
-    [accounts, requests, settings] = await Promise.all([
+    [accounts, requests, nextUp, settings] = await Promise.all([
       allAccounts(cfg, true),
       recentRequests(cfg),
+      nextUpAccounts(cfg),
       fetchSettings(cfg),
     ]);
   } catch {
     process.exit(1);
   }
-  const s = buildSection(PROVIDERS[0], accounts, requests);
+  const s = buildSection(PROVIDERS[0], accounts, requests, nextUp);
   if (s === null) process.exit(1);
   const globalWarmup = typeof settings?.limitWarmupEnabled === "boolean" ? settings.limitWarmupEnabled : null;
   const cur = s.current;
 
   console.log(`#TITLE:${menuBarTitle(s)}`);
 
-  // The 5h window headline for whichever account is serving.
+  // The 5h window headline for whichever account is up next.
   console.log("#BEGIN:window");
   const used = usedPercent(cur);
   const resetIn = remaining(cur?.resetAtPrimary);
@@ -943,10 +1042,14 @@ async function renderMenuBlocks(cfg: Config): Promise<void> {
 
   // Header line for the account section.
   console.log("#BEGIN:current");
-  const label = cur ? name(cur) : "no account";
-  // A pin that is not the serving account is worth naming. With a hard pin it
-  // no longer means the server declined a preference — it means the pinned
-  // account cannot currently serve at all, which is the one thing worth saying.
+  const label = cur
+    ? `${name(cur)}${s.certain ? "" : " (likely)"}`
+    : s.noneReason
+      ? `nobody — ${s.noneReason}`
+      : "no account";
+  // A pin that is not the next account is worth naming. With a hard pin it no
+  // longer means the server declined a preference — it means the pinned account
+  // cannot currently serve at all, which is the one thing worth saying.
   const pinned = s.preferred;
   const pinNote =
     pinned == null
@@ -955,8 +1058,8 @@ async function renderMenuBlocks(cfg: Config): Promise<void> {
         : ""
       : cur != null && pinned.accountId === cur.accountId
         ? " 📌"
-        : ` · 📌 ${name(pinned)} pinned, not serving`;
-  console.log(`👤 Claude via claudex-lb: ${label}${pinNote} | size=12`);
+        : ` · 📌 ${name(pinned)} pinned, cannot serve`;
+  console.log(`👤 Claude via claudex-lb → ${label}${pinNote} | size=12`);
 
   // One line per account, click switches the proxy; settings sit underneath.
   console.log("#BEGIN:accounts");
@@ -969,7 +1072,7 @@ async function renderMenuBlocks(cfg: Config): Promise<void> {
   // splits on the markers it knows, so anything under a new one would be
   // dropped silently. Same account lines, same click-to-serve action, scoped
   // client-side to openai so pinning here never touches a Claude account.
-  const codex = buildSection(PROVIDERS[1], accounts, requests);
+  const codex = buildSection(PROVIDERS[1], accounts, requests, nextUp);
   if (codex !== null) {
     const codexCur = codex.current;
     console.log(`--⇄ Codex: ${codexCur ? name(codexCur) : "no account"}${codex.manual ? " 📌" : ""} | size=12`);
@@ -981,14 +1084,20 @@ async function renderMenuBlocks(cfg: Config): Promise<void> {
 }
 
 function renderAccountLine(acc: Account, cur: Account | null, s: Section): void {
-  const serving = cur != null && acc.accountId === cur.accountId;
+  const next = cur != null && acc.accountId === cur.accountId;
   const dead = acc.status === "reauth_required" || acc.status === "deactivated";
-  const icon = acc.routingPolicy === "pinned" ? "📌" : serving ? "✅" : dead ? "💀" : acc.status === "paused" ? "⏸" : "🔄";
-  const suffix = serving ? " • serving" : dead ? ` • ${sane(acc.status).replace(/_/g, " ")}` : "";
+  const icon = isPinned(acc) ? "📌" : next ? "✅" : dead ? "💀" : acc.status === "paused" ? "⏸" : "🔄";
+  const suffix = next
+    ? s.certain
+      ? " • next"
+      : " • likely next"
+    : dead
+      ? ` • ${sane(acc.status).replace(/_/g, " ")}`
+      : "";
   const line = `${icon} ${name(acc)} — ${accountBadge(acc)}${suffix}`;
   if (dead) {
     console.log(`--${line} | color=#e74c3c`);
-  } else if (serving && acc.routingPolicy === "pinned") {
+  } else if (next && isPinned(acc)) {
     console.log(`--${line}`);
   } else {
     console.log(`--${action(line, [SELF, "switch", acc.accountId])}`);
@@ -1056,9 +1165,10 @@ function whyNotWarmable(acc: Account): string {
 }
 
 async function render(cfg: Config): Promise<void> {
-  const [accounts, requests, settings] = await Promise.all([
+  const [accounts, requests, nextUp, settings] = await Promise.all([
     allAccounts(cfg),
     recentRequests(cfg),
+    nextUpAccounts(cfg),
     fetchSettings(cfg),
   ]);
 
@@ -1066,7 +1176,7 @@ async function render(cfg: Config): Promise<void> {
     fail("0", ["Keine Accounts in claudex-lb", `Dashboard öffnen | href=${cfg.baseUrl}`]);
   }
 
-  const sections = PROVIDERS.map((p) => buildSection(p, accounts, requests)).filter(
+  const sections = PROVIDERS.map((p) => buildSection(p, accounts, requests, nextUp)).filter(
     (s): s is Section => s !== null,
   );
   const globalWarmup = typeof settings?.limitWarmupEnabled === "boolean" ? settings.limitWarmupEnabled : null;

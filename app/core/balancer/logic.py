@@ -94,7 +94,6 @@ PROBE_SUCCESS_STREAK_REQUIRED = 3
 ROUTING_POLICY_NORMAL = "normal"
 ROUTING_POLICY_BURN_FIRST = "burn_first"
 ROUTING_POLICY_PRESERVE = "preserve"
-ROUTING_POLICY_PINNED = "pinned"
 TRAFFIC_CLASS_FOREGROUND = "foreground"
 TRAFFIC_CLASS_OPPORTUNISTIC = "opportunistic"
 PRESERVE_MIN_WEEKLY_FLOOR_PCT = 5.0
@@ -141,6 +140,9 @@ class AccountState:
     inflight_streams: int = 0
     leased_tokens: float = 0.0
     routing_policy: str = ROUTING_POLICY_NORMAL
+    # Orthogonal to routing_policy: the pin decides *whether* this account is the
+    # only candidate, the policy decides how hard to draw on it either way.
+    pinned: bool = False
     ignore_standard_quota: bool = False
     pace_margin_primary_pct: float | None = None
     pace_margin_secondary_pct: float | None = None
@@ -193,15 +195,20 @@ def _routing_policy(state: AccountState) -> str:
         ROUTING_POLICY_BURN_FIRST,
         ROUTING_POLICY_NORMAL,
         ROUTING_POLICY_PRESERVE,
-        ROUTING_POLICY_PINNED,
     }:
         return state.routing_policy
     return ROUTING_POLICY_NORMAL
 
 
 def is_pinned(state: AccountState) -> bool:
-    """Whether the operator has pinned this account as the sole route."""
-    return _routing_policy(state) == ROUTING_POLICY_PINNED
+    """Whether the operator has pinned this account as the sole route.
+
+    Read from the pin's own field rather than from the routing policy: the two
+    answer different questions. The policy says how eagerly an account should be
+    drawn from relative to its peers, and it still applies among pinned accounts
+    and again the moment the pin is lifted.
+    """
+    return state.pinned
 
 
 def pinned_states(states: Iterable[AccountState]) -> list[AccountState]:
