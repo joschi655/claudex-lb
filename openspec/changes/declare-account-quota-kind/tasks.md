@@ -47,5 +47,10 @@
 ## 6. Verification
 
 - [x] 6.1 `uv run pytest` and `bun run test` green
-- [ ] 6.2 Deploy, then confirm against live: check24 set to `usage_based`
-      presents its budget, and a subscription seat is unchanged
+- [x] 6.2 Deploy, then confirm the migration against live. Confirmed
+      2026-08-12: every account landed on `auto`, and no routing policy, pin, or
+      pace gate moved — check24 kept `preserve`, joschi655 kept `burn_first`,
+      gmail kept its pin.
+- [ ] 6.3 Confirm the rendered result: set check24 to `usage_based` and look at
+      the row. Open with `poll-anthropic-usage-api` 6.4, which is the same
+      unlooked-at rendering and the reason that change shipped half-done.
