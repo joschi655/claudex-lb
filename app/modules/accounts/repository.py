@@ -733,6 +733,21 @@ class AccountsRepository:
             await self._session.commit()
             return True
 
+    async def set_quota_kind(self, account_id: str, quota_kind: str) -> Account | None:
+        """Record which quota surface this account presents, and nothing else.
+
+        Presentation only: no routing policy, pin, or pace gate is touched, and
+        the selector never reads this column.
+        """
+        async with sqlite_writer_section():
+            result = await self._session.execute(
+                update(Account).where(Account.id == account_id).values(quota_kind=quota_kind)
+            )
+            if result.rowcount == 0:
+                return None
+            await self._session.commit()
+            return await self.get_by_id(account_id)
+
     async def update_pace_gates(self, account_id: str, gates: PaceGateUpdate) -> Account | None:
         """Apply only the gates the caller actually supplied.
 

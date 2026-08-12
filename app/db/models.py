@@ -55,6 +55,20 @@ class AccountRoutingPolicy(str, Enum):
     PRESERVE = "preserve"
 
 
+class AccountQuotaKind(str, Enum):
+    """Which quota surface an account presents.
+
+    ``AUTO`` reads it from the account's own usage rows, which is what the
+    system did before the setting existed and remains the default. The other two
+    are an operator overriding that reading -- see
+    openspec/specs/account-quota-presentation/spec.md.
+    """
+
+    AUTO = "auto"
+    SUBSCRIPTION = "subscription"
+    USAGE_BASED = "usage_based"
+
+
 class StickySessionKind(str, Enum):
     CODEX_SESSION = "codex_session"
     STICKY_THREAD = "sticky_thread"
@@ -100,6 +114,15 @@ class Account(Base):
         String,
         default="normal",
         server_default=text("'normal'"),
+        nullable=False,
+    )
+    # Presentation only: whether this account is shown as a subscription (rolling
+    # windows) or as usage-based (a dollar budget). ``auto`` reads it from the
+    # usage rows, which is what happened before the column existed.
+    quota_kind: Mapped[str] = mapped_column(
+        String,
+        default="auto",
+        server_default=text("'auto'"),
         nullable=False,
     )
     # The operator pin sits above the routing policy rather than inside it, so

@@ -14,6 +14,8 @@ import {
   AccountPaceGatesUpdateResponseSchema,
   AccountPinUpdateRequestSchema,
   AccountPinUpdateResponseSchema,
+  AccountQuotaKindUpdateRequestSchema,
+  AccountQuotaKindUpdateResponseSchema,
   AccountUpdateRequestSchema,
   NextAccountsResponseSchema,
   AccountsResponseSchema,
@@ -37,6 +39,7 @@ import {
   RuntimeConnectAddressResponseSchema,
 } from "@/features/accounts/schemas";
 import type {
+  AccountQuotaKind,
   AccountRoutingPolicy,
   AccountUsageResetConsumeRequest,
 } from "@/features/accounts/schemas";
@@ -114,6 +117,15 @@ export function updateAccountPin(accountId: string, pinned: boolean) {
   return put(
     `${ACCOUNTS_BASE_PATH}/${encodeURIComponent(accountId)}/pin`,
     AccountPinUpdateResponseSchema,
+    { body: payload },
+  );
+}
+
+export function updateAccountQuotaKind(accountId: string, quotaKind: AccountQuotaKind) {
+  const payload = AccountQuotaKindUpdateRequestSchema.parse({ quotaKind });
+  return put(
+    `${ACCOUNTS_BASE_PATH}/${encodeURIComponent(accountId)}/quota-kind`,
+    AccountQuotaKindUpdateResponseSchema,
     { body: payload },
   );
 }

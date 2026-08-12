@@ -123,6 +123,9 @@ class AccountSummary(DashboardModel):
     seat_type: str | None = None
     plan_type: str
     routing_policy: str = Field(default="normal", pattern=r"^(normal|burn_first|preserve)$")
+    # Presentation only, and independent of everything around it: which quota
+    # surface to show. ``auto`` reads it from the account's own usage rows.
+    quota_kind: str = Field(default="auto", pattern=r"^(auto|subscription|usage_based)$")
     # Sits above the routing policy rather than inside it: a pinned account is
     # the pool's only route while the pin holds, and returns to its own policy
     # the moment it is lifted.
@@ -276,6 +279,15 @@ class NextAccountEntry(DashboardModel):
 
 class NextAccountsResponse(DashboardModel):
     next_up: List[NextAccountEntry] = Field(default_factory=list)
+
+
+class AccountQuotaKindUpdateRequest(DashboardModel):
+    quota_kind: str = Field(pattern=r"^(auto|subscription|usage_based)$")
+
+
+class AccountQuotaKindUpdateResponse(DashboardModel):
+    account_id: str
+    quota_kind: str
 
 
 class AccountPinUpdateRequest(DashboardModel):

@@ -11,6 +11,7 @@ import type {
   AccountTrendsResponse,
   AccountUsageResetCredits,
 } from "@/features/accounts/schemas";
+import { resolveQuotaKind } from "@/features/accounts/quota-kind";
 import { quotaBarColor, quotaBarTrack } from "@/utils/account-status";
 import {
   formatCompactNumber,
@@ -334,19 +335,23 @@ export function AccountUsagePanel({
   const monthly = account.usage?.monthlyRemainingPercent ?? null;
   const requestUsage = account.requestUsage ?? null;
   const hasRequestUsage = (requestUsage?.requestCount ?? 0) > 0;
-  const weeklyOnly = account.windowMinutesPrimary == null && account.windowMinutesSecondary != null;
   const primaryTrendPoints = trends?.primary ?? [];
   const secondaryTrendPoints = trends?.secondary ?? [];
   const secondaryScheduledTrendPoints = trends?.secondaryScheduled ?? [];
+  const spendBudget = account.spendBudget ?? null;
+  const extraCredits = account.extraCredits ?? null;
+  // A usage-based seat bills against a budget, so the budget replaces the window
+  // bars rather than sitting beside them. Shared with the compact list row
+  // rather than inferred again here -- the two inferred it separately once, and
+  // disagreed.
+  const budgetOnly = resolveQuotaKind(account) === "usage_based";
+  const weeklyOnly =
+    !budgetOnly && account.windowMinutesPrimary == null && account.windowMinutesSecondary != null;
   const monthlyOnly =
+    !budgetOnly &&
     account.windowMinutesMonthly != null &&
     account.windowMinutesPrimary == null &&
     account.windowMinutesSecondary == null;
-  const spendBudget = account.spendBudget ?? null;
-  const extraCredits = account.extraCredits ?? null;
-  // A usage-based seat bills against a budget and reports no rolling window, so
-  // the budget replaces the window bars rather than sitting beside them.
-  const budgetOnly = spendBudget != null && primary === null && secondary === null && monthly === null;
   const hasTrends =
     primaryTrendPoints.length > 0 || secondaryTrendPoints.length > 0 || secondaryScheduledTrendPoints.length > 0;
 
@@ -360,7 +365,11 @@ export function AccountUsagePanel({
         )}
       >
         {budgetOnly ? (
-          <SpendBudgetRow budget={spendBudget} />
+          // Null only when the account is declared usage-based and its budget
+          // has not been read yet; the empty-state line below says so.
+          spendBudget != null ? (
+            <SpendBudgetRow budget={spendBudget} />
+          ) : null
         ) : monthlyOnly ? (
           <QuotaRow label="Monthly" percent={monthly} resetAt={account.resetAtMonthly} />
         ) : (
@@ -371,6 +380,9 @@ export function AccountUsagePanel({
         )}
       </div>
       {spendBudget != null && !budgetOnly ? <SpendBudgetRow budget={spendBudget} /> : null}
+      {budgetOnly && spendBudget == null ? (
+        <p className="text-xs text-muted-foreground">No budget reported yet for this account.</p>
+      ) : null}
       {extraCredits != null ? <ExtraCreditsRow credits={extraCredits} /> : null}
       <ResetCreditsRow
         accountId={account.accountId}

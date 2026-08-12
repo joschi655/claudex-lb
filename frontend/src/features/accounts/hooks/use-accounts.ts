@@ -21,10 +21,12 @@ import {
   updateAccountLimitWarmup,
   updateAccountPaceGates,
   updateAccountPin,
+  updateAccountQuotaKind,
   updateAccountRoutingPolicy,
 } from "@/features/accounts/api";
 import type {
   AccountPaceGatesUpdate,
+  AccountQuotaKind,
   AccountRoutingPolicy,
   AccountUsageResetConsumeResponse,
 } from "@/features/accounts/schemas";
@@ -225,6 +227,22 @@ export function useAccountMutations() {
     },
   });
 
+  const quotaKindMutation = useMutation({
+    mutationFn: ({ accountId, quotaKind }: { accountId: string; quotaKind: AccountQuotaKind }) =>
+      updateAccountQuotaKind(accountId, quotaKind),
+    onSuccess: (data) => {
+      toast.success(
+        data.quotaKind === "auto"
+          ? "Quota display follows the account's own usage data"
+          : `Quota display set to ${data.quotaKind === "usage_based" ? "usage-based" : "subscription"}`,
+      );
+      void invalidateAccountRelatedQueries(queryClient);
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Quota display update failed");
+    },
+  });
+
   const paceGatesMutation = useMutation({
     mutationFn: ({
       accountId,
@@ -299,6 +317,7 @@ export function useAccountMutations() {
     limitWarmupMutation,
     routingPolicyMutation,
     pinMutation,
+    quotaKindMutation,
     paceGatesMutation,
     updateMutation,
     resetCreditConsumeMutation,

@@ -120,6 +120,9 @@ export const AccountSummarySchema = z.object({
   creditsHas: z.boolean().nullable().optional(),
   creditsUnlimited: z.boolean().nullable().optional(),
   creditsBalance: z.number().nullable().optional(),
+  // Presentation only. Absent on a server older than the setting, which reads
+  // as "auto" and so behaves exactly as that server does.
+  quotaKind: z.enum(["auto", "subscription", "usage_based"]).optional(),
   spendBudget: AccountSpendBudgetSchema.nullable().optional(),
   extraCredits: AccountExtraCreditsSchema.nullable().optional(),
   requestUsage: AccountRequestUsageSchema.nullable().optional(),
@@ -315,6 +318,17 @@ export const AccountRoutingPolicyUpdateResponseSchema = z.object({
   routingPolicy: AccountRoutingPolicySchema,
 });
 
+export const AccountQuotaKindSchema = z.enum(["auto", "subscription", "usage_based"]);
+
+export const AccountQuotaKindUpdateRequestSchema = z.object({
+  quotaKind: AccountQuotaKindSchema,
+});
+
+export const AccountQuotaKindUpdateResponseSchema = z.object({
+  accountId: z.string(),
+  quotaKind: AccountQuotaKindSchema,
+});
+
 export const AccountPinUpdateRequestSchema = z.object({
   pinned: z.boolean(),
 });
@@ -420,6 +434,7 @@ export type ConsumeRateLimitResetCreditResponse = z.infer<
   typeof ConsumeRateLimitResetCreditResponseSchema
 >;
 export type AccountRoutingPolicy = z.infer<typeof AccountRoutingPolicySchema>;
+export type AccountQuotaKind = z.infer<typeof AccountQuotaKindSchema>;
 export type NextAccountEntry = z.infer<typeof NextAccountEntrySchema>;
 export type NextAccountsResponse = z.infer<typeof NextAccountsResponseSchema>;
 export type AccountAliasResponse = z.infer<typeof AccountAliasResponseSchema>;

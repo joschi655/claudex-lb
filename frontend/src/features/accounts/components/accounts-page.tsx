@@ -52,6 +52,7 @@ export function AccountsPage() {
     deleteMutation,
     routingPolicyMutation,
     pinMutation,
+    quotaKindMutation,
     paceGatesMutation,
     exportAuthMutation,
   } = useAccounts();
@@ -233,6 +234,9 @@ export function AccountsPage() {
             }
             onPinChange={(accountId, pinned) =>
               void pinMutation.mutateAsync({ accountId, pinned })
+            }
+            onQuotaKindChange={(accountId, quotaKind) =>
+              void quotaKindMutation.mutateAsync({ accountId, quotaKind })
             }
             onPaceGatesChange={(accountId, gates) =>
               void paceGatesMutation.mutateAsync({ accountId, gates })

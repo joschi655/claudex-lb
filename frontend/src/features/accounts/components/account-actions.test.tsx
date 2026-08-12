@@ -25,6 +25,7 @@ describe("AccountActions", () => {
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={onRoutingPolicyChange}
         onPinChange={vi.fn()}
+        onQuotaKindChange={vi.fn()}
         onPaceGatesChange={() => {}}
       />,
     );
@@ -56,6 +57,7 @@ describe("AccountActions", () => {
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
         onPinChange={vi.fn()}
+        onQuotaKindChange={vi.fn()}
         onPaceGatesChange={() => {}}
       />,
     );
@@ -89,6 +91,7 @@ describe("AccountActions", () => {
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={onRoutingPolicyChange}
         onPinChange={onPinChange}
+        onQuotaKindChange={vi.fn()}
         onPaceGatesChange={() => {}}
       />,
     );
@@ -122,6 +125,7 @@ describe("AccountActions", () => {
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
         onPinChange={onPinChange}
+        onQuotaKindChange={vi.fn()}
         onPaceGatesChange={() => {}}
       />,
     );
@@ -150,6 +154,7 @@ describe("AccountActions", () => {
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
         onPinChange={vi.fn()}
+        onQuotaKindChange={vi.fn()}
         onPaceGatesChange={() => {}}
       />,
     );
@@ -185,6 +190,7 @@ describe("AccountActions", () => {
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
         onPinChange={vi.fn()}
+        onQuotaKindChange={vi.fn()}
         onPaceGatesChange={() => {}}
       />,
     );
@@ -217,6 +223,7 @@ describe("AccountActions", () => {
           onLimitWarmupChange={vi.fn()}
           onRoutingPolicyChange={vi.fn()}
           onPinChange={vi.fn()}
+          onQuotaKindChange={vi.fn()}
           onPaceGatesChange={() => {}}
         />,
       );
@@ -251,6 +258,7 @@ describe("AccountActions", () => {
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
         onPinChange={vi.fn()}
+        onQuotaKindChange={vi.fn()}
         onPaceGatesChange={() => {}}
       />,
     );
@@ -286,6 +294,7 @@ describe("AccountActions", () => {
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
         onPinChange={vi.fn()}
+        onQuotaKindChange={vi.fn()}
         onPaceGatesChange={() => {}}
       />,
     );
@@ -321,6 +330,7 @@ describe("AccountActions", () => {
           onLimitWarmupChange={vi.fn()}
           onRoutingPolicyChange={vi.fn()}
           onPinChange={vi.fn()}
+          onQuotaKindChange={vi.fn()}
           onPaceGatesChange={() => {}}
         />,
       );
@@ -353,6 +363,7 @@ describe("AccountActions", () => {
         onLimitWarmupChange={vi.fn()}
         onRoutingPolicyChange={vi.fn()}
         onPinChange={vi.fn()}
+        onQuotaKindChange={vi.fn()}
         onPaceGatesChange={() => {}}
       />,
     );

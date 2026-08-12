@@ -365,4 +365,39 @@ describe("AccountListItem", () => {
     expect(screen.getByText("Weekly")).toBeInTheDocument();
     expect(screen.queryByTestId("mini-quota-track-budget")).not.toBeInTheDocument();
   });
+
+  it("drops the window rows when an account is declared usage-based", () => {
+    const account = createAccountSummary({
+      usage: { primaryRemainingPercent: 64, secondaryRemainingPercent: 73 },
+      quotaKind: "usage_based",
+    });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.queryByText("5h")).not.toBeInTheDocument();
+    expect(screen.queryByText("Weekly")).not.toBeInTheDocument();
+    expect(screen.getByText("Budget")).toBeInTheDocument();
+  });
+
+  it("keeps the window rows when a budget account is declared a subscription", () => {
+    const account = createAccountSummary({
+      ...budgetSeat(),
+      quotaKind: "subscription",
+    });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.queryByTestId("mini-quota-track-budget")).not.toBeInTheDocument();
+  });
+
+  it("says so rather than reverting when a declared usage-based seat has no budget", () => {
+    // Falling back to window bars here is indistinguishable from the setting
+    // not having saved, which is the failure this wording exists to avoid.
+    const account = createAccountSummary({ quotaKind: "usage_based", spendBudget: null });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.getByText("No budget reported yet")).toBeInTheDocument();
+    expect(screen.queryByText("5h")).not.toBeInTheDocument();
+  });
 });

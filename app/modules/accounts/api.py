@@ -26,7 +26,7 @@ from app.dependencies import (
     get_anthropic_proxy_service_for_app,
     get_proxy_service_for_app,
 )
-from app.modules.accounts.mappers import normalize_account_routing_policy
+from app.modules.accounts.mappers import normalize_account_quota_kind, normalize_account_routing_policy
 from app.modules.accounts.repository import AccountIdentityConflictError, PaceGateUpdate
 from app.modules.accounts.schemas import (
     AccountAliasRequest,
@@ -46,6 +46,8 @@ from app.modules.accounts.schemas import (
     AccountPinUpdateResponse,
     AccountProbeRequest,
     AccountProbeResponse,
+    AccountQuotaKindUpdateRequest,
+    AccountQuotaKindUpdateResponse,
     AccountReactivateResponse,
     AccountRoutingPolicyUpdateRequest,
     AccountRoutingPolicyUpdateResponse,
@@ -471,6 +473,22 @@ async def update_account_pin(
         # legacy "pinned" value would otherwise reach a client that no longer
         # accepts it as a policy.
         routing_policy=normalize_account_routing_policy(account.routing_policy),
+    )
+
+
+@router.put("/{account_id}/quota-kind", response_model=AccountQuotaKindUpdateResponse)
+async def update_account_quota_kind(
+    account_id: str,
+    payload: AccountQuotaKindUpdateRequest,
+    _write_access=Depends(require_dashboard_write_access),
+    context: AccountsContext = Depends(get_accounts_context),
+) -> AccountQuotaKindUpdateResponse:
+    account = await context.service.set_quota_kind(account_id, payload.quota_kind)
+    if account is None:
+        raise DashboardNotFoundError("Account not found", code="account_not_found")
+    return AccountQuotaKindUpdateResponse(
+        account_id=account_id,
+        quota_kind=normalize_account_quota_kind(account.quota_kind),
     )
 
 

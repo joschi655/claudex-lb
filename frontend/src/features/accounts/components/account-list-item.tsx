@@ -9,6 +9,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { MiniQuotaBar } from "@/components/mini-quota-bar";
 import { ProviderBadge } from "@/components/provider-badge";
 import type { NextUpMark } from "@/features/accounts/next-up";
+import { resolveQuotaKind } from "@/features/accounts/quota-kind";
 import type {
   AccountRoutingPolicy,
   AccountSpendBudget,
@@ -66,19 +67,19 @@ export function AccountListItem({
     account.windowMinutesMonthly != null ||
     monthly !== null ||
     account.resetAtMonthly != null;
-  const monthlyOnly = hasMonthlyWindow && !hasPrimaryWindow && !hasSecondaryWindow;
+  // A usage-based seat bills against a dollar budget and may report no rolling
+  // window at all. Every window branch below keys off a window it will never
+  // have, so without the budget row it renders no quota information whatsoever
+  // -- the one thing its requirement says must not happen.
+  const usageBased = resolveQuotaKind(account) === "usage_based";
+  const spendBudget = account.spendBudget ?? null;
+  const showBudgetRow = usageBased;
+  const monthlyOnly = !usageBased && hasMonthlyWindow && !hasPrimaryWindow && !hasSecondaryWindow;
   const showMonthlyRow = monthlyOnly;
   const showPrimaryRow =
-    !monthlyOnly && hasPrimaryWindow && (quotaDisplay !== "weekly" || !hasSecondaryWindow);
+    !usageBased && !monthlyOnly && hasPrimaryWindow && (quotaDisplay !== "weekly" || !hasSecondaryWindow);
   const showSecondaryRow =
-    !monthlyOnly && hasSecondaryWindow && (quotaDisplay !== "5h" || !hasPrimaryWindow);
-  // A usage-based seat bills against a dollar budget and reports no rolling
-  // window at all. Without this the row renders no quota information whatsoever
-  // -- the one thing the spec says such an account must not do -- because every
-  // other branch keys off a window it will never have.
-  const spendBudget = account.spendBudget ?? null;
-  const showBudgetRow =
-    spendBudget != null && !hasPrimaryWindow && !hasSecondaryWindow && !hasMonthlyWindow;
+    !usageBased && !monthlyOnly && hasSecondaryWindow && (quotaDisplay !== "5h" || !hasPrimaryWindow);
   const visibleQuotaRows =
     Number(showPrimaryRow) + Number(showSecondaryRow) + Number(showMonthlyRow) + Number(showBudgetRow);
   const showRoutingPolicy = status !== "reauth" && status !== "deactivated";
@@ -158,9 +159,7 @@ export function AccountListItem({
             resetAt={account.resetAtSecondary}
           />
         ) : null}
-        {showBudgetRow && spendBudget ? (
-          <MiniBudgetRow budget={spendBudget} />
-        ) : null}
+        {showBudgetRow ? <MiniBudgetRow budget={spendBudget} /> : null}
       </div>
       <div className="mt-2 flex min-w-0 items-center justify-between gap-2 text-[10px] text-muted-foreground">
         <span className="shrink-0">{warmupLabel}</span>
@@ -280,10 +279,13 @@ function MiniQuotaRow({
 // The budget's counterpart to MiniQuotaRow. The bar reads left-to-spend so it
 // fills and empties the same way a window bar does; showing "used" here would
 // make a nearly-spent budget look like a nearly-full window.
-function MiniBudgetRow({ budget }: { budget: AccountSpendBudget }) {
-  const remainingPercent = Math.max(0, Math.min(100, 100 - budget.usedPercent));
-  const remaining = formatBudgetAmount(budget.remaining, budget.currency);
-  const limit = formatBudgetAmount(budget.limit, budget.currency);
+function MiniBudgetRow({ budget }: { budget: AccountSpendBudget | null }) {
+  // Rendered even with nothing to show. An account declared usage-based whose
+  // budget has not been read yet says so, rather than reverting to the window
+  // bars the operator set the field to get rid of.
+  const remainingPercent = budget == null ? null : Math.max(0, Math.min(100, 100 - budget.usedPercent));
+  const remaining = formatBudgetAmount(budget?.remaining, budget?.currency);
+  const limit = formatBudgetAmount(budget?.limit, budget?.currency);
 
   return (
     <div className="space-y-1">
@@ -299,7 +301,11 @@ function MiniBudgetRow({ budget }: { budget: AccountSpendBudget }) {
         testId="mini-quota-track-budget"
       />
       <div className="text-[10px] text-muted-foreground">
-        {remaining && limit ? `${remaining} of ${limit} left` : formatMiniQuotaResetLabel(budget.resetAt ?? null)}
+        {remaining && limit
+          ? `${remaining} of ${limit} left`
+          : budget == null
+            ? "No budget reported yet"
+            : formatMiniQuotaResetLabel(budget.resetAt ?? null)}
       </div>
     </div>
   );

@@ -12,6 +12,7 @@ import { AccountTokenInfo } from "@/features/accounts/components/account-token-i
 import { AccountUsagePanel } from "@/features/accounts/components/account-usage-panel";
 import type {
   AccountPaceGatesUpdate,
+  AccountQuotaKind,
   AccountRoutingPolicy,
   AccountSummary,
   AccountUsageResetCredits,
@@ -45,6 +46,7 @@ export type AccountDetailProps = {
     routingPolicy: AccountRoutingPolicy,
   ) => void;
   onPinChange: (accountId: string, pinned: boolean) => void;
+  onQuotaKindChange: (accountId: string, quotaKind: AccountQuotaKind) => void;
   onPaceGatesChange: (accountId: string, gates: AccountPaceGatesUpdate) => void;
   onSecurityWorkAuthorizedChange: (accountId: string, enabled: boolean) => void;
   upstreamProxyAdmin?: UpstreamProxyAdmin | null;
@@ -72,6 +74,7 @@ export function AccountDetail({
   onLimitWarmupChange,
   onRoutingPolicyChange,
   onPinChange,
+  onQuotaKindChange,
   onPaceGatesChange,
   onSecurityWorkAuthorizedChange,
   upstreamProxyAdmin = null,
@@ -187,6 +190,7 @@ export function AccountDetail({
         onLimitWarmupChange={onLimitWarmupChange}
         onRoutingPolicyChange={onRoutingPolicyChange}
         onPinChange={onPinChange}
+        onQuotaKindChange={onQuotaKindChange}
         onPaceGatesChange={onPaceGatesChange}
         onSecurityWorkAuthorizedChange={onSecurityWorkAuthorizedChange}
       />

@@ -805,6 +805,17 @@ class AccountsService:
         get_account_selection_cache().invalidate()
         return await self._repo.get_by_id(account_id)
 
+    async def set_quota_kind(self, account_id: str, quota_kind: str) -> Account | None:
+        """Set the account's quota presentation kind.
+
+        The selection cache is invalidated because the account summary it backs
+        carries the field, not because selection reads it -- it does not.
+        """
+        account = await self._repo.set_quota_kind(account_id, quota_kind)
+        if account is not None:
+            get_account_selection_cache().invalidate()
+        return account
+
     async def set_pace_gates(self, account_id: str, gates: PaceGateUpdate) -> Account | None:
         account = await self._repo.update_pace_gates(account_id, gates)
         if account is not None:

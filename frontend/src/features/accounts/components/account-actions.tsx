@@ -9,6 +9,7 @@ import {
   Route,
   ShieldCheck,
   Trash2,
+  Wallet,
   Zap,
 } from "lucide-react";
 
@@ -24,6 +25,7 @@ import { Switch } from "@/components/ui/switch";
 import { PaceGateFields } from "@/features/accounts/components/pace-gate-fields";
 import type {
   AccountPaceGatesUpdate,
+  AccountQuotaKind,
   AccountRoutingPolicy,
   AccountSummary,
 } from "@/features/accounts/schemas";
@@ -47,6 +49,7 @@ export type AccountActionsProps = {
     routingPolicy: AccountRoutingPolicy,
   ) => void;
   onPinChange: (accountId: string, pinned: boolean) => void;
+  onQuotaKindChange: (accountId: string, quotaKind: AccountQuotaKind) => void;
   onPaceGatesChange: (accountId: string, gates: AccountPaceGatesUpdate) => void;
 };
 
@@ -65,6 +68,7 @@ export function AccountActions({
   onLimitWarmupChange,
   onRoutingPolicyChange,
   onPinChange,
+  onQuotaKindChange,
   onPaceGatesChange,
 }: AccountActionsProps) {
   const showOperatorRecoveryAction =
@@ -114,6 +118,35 @@ export function AccountActions({
               <SelectItem value="burn_first">Burn first</SelectItem>
               <SelectItem value="normal">Normal</SelectItem>
               <SelectItem value="preserve">Preserve</SelectItem>
+            </SelectContent>
+          </Select>
+        </div>
+      ) : null}
+
+      {!showOperatorRecoveryAction ? (
+        <div className="flex flex-col gap-2 rounded-md border bg-muted/30 p-3 sm:flex-row sm:items-center sm:gap-3">
+          <div className="flex min-w-0 items-center gap-2 text-sm font-medium sm:min-w-36">
+            <Wallet className="h-4 w-4 text-muted-foreground" />
+            Quota display
+          </div>
+          <Select
+            value={account.quotaKind ?? "auto"}
+            onValueChange={(value) =>
+              onQuotaKindChange(account.accountId, value as AccountQuotaKind)
+            }
+            disabled={busy || readOnly}
+          >
+            <SelectTrigger
+              aria-label="Quota display"
+              size="sm"
+              className="h-8 w-full min-w-0 text-xs sm:min-w-32 sm:flex-1"
+            >
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="auto">Auto</SelectItem>
+              <SelectItem value="subscription">Subscription</SelectItem>
+              <SelectItem value="usage_based">Usage-based</SelectItem>
             </SelectContent>
           </Select>
         </div>

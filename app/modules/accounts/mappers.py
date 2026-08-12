@@ -32,6 +32,7 @@ from app.modules.rate_limit_reset_credits.store import (
 from app.modules.usage.mappers import usage_history_to_window_row
 
 _ACCOUNT_ROUTING_POLICIES = frozenset({"burn_first", "normal", "preserve"})
+_ACCOUNT_QUOTA_KINDS = frozenset({"auto", "subscription", "usage_based"})
 _RESET_CREDITS_INELIGIBLE_STATUSES = frozenset(
     {AccountStatus.PAUSED, AccountStatus.REAUTH_REQUIRED, AccountStatus.DEACTIVATED}
 )
@@ -325,6 +326,7 @@ def _account_to_summary(
         plan_type=plan_type,
         status=effective_status.value,
         routing_policy=normalize_account_routing_policy(account.routing_policy),
+        quota_kind=normalize_account_quota_kind(account.quota_kind),
         pinned=bool(getattr(account, "pinned", False)),
         pace_margin_primary_pct=account.pace_margin_primary_pct,
         pace_margin_secondary_pct=account.pace_margin_secondary_pct,
@@ -370,6 +372,18 @@ def normalize_account_routing_policy(value: str | None) -> str:
     if value in _ACCOUNT_ROUTING_POLICIES:
         return value
     return "normal"
+
+
+def normalize_account_quota_kind(value: str | None) -> str:
+    """Unknown and missing both read as ``auto``, the inferring default.
+
+    A row written by a newer version, or one that predates the column, must fall
+    back to reading its own usage data rather than to a hard kind that would
+    hide a surface the account really has.
+    """
+    if value in _ACCOUNT_QUOTA_KINDS:
+        return value
+    return "auto"
 
 
 def _reset_credits_snapshot_for_account(
