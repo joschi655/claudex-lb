@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveLiveQuotaPool, resolveQuotaKind } from "@/features/accounts/quota-kind";
+import { describeQuotaPool, resolveLiveQuotaPool, resolveQuotaKind } from "@/features/accounts/quota-kind";
 import { createAccountSummary } from "@/test/mocks/factories";
 
 const WINDOWLESS = {
@@ -215,5 +215,63 @@ describe("resolveLiveQuotaPool", () => {
     const account = createAccountSummary({ ...WINDOWLESS, quotaKind: "usage_based" });
 
     expect(resolveLiveQuotaPool(account)).toBeNull();
+  });
+
+  it("does not read a pool with no limit as a full one", () => {
+    // The poller stores used_percent 0 for a pool with no limit set -- an
+    // unlimited overage allowance, or one not yet granted -- because there is no
+    // ratio to take. Reading that as "nothing spent" painted a full bar over a
+    // seat whose plan budget was gone and whose overflow state was unknown.
+    const account = createAccountSummary({
+      ...WINDOWLESS,
+      quotaKind: "usage_based",
+      spendBudget: SPENT_BUDGET,
+      extraCredits: { enabled: true, usedPercent: 0, used: null, limit: null, remaining: null, currency: "USD" },
+    });
+
+    const pool = resolveLiveQuotaPool(account);
+
+    expect(pool).toMatchObject({ kind: "extra_credits", measurable: false });
+    expect(pool?.remainingPercent).toBeNull();
+    expect(describeQuotaPool(pool)).toBe("No limit reported");
+  });
+
+  it("prefers an unmeasurable pool over asserting a spent one", () => {
+    // "0 left" is a claim. When the pool that would cover the overflow has not
+    // said whether it can, the honest answer is that it has not said.
+    const account = createAccountSummary({
+      ...WINDOWLESS,
+      quotaKind: "usage_based",
+      spendBudget: SPENT_BUDGET,
+      extraCredits: { enabled: true, usedPercent: 0, used: 500, limit: null, remaining: null, currency: "USD" },
+    });
+
+    expect(resolveLiveQuotaPool(account)).toMatchObject({
+      kind: "extra_credits",
+      measurable: false,
+      spent: false,
+    });
+  });
+
+  it("still prefers a measurable pool with headroom over an unmeasurable one", () => {
+    const account = createAccountSummary({
+      ...WINDOWLESS,
+      quotaKind: "usage_based",
+      spendBudget: BUDGET,
+      extraCredits: { enabled: true, usedPercent: 0, used: null, limit: null, remaining: null, currency: "USD" },
+    });
+
+    expect(resolveLiveQuotaPool(account)).toMatchObject({ kind: "budget", measurable: true });
+  });
+
+  it("describes a pool that has nothing left", () => {
+    const account = createAccountSummary({
+      ...WINDOWLESS,
+      quotaKind: "usage_based",
+      spendBudget: { ...SPENT_BUDGET, used: null, limit: null, remaining: null },
+      extraCredits: { ...LIVE_EXTRA_CREDITS, usedPercent: 100, used: null, limit: 200, remaining: null },
+    });
+
+    expect(describeQuotaPool(resolveLiveQuotaPool(account))).toBe("Nothing left to spend");
   });
 });

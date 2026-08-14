@@ -53,6 +53,23 @@
 - [x] 4.3 Show the extra-usage pool in the section detail only when it carries
       something — money moving through it, or a spent budget the operator could
       turn it on for. Every seat reports the pool, most of them off and empty.
+- [x] 4.4 Honour `quotaKind` in the plugin as the web surfaces do, so a seat
+      declared usage-based follows its pool in the menu bar too rather than a
+      stale window figure.
+
+## 6. Review findings
+
+- [x] 6.1 A pool with no reported limit is not evidence of headroom. The poller
+      records `used_percent = 0` there; reading it as an untouched pool painted a
+      full bar over a seat whose overflow state is unknown, and would have made
+      the menu-bar title report the whole section as fresh.
+- [x] 6.2 The asymmetry between the two pools is deliberate and encoded: a plan
+      budget's utilization is always real, the extra-usage pool's is a derived
+      figure with a zero sentinel.
+- [x] 6.3 Reconcile the delta with the sibling `show-anthropic-extra-credits`
+      requirement, which states the pool is presented alongside rather than in
+      place of the existing surface — scoped explicitly to compact surfaces so a
+      reviewer merging deltas does not read a contradiction.
 
 ## 5. Verify
 

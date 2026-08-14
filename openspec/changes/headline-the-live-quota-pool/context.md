@@ -82,6 +82,33 @@ two-column 5h + weekly layout, and both bars render at 0 with no reset label and
 no dollar figure. Adding a third and fourth independent inference is what
 `resolveQuotaKind` exists to stop, so both call it.
 
+## The zero that means "unknown"
+
+The two pools are not symmetric in how their utilization is produced, and a
+review pass caught the resolver treating them as if they were.
+
+`_budget()` only recognizes a dollar bucket that states a `limit_dollars`, and
+carries the utilization the payload itself reported. A budget's percentage is
+therefore always a real figure.
+
+`_extra_credits_used_percent()` derives its figure, and returns `0.0` whenever
+the limit or the amount used is missing — "a pool with no limit set has no
+meaningful ratio". The row then stores `used_percent = 0`, `credits_limit =
+NULL`, `credits_balance = NULL`. That is reachable for an enabled pool with an
+unlimited overage allowance, or one enabled but not yet granted.
+
+Read naively, that zero says the pool is untouched. On a seat whose plan budget
+is spent, the resolver would then have selected it and rendered a full bar at
+100% with no dollar figure — and the menu-bar title, which takes the minimum
+across the section, would have reported the whole Claude pool as untouched. The
+previous behaviour was wrong in the conservative direction (`0% left · $0.00`);
+this would have been wrong in the direction that hides exhaustion.
+
+So headroom requires a limit to have headroom *in*. An unmeasurable pool is
+selected ahead of a spent one — "0 left" is a claim, and a pool that has not said
+whether it can cover the overflow has not made it — but it renders as "No limit
+reported" rather than as any percentage, and contributes nothing to aggregates.
+
 ## Failure modes considered
 
 - **Utilization above 100%.** A pool over its limit reports utilization above

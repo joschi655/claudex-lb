@@ -100,6 +100,22 @@ async def test_overview_and_accounts_agree_on_the_pools(async_client, db_setup):
 
 
 @pytest.mark.asyncio
+async def test_a_usage_based_only_pool_reports_a_sync_time(async_client, db_setup):
+    """A live poller must not read as stalled just because no seat has a window.
+
+    `lastSyncAt` answered "is the poller alive" from the three window kinds
+    alone. A pool of usage-based seats reports none of them, so it showed as
+    never synced while the poller was writing dollar rows every tick.
+    """
+    await _seed_usage_based_seat("acc_sync_overview")
+
+    response = await async_client.get("/api/dashboard/overview")
+    assert response.status_code == 200, response.text
+
+    assert response.json()["lastSyncAt"] is not None
+
+
+@pytest.mark.asyncio
 async def test_a_window_account_reports_no_pools(async_client, db_setup):
     """Loading two more windows must not invent pools for a subscription seat."""
     async with SessionLocal() as session:

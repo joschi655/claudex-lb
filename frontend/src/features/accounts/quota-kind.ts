@@ -45,14 +45,23 @@ export type LiveQuotaPool = {
   kind: LiveQuotaPoolKind;
   /** Names the pool, so a plan budget is never mistaken for the top-up behind it. */
   label: string;
-  /** Clamped to [0, 100]; an over-limit pool reads 0 rather than negative. */
-  remainingPercent: number;
+  /**
+   * Clamped to [0, 100]; an over-limit pool reads 0 rather than negative.
+   *
+   * `null` when the pool reports no limit, because then there is no ratio to
+   * take. The poller stores `used_percent = 0` in that case -- "no limit set, so
+   * no meaningful ratio" -- and reading that as "nothing spent" would paint a
+   * full bar over a pool whose state is simply unknown.
+   */
+  remainingPercent: number | null;
   remaining: number | null;
   limit: number | null;
   currency: string | null;
   resetAt: string | null;
   /** No headroom left. The seat cannot spend from this pool, or from any other. */
   spent: boolean;
+  /** The pool reports a limit, so its percentage means something. */
+  measurable: boolean;
 };
 
 /**
@@ -79,13 +88,27 @@ export function resolveLiveQuotaPool(account: AccountSummary): LiveQuotaPool | n
   // are not a fallback, they are money that cannot be spent.
   const extra = account.extraCredits?.enabled === true ? toExtraPool(account.extraCredits) : null;
 
-  if (budget != null && !budget.spent) return budget;
-  if (extra != null && !extra.spent) return extra;
-  // Nothing left anywhere. Prefer the top-up pool when the account has one: it
-  // is the pool the upstream names when a spent seat refuses a request.
+  // Headroom requires a limit to have headroom *in*. A pool without one is not
+  // a candidate: it cannot be shown to have room, and it cannot be shown to be
+  // out either.
+  if (budget != null && budget.measurable && !budget.spent) return budget;
+  if (extra != null && extra.measurable && !extra.spent) return extra;
+
+  // Nothing measurable has room. An unmeasurable pool is the honest answer
+  // before a spent one: "this seat's remaining budget is 0" is a claim, and the
+  // pool that would cover the overflow has not said whether it can.
+  const unmeasurable = [extra, budget].find((p) => p != null && !p.measurable);
+  if (unmeasurable != null) return unmeasurable;
+
+  // Genuinely out. Prefer the top-up pool when the account has one: it is the
+  // pool the upstream names when a spent seat refuses a request.
   return extra ?? budget;
 }
 
+// The plan budget's utilization is always a real figure: the poller only
+// recognizes a dollar bucket that states a limit, and carries the utilization
+// the payload itself reported. So a budget is always measurable, even in the
+// shapes where the limit did not survive into the row.
 function toPool(budget: AccountSpendBudget | null | undefined): LiveQuotaPool | null {
   if (budget == null) return null;
   return {
@@ -97,24 +120,31 @@ function toPool(budget: AccountSpendBudget | null | undefined): LiveQuotaPool | 
     currency: budget.currency ?? null,
     resetAt: budget.resetAt ?? null,
     spent: budget.usedPercent >= 100,
+    measurable: true,
   };
 }
 
+// The top-up pool is the asymmetric one. Its utilization is derived from limit
+// and used, and the poller writes 0 when either is missing -- "no limit set, so
+// no meaningful ratio" -- which is indistinguishable from a genuinely untouched
+// pool unless the limit is checked.
 function toExtraPool(credits: AccountExtraCredits): LiveQuotaPool {
+  const measurable = credits.limit != null;
   return {
     kind: "extra_credits",
     // "Extra usage", matching the detail panel and the wording Anthropic itself
     // uses when a seat runs out of it. Two names for one pool on two views of
     // the same account is the confusion this whole resolver exists to avoid.
     label: "Extra usage",
-    remainingPercent: remainingPercentOf(credits.usedPercent),
+    remainingPercent: measurable ? remainingPercentOf(credits.usedPercent) : null,
     remaining: credits.remaining ?? null,
     limit: credits.limit ?? null,
     currency: credits.currency ?? null,
     // The top-up pool rides the plan's period rather than resetting on its own,
     // so it reports no reset of its own to show.
     resetAt: null,
-    spent: credits.usedPercent >= 100,
+    spent: measurable && credits.usedPercent >= 100,
+    measurable,
   };
 }
 
@@ -148,4 +178,20 @@ export function formatQuotaPoolAmounts(pool: LiveQuotaPool): string | null {
   if (remaining && limit) return `${remaining} of ${limit} left`;
   if (remaining) return `${remaining} left`;
   return null;
+}
+
+/**
+ * The footnote under a pool's bar: amounts when it has them, and otherwise the
+ * reason there is no figure. Shared so all three compact surfaces say the same
+ * thing about the same pool.
+ */
+export function describeQuotaPool(pool: LiveQuotaPool | null): string {
+  if (pool == null) return "No budget reported yet";
+  const amounts = formatQuotaPoolAmounts(pool);
+  if (amounts) return amounts;
+  // An enabled pool with no limit is unlimited or not yet granted; either way
+  // the poller has no ratio to store and says so rather than implying a full one.
+  if (!pool.measurable) return "No limit reported";
+  if (pool.spent) return "Nothing left to spend";
+  return "";
 }

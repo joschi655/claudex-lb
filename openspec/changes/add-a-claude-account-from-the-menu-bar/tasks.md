@@ -31,3 +31,19 @@
       the pool with its own email and plan. Cannot be exercised without real
       credentials — the token exchange and profile fetch stay unproven until
       this runs.
+
+## 4. Review findings
+
+- [x] 4.1 `fail()` throws rather than exiting 0 for terminal subcommands. Five
+      reachable paths ended in `process.exit(0)`, so a rotated dashboard password
+      or a momentarily unreachable proxy dropped a freshly minted, single-use
+      refresh token while printing SwiftBar menu syntax and reporting success.
+- [x] 4.2 `cmdLogin` authenticates against the proxy before generating the PKCE
+      challenge or opening the browser, so that class of failure costs a Terminal
+      window rather than a completed sign-in.
+- [x] 4.3 Verified both: an unreachable proxy exits 1 with the reason and opens
+      no browser; the real configuration passes the preflight and reaches the
+      code prompt.
+- [x] 4.4 Document that completing the flow for an account already in the pool
+      re-authorizes it and resets its runtime state — pre-existing behaviour of
+      the import endpoint, newly one click away.

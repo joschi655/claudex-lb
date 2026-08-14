@@ -141,6 +141,7 @@ interface Account {
   resetAtSecondary?: string | null;
   resetAtMonthly?: string | null;
   requestUsage?: RequestUsage | null;
+  quotaKind?: "auto" | "subscription" | "usage_based";
   spendBudget?: SpendBudget | null;
   extraCredits?: ExtraCredits | null;
   limitWarmupEnabled?: boolean;
@@ -161,7 +162,20 @@ interface NextUpEntry {
   errorMessage?: string | null;
 }
 
+// Set for subcommands that run in a Terminal the operator is watching rather
+// than behind the menu. SwiftBar's contract is "print a menu and exit 0", which
+// is exactly wrong there: `login` holds a freshly minted, single-use Anthropic
+// refresh token by the time it talks to the proxy, and an exit 0 would drop it
+// while reporting success.
+let terminalMode = false;
+
 function fail(title: string, lines: string[]): never {
+  if (terminalMode) {
+    // Menu actions ("Aktualisieren | refresh=true") are instructions to
+    // SwiftBar, not to a reader; only the prose survives.
+    const prose = lines.filter((l) => !l.includes("refresh=true")).map((l) => l.split(" | ")[0]);
+    throw new Error(prose.join(" — ") || "failed");
+  }
   console.log(`⇄ ${title}`);
   console.log("---");
   for (const line of lines) console.log(line);
@@ -672,10 +686,12 @@ function money(v: number | null | undefined, currency: string | null | undefined
 
 interface QuotaPool {
   label: string;
-  remainingPercent: number;
+  /** null when the pool reports no limit, so there is no ratio to take. */
+  remainingPercent: number | null;
   remaining?: number | null;
   currency?: string | null;
   spent: boolean;
+  measurable: boolean;
 }
 
 // The dollar pool a usage-based seat can still spend from. A seat draws its plan
@@ -686,6 +702,9 @@ interface QuotaPool {
 // Mirrors resolveLiveQuotaPool in the dashboard frontend; the plugin is a
 // standalone script and cannot import from it.
 function livePool(acc: Account | null | undefined): QuotaPool | null {
+  // The plan budget's utilization is always real -- the poller only recognizes a
+  // dollar bucket that states a limit. The top-up pool below is the asymmetric
+  // one, where used_percent 0 doubles as "no limit set".
   const b = acc?.spendBudget;
   const budget: QuotaPool | null =
     b == null
@@ -696,23 +715,31 @@ function livePool(acc: Account | null | undefined): QuotaPool | null {
           remaining: b.remaining,
           currency: b.currency,
           spent: b.usedPercent >= 100,
+          measurable: true,
         };
   // A switched-off pool still carries a limit and a remainder, which is money
   // the seat cannot spend. Dropped rather than ranked below the budget.
   const e = acc?.extraCredits?.enabled === true ? acc.extraCredits : null;
+  const extraMeasurable = e?.limit != null;
   const extra: QuotaPool | null =
     e == null
       ? null
       : {
           label: "Extra usage",
-          remainingPercent: Math.max(0, Math.min(100, 100 - e.usedPercent)),
+          remainingPercent: extraMeasurable ? Math.max(0, Math.min(100, 100 - e.usedPercent)) : null,
           remaining: e.remaining,
           currency: e.currency,
-          spent: e.usedPercent >= 100,
+          spent: extraMeasurable && e.usedPercent >= 100,
+          measurable: extraMeasurable,
         };
 
-  if (budget != null && !budget.spent) return budget;
-  if (extra != null && !extra.spent) return extra;
+  // Headroom needs a limit to have headroom in. The poller stores used_percent
+  // 0 for a pool with no limit -- "no ratio to take" -- and reading that as
+  // "nothing spent" would claim a full pool on a seat whose state is unknown.
+  if (budget != null && budget.measurable && !budget.spent) return budget;
+  if (extra != null && extra.measurable && !extra.spent) return extra;
+  const unmeasurable = [extra, budget].find((p) => p != null && !p.measurable);
+  if (unmeasurable != null) return unmeasurable;
   return extra ?? budget;
 }
 
@@ -720,10 +747,14 @@ function badge(acc: Account): string {
   const p =
     acc.usage?.primaryRemainingPercent ?? acc.usage?.secondaryRemainingPercent ?? acc.usage?.monthlyRemainingPercent;
   // A budget seat has no window to report a remainder for, so its badge is what
-  // is left of its live pool rather than "unknown".
-  const pool = p == null ? livePool(acc) : null;
+  // is left of its live pool rather than "unknown". `quotaKind` is honoured the
+  // same way the web surfaces honour it: a seat an operator has declared
+  // usage-based follows its pool even while stale window figures linger, so the
+  // menu bar and the dashboard cannot describe one account two ways.
+  const pool = p == null || acc.quotaKind === "usage_based" ? livePool(acc) : null;
   if (pool != null) {
     const left = money(pool.remaining, pool.currency);
+    if (!pool.measurable) return `${pool.label.toLowerCase()} · no limit reported`;
     return `${pct(pool.remainingPercent)} left${left ? ` · ${left}` : ""}`;
   }
   const reset = remaining(acc.resetAtPrimary ?? acc.resetAtSecondary ?? acc.resetAtMonthly);
@@ -864,17 +895,23 @@ function menuBarTitle(s: Section): string {
 
 function usedPercent(acc: Account | null | undefined): number | null {
   const left =
-    acc?.usage?.primaryRemainingPercent ??
-    acc?.usage?.secondaryRemainingPercent ??
-    acc?.usage?.monthlyRemainingPercent;
+    acc?.quotaKind === "usage_based"
+      ? null
+      : (acc?.usage?.primaryRemainingPercent ??
+        acc?.usage?.secondaryRemainingPercent ??
+        acc?.usage?.monthlyRemainingPercent);
   if (left != null) return 100 - left;
   // Fall back to the live pool so the icon shows a number for a seat whose quota
   // is dollars rather than a window. A seat with every pool spent reports
   // nothing: `100%` is a true statement about money nobody can spend, printed
   // where the reader is asking how much room there is. Returning null lets
   // menuBarTitle fall through to a window that still means something.
+  // An unmeasurable pool contributes nothing either: `0% used` on a pool with no
+  // reported limit would assert the whole section is untouched, and the title
+  // takes the minimum across the pool.
   const pool = livePool(acc);
-  return pool == null || pool.spent ? null : 100 - pool.remainingPercent;
+  if (pool == null || pool.spent || !pool.measurable || pool.remainingPercent == null) return null;
+  return 100 - pool.remainingPercent;
 }
 
 function renderSection(s: Section, globalWarmup: boolean | null, separator = true): void {
@@ -1337,6 +1374,13 @@ async function readLine(promptText: string): Promise<string> {
 }
 
 async function cmdLogin(cfg: Config): Promise<void> {
+  // Prove we can reach the proxy and authenticate BEFORE sending anyone to a
+  // sign-in page. Discovering a rotated dashboard password after the exchange
+  // costs a single-use Anthropic refresh token that exists nowhere else: the
+  // flow has no way to re-deliver it, and re-running means signing in again.
+  // Cheap authenticated GET; the cookie it establishes is reused by the import.
+  await apiFetch(cfg, "/api/settings");
+
   const verifier = b64url(randomBytes(32));
   const challenge = b64url(createHash("sha256").update(verifier).digest());
   const state = b64url(randomBytes(32));
@@ -1454,6 +1498,8 @@ const ACTIONS = new Set([
   "pace",
   "prereset",
 ]);
+// Before loadConfig, which can fail() too.
+terminalMode = cmd === "login";
 const cfg = loadConfig();
 
 try {

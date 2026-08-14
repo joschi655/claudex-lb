@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { cn } from "@/lib/utils";
 import type { LiveQuotaPool } from "@/features/accounts/quota-kind";
 import {
+  describeQuotaPool,
   formatQuotaPoolAmounts,
   resolveLiveQuotaPool,
   resolveQuotaKind,
@@ -92,21 +93,14 @@ function QuotaBar({
 // left-to-spend, matching a window bar rather than inverting it.
 function BudgetBar({ pool }: { pool: LiveQuotaPool | null }) {
   const amounts = pool == null ? null : formatQuotaPoolAmounts(pool);
-  const showsAmounts = amounts != null;
+  const datedInstead = amounts == null && pool?.resetAt != null;
   return (
     <QuotaBar
       label={pool?.label ?? "Budget"}
       percent={pool?.remainingPercent ?? null}
-      icon={showsAmounts ? Wallet : Clock}
+      icon={datedInstead ? Clock : Wallet}
       resetLabel={
-        amounts ??
-        (pool == null
-          ? "No budget reported yet"
-          : pool.resetAt
-            ? formatQuotaResetLabel(pool.resetAt)
-            : pool.spent
-              ? "Nothing left to spend"
-              : "")
+        datedInstead && pool?.resetAt ? formatQuotaResetLabel(pool.resetAt) : describeQuotaPool(pool)
       }
     />
   );

@@ -6,6 +6,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import type { LiveQuotaPool } from "@/features/accounts/quota-kind";
 import {
+  describeQuotaPool,
   formatQuotaPoolAmounts,
   resolveLiveQuotaPool,
   resolveQuotaKind,
@@ -73,20 +74,13 @@ function quotaLabel(label: string, percent: number | null, resetAt: string | nul
 // gap the accounts page closed when it started resolving the quota kind.
 function poolLabel(pool: LiveQuotaPool | null) {
   const amounts = pool == null ? null : formatQuotaPoolAmounts(pool);
+  const dated = amounts == null && pool?.resetAt != null;
   return {
     label: pool?.label ?? "Budget",
     percent: pool?.remainingPercent ?? null,
     percentLabel: formatPercentNullable(pool?.remainingPercent ?? null),
-    resetLabel:
-      amounts ??
-      (pool == null
-        ? "No budget reported yet"
-        : pool.resetAt
-          ? formatQuotaResetLabel(pool.resetAt)
-          : pool.spent
-            ? "Nothing left to spend"
-            : ""),
-    dated: amounts == null && pool?.resetAt != null,
+    resetLabel: dated && pool?.resetAt ? formatQuotaResetLabel(pool.resetAt) : describeQuotaPool(pool),
+    dated,
   };
 }
 

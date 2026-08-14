@@ -11,6 +11,7 @@ import { ProviderBadge } from "@/components/provider-badge";
 import type { NextUpMark } from "@/features/accounts/next-up";
 import type { LiveQuotaPool } from "@/features/accounts/quota-kind";
 import {
+  describeQuotaPool,
   formatQuotaPoolAmounts,
   resolveLiveQuotaPool,
   resolveQuotaKind,
@@ -292,7 +293,6 @@ function MiniBudgetRow({ pool }: { pool: LiveQuotaPool | null }) {
   // budget has not been read yet says so, rather than reverting to the window
   // bars the operator set the field to get rid of.
   const remainingPercent = pool?.remainingPercent ?? null;
-  const amounts = pool == null ? null : formatQuotaPoolAmounts(pool);
 
   return (
     <div className="space-y-1">
@@ -309,15 +309,9 @@ function MiniBudgetRow({ pool }: { pool: LiveQuotaPool | null }) {
         testId="mini-quota-track-budget"
       />
       <div className="text-[10px] text-muted-foreground">
-        {amounts
-          ? amounts
-          : pool == null
-            ? "No budget reported yet"
-            : pool.resetAt
-              ? formatMiniQuotaResetLabel(pool.resetAt)
-              : pool.spent
-                ? "Nothing left to spend"
-                : ""}
+        {pool?.resetAt && !formatQuotaPoolAmounts(pool)
+          ? formatMiniQuotaResetLabel(pool.resetAt)
+          : describeQuotaPool(pool)}
       </div>
     </div>
   );

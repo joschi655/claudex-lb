@@ -14,6 +14,19 @@ The extra-usage pool SHALL be considered only when it is enabled. A disabled poo
 is not a pool the account can spend from, so it MUST NOT be selected as live even
 when the plan budget is exhausted.
 
+A pool has headroom only when its utilization is a real ratio. The extra-usage
+pool's utilization is derived from a limit and an amount used, and is recorded as
+zero when no limit is set; that zero MUST NOT be read as an untouched pool. Such
+a pool SHALL be presented without a percentage, stating that no limit was
+reported, and MUST NOT contribute a figure to any aggregate that reports how much
+room the pool of accounts has.
+
+This requirement governs the compact surfaces only. The account detail panel
+continues to present the plan budget and the extra-usage pool together, as
+required by the extra-usage pool's own presentation requirement; selecting one
+pool is a property of surfaces where exactly one figure fits, not a replacement
+of that requirement.
+
 The presented pool SHALL be labelled by which pool it is, so an operator can tell
 a plan budget from the extra-usage pool without opening the account.
 
@@ -39,6 +52,16 @@ a plan budget from the extra-usage pool without opening the account.
 - **AND** an extra-usage pool that is not enabled
 - **WHEN** a compact quota surface renders the account
 - **THEN** it presents the spent plan budget rather than the disabled pool
+
+#### Scenario: An enabled pool with no limit is not a full pool
+
+- **GIVEN** a usage-based account whose plan budget is 100% used
+- **AND** an enabled extra-usage pool that reports no limit, recorded with zero
+  utilization
+- **WHEN** a compact quota surface renders the account
+- **THEN** it presents the extra-usage pool with no percentage, stating that no
+  limit was reported
+- **AND** the account contributes no figure to the aggregate quota indicator
 
 ### Requirement: A usage-based account with every pool spent presents as spent
 

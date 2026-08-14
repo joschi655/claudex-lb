@@ -55,6 +55,50 @@ mismatch check, and the malformed-code path are exercised. The token exchange an
 profile fetch are unproven until someone completes a sign-in; they cannot be
 exercised without real credentials.
 
+## The exit-0 trap, and why the preflight comes first
+
+SwiftBar's contract for a plugin is "print a menu and exit 0", and the plugin's
+`fail()` implements exactly that. That contract is precisely wrong for this
+subcommand: by the time it talks to the proxy it is holding a freshly minted,
+single-use Anthropic refresh token that exists nowhere else. An exit 0 there
+drops it *and reports success* — the operator sees SwiftBar menu syntax in a
+Terminal window, and the account they just signed in for is simply gone.
+
+A review pass counted **five** reachable `fail()` calls on that path, not the two
+that were obvious: the missing-password branch, the unreachable-host branch in
+`apiFetch`, and three inside the dashboard login itself — network error, a non-OK
+login response, and a response carrying no session cookie. A merely *rotated*
+dashboard password was enough to hit it.
+
+Two changes, because either alone leaves a hole:
+
+- `fail()` throws instead of exiting when the running subcommand is a terminal
+  one. This covers all five paths and any added later, since it is the shared
+  exit rather than each call site.
+- `cmdLogin` makes an authenticated request **before** generating the PKCE
+  challenge or opening the browser. A dead proxy or a rotated password is then
+  discovered while nothing has been minted, so the failure costs a Terminal
+  window rather than a sign-in.
+
+The preflight also warms the session cookie the import will reuse, so the
+authenticated call is not extra work.
+
+## Re-authorizing an account that is already in the pool
+
+The import matches an Anthropic account on `(provider, email)` and, when it
+finds one, overwrites the tokens *and* the row's runtime state: status,
+deactivation reason, `reset_at`, `blocked_at`, and the routing-unavailable mark.
+So completing this flow while the browser is signed into a seat the pool already
+holds will flip a rate-limited seat back to active with its reset time cleared,
+and the selector will route to it while the upstream is still limiting.
+
+This is pre-existing behaviour of `POST /api/accounts/import` — the dashboard's
+own import UI and `push-account.ts` reach it the same way — so this change adds a
+trigger, not a behaviour. It is called out here because the new entry makes that
+trigger one click from a menu whose default browser session is very often
+already signed into a pooled account, which is why the flow's own instructions
+lead with the private-window advice.
+
 ## Failure modes handled
 
 - **Pasted code without a `#`.** Refused with the reason, rather than sent to the

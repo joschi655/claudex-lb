@@ -165,7 +165,14 @@ class DashboardService:
 
         additional_ts = await self._repo.latest_additional_recorded_at()
         return DashboardOverviewResponse(
-            last_sync_at=_latest_recorded_at(primary_usage, secondary_usage, monthly_usage, additional_ts),
+            last_sync_at=_latest_recorded_at(
+                primary_usage,
+                secondary_usage,
+                monthly_usage,
+                budget_usage,
+                extra_credits_usage,
+                additional_ts=additional_ts,
+            ),
             timeframe=build_overview_timeframe(overview_timeframe),
             accounts=account_summaries,
             summary=summary,
@@ -374,15 +381,18 @@ def _should_use_weekly_primary_history(
 
 
 def _latest_recorded_at(
-    primary_usage: dict[str, UsageHistory],
-    secondary_usage: dict[str, UsageHistory],
-    monthly_usage: dict[str, UsageHistory],
+    *usage_maps: dict[str, UsageHistory],
     additional_ts: datetime | None = None,
 ):
+    """When the pool was last heard from, across every window kind it reports.
+
+    Variadic rather than one parameter per window: this answers "is the poller
+    alive", and a window left out of the list makes a live poller look stalled.
+    A pool of usage-based seats reports no rolling window at all, so omitting the
+    dollar windows would have shown it as never synced.
+    """
     timestamps = [
-        entry.recorded_at
-        for entry in list(primary_usage.values()) + list(secondary_usage.values()) + list(monthly_usage.values())
-        if entry.recorded_at is not None
+        entry.recorded_at for usage_map in usage_maps for entry in usage_map.values() if entry.recorded_at is not None
     ]
     if additional_ts is not None:
         timestamps.append(additional_ts)
