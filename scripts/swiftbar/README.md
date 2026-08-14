@@ -71,11 +71,35 @@ once and caches the session cookie (`~/.config/claudex-lb/menubar-session.cookie
 mode 600); it only re-logins after a 401, so the dashboard login rate limit is
 never in play. A provider with zero accounts simply renders no section.
 
+## Adding a Claude account
+
+**Add a Claude account…** in the Claude section opens a Terminal window and runs
+Anthropic's own authorization-code flow: it prints and opens the claude.ai
+sign-in URL, you paste back the code the callback page gives you, and the
+resulting credential is imported into the pool.
+
+Nothing on this Mac is touched — no keychain write, no `~/.claude.json`, and no
+effect on whichever account Claude Code is logged into here. Sign in from a
+private window to add an account other than the one the browser already holds,
+and run it as often as you like.
+
+The account arrives under its own identity: the email comes from the token
+exchange and the plan from the OAuth profile, so there is no `~/.claude.json`
+lookup and no synthetic `@imported.local` address. That is the difference from
+`scripts/push-account/push-account.ts`, which is still the right tool for handing
+over an account **already** logged in on this Mac, and which has to reconstruct
+the identity because the credential Claude Code stores carries no email.
+
+The entry is Claude-only. ChatGPT accounts are added through the dashboard's own
+flow — a different protocol with a different client.
+
 ## Subcommands
 
-The menu invokes the plugin itself: `claudex-lb.1m.ts switch <account_id>` and
-`claudex-lb.1m.ts auto [openai|anthropic]`. Errors from menu actions surface
-as macOS notifications.
+The menu invokes the plugin itself: `claudex-lb.1m.ts switch <account_id>`,
+`claudex-lb.1m.ts auto [openai|anthropic]`, and `claudex-lb.1m.ts login`.
+Errors from menu actions surface as macOS notifications; `login` runs in a
+Terminal window and prints its errors there instead, since a notification would
+drop the detail that says which step failed.
 
 ## Embedding in another menu-bar plugin
 

@@ -24,6 +24,9 @@
 //   warmup-all                     same, for every eligible Claude account
 //   autowarm <account_id> <on|off> per-account automatic restart when a window ends
 //   autowarm-all <on|off>          the server-wide automatic-restart switch
+//   login                          add a Claude account: runs Anthropic's OAuth
+//                                  flow in a Terminal window and imports the
+//                                  result (needs a TTY; nothing local is touched)
 //   route <proxy|local>            point Claude Code at the proxy, or at its local login
 //   pace <account_id> <pct|clear>  pace-diagonal margin for the 5h window
 //   prereset <account_id> <min|clear>  serve only in the last N min before reset
@@ -40,6 +43,8 @@ import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "n
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+import { createInterface } from "node:readline";
 
 const CFG_DIR = join(homedir(), ".config", "claudex-lb");
 const CFG_PATH = join(CFG_DIR, "menubar.json");
@@ -950,6 +955,15 @@ function renderSection(s: Section, globalWarmup: boolean | null, separator = tru
       console.log(`--${action(line, [SELF, "switch", acc.accountId])}`);
     }
   }
+  // Claude only: this runs Anthropic's OAuth flow. Codex accounts are added
+  // through the dashboard's own ChatGPT flow, which is a different protocol
+  // with a different client — one button cannot serve both.
+  //
+  // terminal=true because the flow has to show a URL and read a pasted code;
+  // a headless action has nowhere to put either.
+  if (s.key === "anthropic") {
+    console.log(`--➕ Add a Claude account… | bash="/bin/bash" param1="${SELF}" param2="login" terminal=true refresh=true`);
+  }
   console.log(
     action(s.manual ? `⚖️ ${s.label}: Auto (balance across all)` : `⚖️ ${s.label}: Reset to auto`, [SELF, "auto", s.key]),
   );
@@ -1275,6 +1289,159 @@ async function render(cfg: Config): Promise<void> {
 }
 
 // ── main ────────────────────────────────────────────────────────────────────
+
+// ---------------------------------------------------------------------------
+// Adding a Claude account
+//
+// Runs Anthropic's own authorization-code flow and hands the result straight to
+// the proxy. Deliberately NOT `claude login` + push-account: that route writes
+// the new account over this Mac's keychain, which strands whatever chain was
+// there if it had not been pushed yet, and it has to go hunting in
+// ~/.claude.json for an email that the credential itself does not carry. The
+// token response states the email outright, so the account arrives with its own
+// identity instead of a synthetic @imported.local address that can never dedupe.
+//
+// Nothing local is touched: no keychain write, no ~/.claude.json, no effect on
+// whichever account Claude Code is logged into here.
+
+// Claude Code's public client. The authorize host bounces through claude.com for
+// attribution and lands on claude.ai; the manual redirect is the paste-the-code
+// page, which is what makes this work without a callback listener.
+const OAUTH_CLIENT_ID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e";
+const OAUTH_AUTHORIZE_URL = "https://claude.com/cai/oauth/authorize";
+const OAUTH_TOKEN_URL = "https://platform.claude.com/v1/oauth/token";
+const OAUTH_REDIRECT_URI = "https://platform.claude.com/oauth/code/callback";
+const OAUTH_PROFILE_URL = "https://api.anthropic.com/api/oauth/profile";
+const OAUTH_SCOPES = [
+  "org:create_api_key",
+  "user:profile",
+  "user:inference",
+  "user:sessions:claude_code",
+  "user:mcp_servers",
+  "user:file_upload",
+].join(" ");
+
+function b64url(bytes: Buffer): string {
+  return bytes.toString("base64").replace(/\+/g, "-").replace(/\//g, "_").replace(/=/g, "");
+}
+
+async function readLine(promptText: string): Promise<string> {
+  process.stdout.write(promptText);
+  const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: false });
+  try {
+    for await (const line of rl) return line.trim();
+  } finally {
+    rl.close();
+  }
+  return "";
+}
+
+async function cmdLogin(cfg: Config): Promise<void> {
+  const verifier = b64url(randomBytes(32));
+  const challenge = b64url(createHash("sha256").update(verifier).digest());
+  const state = b64url(randomBytes(32));
+
+  const url = new URL(OAUTH_AUTHORIZE_URL);
+  url.searchParams.set("code", "true");
+  url.searchParams.set("client_id", OAUTH_CLIENT_ID);
+  url.searchParams.set("response_type", "code");
+  url.searchParams.set("redirect_uri", OAUTH_REDIRECT_URI);
+  url.searchParams.set("scope", OAUTH_SCOPES);
+  url.searchParams.set("code_challenge", challenge);
+  url.searchParams.set("code_challenge_method", "S256");
+  url.searchParams.set("state", state);
+
+  console.log("Add a Claude account to claudex-lb\n");
+  console.log("1. Sign in on the page that just opened (use a private window to");
+  console.log("   add an account other than the one your browser is signed into).");
+  console.log("2. Copy the code it gives you and paste it below.\n");
+  console.log(`${url}\n`);
+  spawnSync("/usr/bin/open", [url.toString()]);
+
+  // The callback page hands back "code#state" as one string.
+  const pasted = await readLine("Code: ");
+  const [code, returnedState] = pasted.split("#");
+  if (!code || !returnedState) {
+    throw new Error("that does not look like a full code — it should contain a '#'");
+  }
+  if (returnedState !== state) {
+    throw new Error("the code came back with a different state than this sign-in started with");
+  }
+
+  const tokenRes = await fetch(OAUTH_TOKEN_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: OAUTH_REDIRECT_URI,
+      client_id: OAUTH_CLIENT_ID,
+      code_verifier: verifier,
+      state: returnedState,
+    }),
+    signal: AbortSignal.timeout(20_000),
+  });
+  if (!tokenRes.ok) {
+    throw new Error(`token exchange failed (HTTP ${tokenRes.status}): ${(await tokenRes.text()).slice(0, 200)}`);
+  }
+  const tok = (await tokenRes.json()) as {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    scope?: string;
+    account?: { email_address?: string };
+  };
+  if (!tok.access_token || !tok.refresh_token) {
+    throw new Error("token exchange returned no token pair");
+  }
+
+  // The plan comes from the profile; the email from the token response, which
+  // states it directly. A profile that will not load costs the plan label only —
+  // the poller corrects it on its first read — so it must not fail the import.
+  let email = tok.account?.email_address ?? "";
+  let subscriptionType: string | undefined;
+  try {
+    const profRes = await fetch(OAUTH_PROFILE_URL, {
+      headers: { Authorization: `Bearer ${tok.access_token}`, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(15_000),
+    });
+    if (profRes.ok) {
+      const prof = (await profRes.json()) as {
+        account?: { email?: string };
+        organization?: { organization_type?: string };
+      };
+      email = prof.account?.email || email;
+      // claude_max -> max, so the import stores plan_type "claude_max".
+      subscriptionType = prof.organization?.organization_type?.replace(/^claude_/, "");
+    }
+  } catch {
+    /* plan label only */
+  }
+  if (!email) throw new Error("could not determine the account's email address");
+
+  const claudeAiOauth = {
+    accessToken: tok.access_token,
+    refreshToken: tok.refresh_token,
+    // Milliseconds, matching what Claude Code writes and what the import reads.
+    expiresAt: Date.now() + (tok.expires_in ?? 3600) * 1000,
+    scopes: (tok.scope ?? OAUTH_SCOPES).split(" ").filter(Boolean),
+    ...(subscriptionType ? { subscriptionType } : {}),
+  };
+
+  const form = new FormData();
+  form.append(
+    "auth_json",
+    new Blob([JSON.stringify({ email, claudeAiOauth })], { type: "application/json" }),
+    "auth.json",
+  );
+  const result = await apiFetch(cfg, "/api/accounts/import", { method: "POST", body: form });
+
+  console.log(`\n✓ added ${email}${subscriptionType ? ` (${subscriptionType})` : ""}`);
+  console.log(`  account_id=${result.accountId ?? result.account_id} status=${result.status}`);
+  console.log("\nThe proxy owns this credential. Nothing on this Mac was changed.");
+  notify(`Added ${email} to claudex-lb`);
+}
+
 const [, , cmd, arg, arg2] = process.argv;
 const ACTIONS = new Set([
   "switch",
@@ -1308,6 +1475,8 @@ try {
     await cmdPace(cfg, arg, arg2);
   } else if (cmd === "prereset" && arg && arg2) {
     await cmdPreReset(cfg, arg, arg2);
+  } else if (cmd === "login") {
+    await cmdLogin(cfg);
   } else if (cmd === "menu-blocks") {
     await renderMenuBlocks(cfg);
   } else if (cmd === "claude-menu") {
@@ -1316,6 +1485,13 @@ try {
     await render(cfg);
   }
 } catch (err) {
+  if (cmd === "login") {
+    // Runs in a Terminal window the operator is looking at; SwiftBar menu lines
+    // would be noise there, and a notification would scroll past the detail
+    // that says which step failed.
+    console.error(`\n✗ ${String(err).replace(/^Error:\s*/, "")}`);
+    process.exit(1);
+  }
   if (cmd !== undefined && ACTIONS.has(cmd)) {
     // Actions run headless from the menu — the notification is the only channel.
     notify(String(err));

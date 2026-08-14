@@ -1,0 +1,8 @@
+schema: spec-driven
+created: 2026-08-14
+# Tooling. The change lives entirely in the SwiftBar plugin, which is a client of
+# the dashboard API and is not governed by any capability spec -- it adds no
+# server surface, no endpoint, and no schema, and it modifies no spec'd
+# behaviour. The server-side flow this is the smaller half of will carry its own
+# spec delta, because that one does add an endpoint.
+skip_specs: true
