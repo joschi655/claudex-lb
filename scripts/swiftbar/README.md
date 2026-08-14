@@ -32,6 +32,15 @@ than guessing a name.
   `burn_first` mark, and reactivates its paused accounts.
 - Menu bar title: `✳71% ⇄69%` — remaining window percent per provider's
   next account, `📌` when manually pinned.
+- **Usage-based seats** (an enterprise seat billing against dollars rather than a
+  rolling window) show the pool they can still spend from. A seat draws its plan
+  allowance down first and only then the extra-usage pool behind it, so once the
+  allowance is gone the badge follows the money — `58% left · $115.14` rather
+  than the spent budget's `0% left · $0.00`. A pool that is switched off is never
+  selected, whatever it reports. When every pool is spent the seat contributes no
+  figure to the menu-bar title at all, and the title falls back to the least-used
+  window in the pool: `100%` is a true statement about money nobody can spend,
+  printed where the reader is asking how much room there is.
 
 ## Requirements
 

@@ -1,9 +1,15 @@
-import { ArrowDown, ArrowUp, ArrowUpDown, Clock, ExternalLink, List, Play, RotateCcw, Zap } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Clock, ExternalLink, List, Play, RotateCcw, Wallet, Zap } from "lucide-react";
 import { useMemo, useState } from "react";
 
 import { EmptyState } from "@/components/empty-state";
 import { StatusBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
+import type { LiveQuotaPool } from "@/features/accounts/quota-kind";
+import {
+  formatQuotaPoolAmounts,
+  resolveLiveQuotaPool,
+  resolveQuotaKind,
+} from "@/features/accounts/quota-kind";
 import type { AccountAction } from "@/features/dashboard/components/account-card";
 import type { AccountSummary } from "@/features/dashboard/schemas";
 import { usePrivacyStore } from "@/hooks/use-privacy";
@@ -56,10 +62,39 @@ function quotaLabel(label: string, percent: number | null, resetAt: string | nul
     percent,
     percentLabel: formatPercentNullable(percent),
     resetLabel: formatQuotaResetLabel(resetAt ?? null),
+    // Windows date their footnote; a dollar pool usually states an amount there.
+    dated: true,
+  };
+}
+
+// The live pool, shown in place of the window entries. A usage-based seat
+// reports no window at all, so without this branch every entry below falls
+// through to an empty 5h + weekly pair -- the dashboard page's version of the
+// gap the accounts page closed when it started resolving the quota kind.
+function poolLabel(pool: LiveQuotaPool | null) {
+  const amounts = pool == null ? null : formatQuotaPoolAmounts(pool);
+  return {
+    label: pool?.label ?? "Budget",
+    percent: pool?.remainingPercent ?? null,
+    percentLabel: formatPercentNullable(pool?.remainingPercent ?? null),
+    resetLabel:
+      amounts ??
+      (pool == null
+        ? "No budget reported yet"
+        : pool.resetAt
+          ? formatQuotaResetLabel(pool.resetAt)
+          : pool.spent
+            ? "Nothing left to spend"
+            : ""),
+    dated: amounts == null && pool?.resetAt != null,
   };
 }
 
 function accountQuotaLabels(account: AccountSummary) {
+  if (resolveQuotaKind(account) === "usage_based") {
+    return [poolLabel(resolveLiveQuotaPool(account))];
+  }
+
   const weeklyOnly = account.windowMinutesPrimary == null && account.windowMinutesSecondary != null;
   const monthlyOnly =
     account.windowMinutesMonthly != null &&
@@ -225,7 +260,11 @@ function AccountQuotaCells({ account }: { account: AccountSummary }) {
           <span className="font-medium tabular-nums text-foreground">{quota.percentLabel}</span>
           <QuotaMeter percent={quota.percent} />
           <span className="inline-flex min-w-0 items-center gap-1 text-[11px] text-muted-foreground">
-            <Clock className="h-3 w-3 shrink-0" aria-hidden="true" />
+            {quota.dated ? (
+              <Clock className="h-3 w-3 shrink-0" aria-hidden="true" />
+            ) : (
+              <Wallet className="h-3 w-3 shrink-0" aria-hidden="true" />
+            )}
             <span className="truncate">{quota.resetLabel}</span>
           </span>
         </div>

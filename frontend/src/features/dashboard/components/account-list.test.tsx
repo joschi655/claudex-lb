@@ -320,4 +320,50 @@ describe("AccountList", () => {
     const resetButton = screen.getByRole("button", { name: "Redeem reset credit for Many Reset Account" });
     expect(within(resetButton).getByText("99+")).toBeInTheDocument();
   });
+
+  it("shows a usage-based seat's live pool in place of the window entries", () => {
+    render(
+      <AccountList
+        accounts={[
+          createAccountSummary({
+            accountId: "acc-usage-based",
+            displayName: "Enterprise Account",
+            planType: "claude_enterprise",
+            quotaKind: "usage_based",
+            usage: {
+              primaryRemainingPercent: null,
+              secondaryRemainingPercent: null,
+              monthlyRemainingPercent: null,
+            },
+            windowMinutesPrimary: null,
+            windowMinutesSecondary: null,
+            resetAtPrimary: null,
+            resetAtSecondary: null,
+            spendBudget: {
+              usedPercent: 100,
+              used: 1000,
+              limit: 1000,
+              remaining: 0,
+              currency: "USD",
+              resetAt: "2026-09-30T20:47:10Z",
+            },
+            extraCredits: {
+              enabled: true,
+              usedPercent: 42.43,
+              used: 84.86,
+              limit: 200,
+              remaining: 115.14,
+              currency: "USD",
+            },
+          }),
+        ]}
+      />,
+    );
+
+    expect(screen.getByText("Extra usage")).toBeInTheDocument();
+    expect(screen.getByText("$115.14 of $200.00 left")).toBeInTheDocument();
+    expect(screen.queryByText("5h")).not.toBeInTheDocument();
+    expect(screen.queryByText("Weekly")).not.toBeInTheDocument();
+    expect(screen.getAllByTestId("account-list-quota-meter")).toHaveLength(1);
+  });
 });

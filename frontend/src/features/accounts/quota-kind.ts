@@ -1,4 +1,8 @@
-import type { AccountSummary } from "@/features/accounts/schemas";
+import type {
+  AccountExtraCredits,
+  AccountSpendBudget,
+  AccountSummary,
+} from "@/features/accounts/schemas";
 
 /** What an account actually presents, after the setting has had its say. */
 export type ResolvedQuotaKind = "subscription" | "usage_based";
@@ -32,4 +36,116 @@ export function resolveQuotaKind(account: AccountSummary): ResolvedQuotaKind {
     account.usage?.monthlyRemainingPercent != null;
 
   return account.spendBudget != null && !hasWindow ? "usage_based" : "subscription";
+}
+
+/** Which of a usage-based account's two dollar pools is being drawn down. */
+export type LiveQuotaPoolKind = "budget" | "extra_credits";
+
+export type LiveQuotaPool = {
+  kind: LiveQuotaPoolKind;
+  /** Names the pool, so a plan budget is never mistaken for the top-up behind it. */
+  label: string;
+  /** Clamped to [0, 100]; an over-limit pool reads 0 rather than negative. */
+  remainingPercent: number;
+  remaining: number | null;
+  limit: number | null;
+  currency: string | null;
+  resetAt: string | null;
+  /** No headroom left. The seat cannot spend from this pool, or from any other. */
+  spent: boolean;
+};
+
+/**
+ * The dollar pool a usage-based account can still spend from.
+ *
+ * A seat draws its plan allowance down first and only then the extra-usage pool
+ * behind it, so "live" is the first of the two with headroom -- not the larger
+ * one and not the one with the most left. Reading only the first of the two is
+ * how a seat at $1000 of $1000 came to render `0% left · $0.00` while $115 of
+ * its top-up sat unspent and it was a candidate for the next request.
+ *
+ * `enabled` is load-bearing on the top-up pool. It is reported even when
+ * switched off -- deliberately, since that is a state an operator acts on -- and
+ * a disabled pool still carries a limit and a remainder. Selecting it would
+ * claim headroom on a seat that has none.
+ *
+ * Returns `null` when the account reports no pool at all, which is a usage-based
+ * account polled before its first budget read; callers say so rather than
+ * reverting to window bars.
+ */
+export function resolveLiveQuotaPool(account: AccountSummary): LiveQuotaPool | null {
+  const budget = toPool(account.spendBudget);
+  // Disabled pools are dropped here rather than ranked below the budget: they
+  // are not a fallback, they are money that cannot be spent.
+  const extra = account.extraCredits?.enabled === true ? toExtraPool(account.extraCredits) : null;
+
+  if (budget != null && !budget.spent) return budget;
+  if (extra != null && !extra.spent) return extra;
+  // Nothing left anywhere. Prefer the top-up pool when the account has one: it
+  // is the pool the upstream names when a spent seat refuses a request.
+  return extra ?? budget;
+}
+
+function toPool(budget: AccountSpendBudget | null | undefined): LiveQuotaPool | null {
+  if (budget == null) return null;
+  return {
+    kind: "budget",
+    label: "Budget",
+    remainingPercent: remainingPercentOf(budget.usedPercent),
+    remaining: budget.remaining ?? null,
+    limit: budget.limit ?? null,
+    currency: budget.currency ?? null,
+    resetAt: budget.resetAt ?? null,
+    spent: budget.usedPercent >= 100,
+  };
+}
+
+function toExtraPool(credits: AccountExtraCredits): LiveQuotaPool {
+  return {
+    kind: "extra_credits",
+    // "Extra usage", matching the detail panel and the wording Anthropic itself
+    // uses when a seat runs out of it. Two names for one pool on two views of
+    // the same account is the confusion this whole resolver exists to avoid.
+    label: "Extra usage",
+    remainingPercent: remainingPercentOf(credits.usedPercent),
+    remaining: credits.remaining ?? null,
+    limit: credits.limit ?? null,
+    currency: credits.currency ?? null,
+    // The top-up pool rides the plan's period rather than resetting on its own,
+    // so it reports no reset of its own to show.
+    resetAt: null,
+    spent: credits.usedPercent >= 100,
+  };
+}
+
+function remainingPercentOf(usedPercent: number): number {
+  return Math.max(0, Math.min(100, 100 - usedPercent));
+}
+
+/**
+ * One pool amount, in the pool's own currency.
+ *
+ * Shared rather than reimplemented per surface for the same reason the resolver
+ * is: a pool rendered as `$115.14` on one screen and `115.14` on another is the
+ * same disagreement in a smaller place.
+ */
+export function formatQuotaPoolAmount(
+  amount: number | null | undefined,
+  currency: string | null | undefined,
+): string | null {
+  if (amount == null || !Number.isFinite(amount)) return null;
+  return new Intl.NumberFormat(undefined, {
+    style: "currency",
+    currency: currency ?? "USD",
+    maximumFractionDigits: 2,
+  }).format(amount);
+}
+
+/** The "$115.14 of $200 left" line, or the best of it the pool can support. */
+export function formatQuotaPoolAmounts(pool: LiveQuotaPool): string | null {
+  const remaining = formatQuotaPoolAmount(pool.remaining, pool.currency);
+  const limit = formatQuotaPoolAmount(pool.limit, pool.currency);
+  if (remaining && limit) return `${remaining} of ${limit} left`;
+  if (remaining) return `${remaining} left`;
+  return null;
 }

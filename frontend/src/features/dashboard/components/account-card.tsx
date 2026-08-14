@@ -1,9 +1,15 @@
-import { Clock, ExternalLink, Play, RotateCcw, Zap } from "lucide-react";
+import { Clock, ExternalLink, Play, RotateCcw, Wallet, Zap } from "lucide-react";
 
 import { usePrivacyStore } from "@/hooks/use-privacy";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/status-badge";
 import { cn } from "@/lib/utils";
+import type { LiveQuotaPool } from "@/features/accounts/quota-kind";
+import {
+  formatQuotaPoolAmounts,
+  resolveLiveQuotaPool,
+  resolveQuotaKind,
+} from "@/features/accounts/quota-kind";
 import type { AccountSummary } from "@/features/dashboard/schemas";
 import { formatCompactAccountId } from "@/utils/account-identifiers";
 import {
@@ -36,10 +42,15 @@ function QuotaBar({
   label,
   percent,
   resetLabel,
+  // A window's footnote is always a reset time; a dollar pool's is usually an
+  // amount, and a clock beside "$115.14 of $200 left" would claim a deadline
+  // the pool has not stated.
+  icon: Icon = Clock,
 }: {
   label: string;
   percent: number | null;
   resetLabel: string;
+  icon?: typeof Clock;
 }) {
   const clamped = percent === null ? 0 : Math.max(0, Math.min(100, percent));
   const hasPercent = percent !== null;
@@ -69,10 +80,35 @@ function QuotaBar({
         />
       </div>
       <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
-        <Clock className="h-3 w-3 shrink-0" />
+        <Icon className="h-3 w-3 shrink-0" />
         <span>{resetLabel}</span>
       </div>
     </div>
+  );
+}
+
+// The dollar-pool counterpart to QuotaBar, drawn to the same shape so a
+// usage-based seat reads against a subscription one at a glance. The bar is
+// left-to-spend, matching a window bar rather than inverting it.
+function BudgetBar({ pool }: { pool: LiveQuotaPool | null }) {
+  const amounts = pool == null ? null : formatQuotaPoolAmounts(pool);
+  const showsAmounts = amounts != null;
+  return (
+    <QuotaBar
+      label={pool?.label ?? "Budget"}
+      percent={pool?.remainingPercent ?? null}
+      icon={showsAmounts ? Wallet : Clock}
+      resetLabel={
+        amounts ??
+        (pool == null
+          ? "No budget reported yet"
+          : pool.resetAt
+            ? formatQuotaResetLabel(pool.resetAt)
+            : pool.spent
+              ? "Nothing left to spend"
+              : "")
+      }
+    />
   );
 }
 
@@ -82,8 +118,16 @@ export function AccountCard({ account, showAccountId = false, readOnly = false, 
   const primaryRemaining = account.usage?.primaryRemainingPercent ?? null;
   const secondaryRemaining = account.usage?.secondaryRemainingPercent ?? null;
   const monthlyRemaining = account.usage?.monthlyRemainingPercent ?? null;
-  const weeklyOnly = account.windowMinutesPrimary == null && account.windowMinutesSecondary != null;
+  // Shared with the accounts page rather than inferred again here. Branching on
+  // window metadata alone put two empty bars and no dollar figure on every
+  // usage-based seat, since such a seat reports no window for either branch to
+  // find -- the presentation the quota-kind setting exists to prevent.
+  const usageBased = resolveQuotaKind(account) === "usage_based";
+  const livePool = resolveLiveQuotaPool(account);
+  const weeklyOnly =
+    !usageBased && account.windowMinutesPrimary == null && account.windowMinutesSecondary != null;
   const monthlyOnly =
+    !usageBased &&
     account.windowMinutesMonthly != null &&
     account.windowMinutesPrimary == null &&
     account.windowMinutesSecondary == null;
@@ -156,8 +200,15 @@ export function AccountCard({ account, showAccountId = false, readOnly = false, 
       </div>
 
       {/* Quota bars */}
-      <div className={cn("mt-3.5 grid gap-3", weeklyOnly || monthlyOnly ? "grid-cols-1" : "grid-cols-2")}>
-        {monthlyOnly ? (
+      <div
+        className={cn(
+          "mt-3.5 grid gap-3",
+          usageBased || weeklyOnly || monthlyOnly ? "grid-cols-1" : "grid-cols-2",
+        )}
+      >
+        {usageBased ? (
+          <BudgetBar pool={livePool} />
+        ) : monthlyOnly ? (
           <QuotaBar label="Monthly" percent={monthlyRemaining} resetLabel={monthlyReset} />
         ) : (
           <>

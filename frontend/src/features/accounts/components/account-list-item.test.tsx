@@ -400,4 +400,62 @@ describe("AccountListItem", () => {
     expect(screen.getByText("No budget reported yet")).toBeInTheDocument();
     expect(screen.queryByText("5h")).not.toBeInTheDocument();
   });
+
+  it("hands off to the extra-usage pool once the plan budget is spent", () => {
+    // Reading the budget alone reported this seat as `0% left · $0.00` while it
+    // held $115 and was a candidate for the next request.
+    const account = createAccountSummary({
+      ...budgetSeat(),
+      spendBudget: {
+        usedPercent: 100,
+        used: 1000,
+        limit: 1000,
+        remaining: 0,
+        currency: "USD",
+        resetAt: null,
+      },
+      extraCredits: {
+        enabled: true,
+        usedPercent: 42.43,
+        used: 84.86,
+        limit: 200,
+        remaining: 115.14,
+        currency: "USD",
+      },
+    });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.getByText("Extra usage")).toBeInTheDocument();
+    expect(screen.getByText("$115.14 of $200.00 left")).toBeInTheDocument();
+    expect(screen.getByTestId("mini-quota-track-budget-fill")).toHaveStyle({ width: "57.57%" });
+  });
+
+  it("never hands off to a pool that is switched off", () => {
+    const account = createAccountSummary({
+      ...budgetSeat(),
+      spendBudget: {
+        usedPercent: 100,
+        used: 1000,
+        limit: 1000,
+        remaining: 0,
+        currency: "USD",
+        resetAt: null,
+      },
+      extraCredits: {
+        enabled: false,
+        usedPercent: 0,
+        used: 0,
+        limit: 200,
+        remaining: 200,
+        currency: "USD",
+      },
+    });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.getByText("Budget")).toBeInTheDocument();
+    expect(screen.queryByText("Extra usage")).not.toBeInTheDocument();
+    expect(screen.getByTestId("mini-quota-track-budget-fill")).toHaveStyle({ width: "0%" });
+  });
 });

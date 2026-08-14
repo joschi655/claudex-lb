@@ -9,10 +9,14 @@ import { StatusBadge } from "@/components/status-badge";
 import { MiniQuotaBar } from "@/components/mini-quota-bar";
 import { ProviderBadge } from "@/components/provider-badge";
 import type { NextUpMark } from "@/features/accounts/next-up";
-import { resolveQuotaKind } from "@/features/accounts/quota-kind";
+import type { LiveQuotaPool } from "@/features/accounts/quota-kind";
+import {
+  formatQuotaPoolAmounts,
+  resolveLiveQuotaPool,
+  resolveQuotaKind,
+} from "@/features/accounts/quota-kind";
 import type {
   AccountRoutingPolicy,
-  AccountSpendBudget,
   AccountSummary,
 } from "@/features/accounts/schemas";
 import { normalizeStatus } from "@/utils/account-status";
@@ -72,7 +76,11 @@ export function AccountListItem({
   // have, so without the budget row it renders no quota information whatsoever
   // -- the one thing its requirement says must not happen.
   const usageBased = resolveQuotaKind(account) === "usage_based";
-  const spendBudget = account.spendBudget ?? null;
+  // The pool the seat can still spend from, which is not always the plan
+  // budget: once that is gone the extra-usage pool behind it is what keeps the
+  // seat serving, and showing the spent budget instead reports a seat as dead
+  // while it is still a candidate for the next request.
+  const livePool = resolveLiveQuotaPool(account);
   const showBudgetRow = usageBased;
   const monthlyOnly = !usageBased && hasMonthlyWindow && !hasPrimaryWindow && !hasSecondaryWindow;
   const showMonthlyRow = monthlyOnly;
@@ -159,7 +167,7 @@ export function AccountListItem({
             resetAt={account.resetAtSecondary}
           />
         ) : null}
-        {showBudgetRow ? <MiniBudgetRow budget={spendBudget} /> : null}
+        {showBudgetRow ? <MiniBudgetRow pool={livePool} /> : null}
       </div>
       <div className="mt-2 flex min-w-0 items-center justify-between gap-2 text-[10px] text-muted-foreground">
         <span className="shrink-0">{warmupLabel}</span>
@@ -276,51 +284,43 @@ function MiniQuotaRow({
   );
 }
 
-// The budget's counterpart to MiniQuotaRow. The bar reads left-to-spend so it
-// fills and empties the same way a window bar does; showing "used" here would
-// make a nearly-spent budget look like a nearly-full window.
-function MiniBudgetRow({ budget }: { budget: AccountSpendBudget | null }) {
+// The dollar pool's counterpart to MiniQuotaRow. The bar reads left-to-spend so
+// it fills and empties the same way a window bar does; showing "used" here would
+// make a nearly-spent pool look like a nearly-full window.
+function MiniBudgetRow({ pool }: { pool: LiveQuotaPool | null }) {
   // Rendered even with nothing to show. An account declared usage-based whose
   // budget has not been read yet says so, rather than reverting to the window
   // bars the operator set the field to get rid of.
-  const remainingPercent = budget == null ? null : Math.max(0, Math.min(100, 100 - budget.usedPercent));
-  const remaining = formatBudgetAmount(budget?.remaining, budget?.currency);
-  const limit = formatBudgetAmount(budget?.limit, budget?.currency);
+  const remainingPercent = pool?.remainingPercent ?? null;
+  const amounts = pool == null ? null : formatQuotaPoolAmounts(pool);
 
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-[11px]">
-        <span className="text-muted-foreground">Budget</span>
+        {/* Named, so a plan budget is never read as the top-up behind it. */}
+        <span className="text-muted-foreground">{pool?.label ?? "Budget"}</span>
         <span className="tabular-nums font-medium">
           {formatPercentNullable(remainingPercent)}
         </span>
       </div>
       <MiniQuotaBar
-        aria-label="Budget remaining"
+        aria-label={`${pool?.label ?? "Budget"} remaining`}
         percent={remainingPercent}
         testId="mini-quota-track-budget"
       />
       <div className="text-[10px] text-muted-foreground">
-        {remaining && limit
-          ? `${remaining} of ${limit} left`
-          : budget == null
+        {amounts
+          ? amounts
+          : pool == null
             ? "No budget reported yet"
-            : formatMiniQuotaResetLabel(budget.resetAt ?? null)}
+            : pool.resetAt
+              ? formatMiniQuotaResetLabel(pool.resetAt)
+              : pool.spent
+                ? "Nothing left to spend"
+                : ""}
       </div>
     </div>
   );
-}
-
-function formatBudgetAmount(
-  amount: number | null | undefined,
-  currency: string | null | undefined,
-): string | null {
-  if (amount == null || !Number.isFinite(amount)) return null;
-  return new Intl.NumberFormat(undefined, {
-    style: "currency",
-    currency: currency ?? "USD",
-    maximumFractionDigits: 2,
-  }).format(amount);
 }
 
 function formatMiniQuotaResetLabel(resetAt: string | null): string {

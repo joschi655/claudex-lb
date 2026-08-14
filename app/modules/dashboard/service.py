@@ -3,6 +3,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from app.core import usage as usage_core
+from app.core.anthropic.usage_ingest import BUDGET_WINDOW, EXTRA_CREDITS_WINDOW
 from app.core.config.settings import get_settings
 from app.core.crypto import TokenEncryptor
 from app.core.usage.types import UsageWindowRow
@@ -68,6 +69,14 @@ class DashboardService:
         primary_usage = await self._repo.latest_usage_by_account("primary")
         secondary_usage = await self._repo.latest_usage_by_account("secondary")
         monthly_usage = await self._repo.latest_usage_by_account("monthly")
+        # The dollar windows, without which a usage-based seat reaches the
+        # overview with no quota at all: it reports none of the three above, so
+        # every window-shaped field is null and the two pools it does report are
+        # the only thing it has to show. The accounts endpoint already loads
+        # them; the overview did not, which is why the same seat rendered its
+        # budget on one page and nothing on the other.
+        budget_usage = await self._repo.latest_usage_by_account(BUDGET_WINDOW)
+        extra_credits_usage = await self._repo.latest_usage_by_account(EXTRA_CREDITS_WINDOW)
         limit_warmups_by_account = await self._repo.latest_limit_warmups_by_account(account_ids)
 
         account_summaries = sorted(
@@ -76,6 +85,8 @@ class DashboardService:
                 primary_usage=primary_usage,
                 secondary_usage=secondary_usage,
                 monthly_usage=monthly_usage,
+                budget_usage=budget_usage,
+                extra_credits_usage=extra_credits_usage,
                 limit_warmups_by_account=limit_warmups_by_account,
                 encryptor=self._encryptor,
                 include_auth=False,

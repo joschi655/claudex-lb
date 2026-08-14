@@ -96,6 +96,17 @@ interface SpendBudget {
   resetAt?: string | null;
 }
 
+// The top-up pool behind the plan's own allowance. Reported even when switched
+// off, so `enabled` is what decides whether the seat can spend from it.
+interface ExtraCredits {
+  enabled: boolean;
+  usedPercent: number;
+  used?: number | null;
+  limit?: number | null;
+  remaining?: number | null;
+  currency?: string | null;
+}
+
 // Last warm-up attempt for an account, as recorded by the server.
 interface AccountLimitWarmup {
   window: string;
@@ -126,6 +137,7 @@ interface Account {
   resetAtMonthly?: string | null;
   requestUsage?: RequestUsage | null;
   spendBudget?: SpendBudget | null;
+  extraCredits?: ExtraCredits | null;
   limitWarmupEnabled?: boolean;
   limitWarmup?: AccountLimitWarmup | null;
 }
@@ -653,15 +665,61 @@ function money(v: number | null | undefined, currency: string | null | undefined
   return `${symbol}${v.toFixed(2)}`;
 }
 
+interface QuotaPool {
+  label: string;
+  remainingPercent: number;
+  remaining?: number | null;
+  currency?: string | null;
+  spent: boolean;
+}
+
+// The dollar pool a usage-based seat can still spend from. A seat draws its plan
+// allowance down first and only then the top-up pool behind it, so "live" is the
+// first of the two with headroom. Reading only the budget reported a live
+// enterprise seat as `0% left · $0.00` while $115 of its top-up sat unspent.
+//
+// Mirrors resolveLiveQuotaPool in the dashboard frontend; the plugin is a
+// standalone script and cannot import from it.
+function livePool(acc: Account | null | undefined): QuotaPool | null {
+  const b = acc?.spendBudget;
+  const budget: QuotaPool | null =
+    b == null
+      ? null
+      : {
+          label: "Budget",
+          remainingPercent: Math.max(0, Math.min(100, 100 - b.usedPercent)),
+          remaining: b.remaining,
+          currency: b.currency,
+          spent: b.usedPercent >= 100,
+        };
+  // A switched-off pool still carries a limit and a remainder, which is money
+  // the seat cannot spend. Dropped rather than ranked below the budget.
+  const e = acc?.extraCredits?.enabled === true ? acc.extraCredits : null;
+  const extra: QuotaPool | null =
+    e == null
+      ? null
+      : {
+          label: "Extra usage",
+          remainingPercent: Math.max(0, Math.min(100, 100 - e.usedPercent)),
+          remaining: e.remaining,
+          currency: e.currency,
+          spent: e.usedPercent >= 100,
+        };
+
+  if (budget != null && !budget.spent) return budget;
+  if (extra != null && !extra.spent) return extra;
+  return extra ?? budget;
+}
+
 function badge(acc: Account): string {
   const p =
     acc.usage?.primaryRemainingPercent ?? acc.usage?.secondaryRemainingPercent ?? acc.usage?.monthlyRemainingPercent;
   // A budget seat has no window to report a remainder for, so its badge is what
-  // is left of the budget rather than "unknown".
-  if (p == null && acc.spendBudget != null) {
-    const left = money(acc.spendBudget.remaining, acc.spendBudget.currency);
-    const budgetLeft = Math.max(0, 100 - acc.spendBudget.usedPercent);
-    return `${pct(budgetLeft)} left${left ? ` · ${left}` : ""}`;
+  // is left of its live pool rather than "unknown".
+  const pool = p == null ? livePool(acc) : null;
+  if (pool != null) {
+    const left = money(pool.remaining, pool.currency);
+    return `${pct(pool.remainingPercent)} left${left ? ` · ${left}` : ""}`;
   }
   const reset = remaining(acc.resetAtPrimary ?? acc.resetAtSecondary ?? acc.resetAtMonthly);
   const statusMark =
@@ -805,9 +863,13 @@ function usedPercent(acc: Account | null | undefined): number | null {
     acc?.usage?.secondaryRemainingPercent ??
     acc?.usage?.monthlyRemainingPercent;
   if (left != null) return 100 - left;
-  // Fall back to the budget so the icon shows a number for a seat whose quota is
-  // dollars rather than a window.
-  return acc?.spendBudget?.usedPercent ?? null;
+  // Fall back to the live pool so the icon shows a number for a seat whose quota
+  // is dollars rather than a window. A seat with every pool spent reports
+  // nothing: `100%` is a true statement about money nobody can spend, printed
+  // where the reader is asking how much room there is. Returning null lets
+  // menuBarTitle fall through to a window that still means something.
+  const pool = livePool(acc);
+  return pool == null || pool.spent ? null : 100 - pool.remainingPercent;
 }
 
 function renderSection(s: Section, globalWarmup: boolean | null, separator = true): void {
@@ -836,6 +898,26 @@ function renderSection(s: Section, globalWarmup: boolean | null, separator = tru
       const amounts = spent && cap ? ` (${spent} of ${cap})` : "";
       console.log(
         `Budget: ${b.usedPercent.toFixed(1)}% used${amounts}${remaining(b.resetAt) ? ` · resets ${remaining(b.resetAt)}` : ""}`,
+      );
+    }
+    // Shown beside the budget rather than instead of it: once the budget is
+    // spent this pool is the only thing keeping the seat serving, and its
+    // remainder is the figure that answers "how much is left".
+    //
+    // Every seat reports the pool, most of them switched off and empty, so the
+    // line appears only when it carries something: money moving through the
+    // pool, or a seat that has run out of budget and could turn it on. The
+    // dashboard is where a quiet, switched-off pool is still worth stating.
+    const credits = cur.extraCredits;
+    const budgetSpent = cur.spendBudget != null && cur.spendBudget.usedPercent >= 100;
+    if (credits != null && (budgetSpent || (credits.enabled && credits.usedPercent > 0))) {
+      const spent = money(credits.used, credits.currency);
+      const cap = money(credits.limit, credits.currency);
+      const amounts = spent && cap ? ` (${spent} of ${cap})` : "";
+      console.log(
+        credits.enabled
+          ? `Extra usage: ${credits.usedPercent.toFixed(1)}% used${amounts}`
+          : "Extra usage: off — the budget is spent",
       );
     }
     const ru = cur.requestUsage;
@@ -1193,7 +1275,6 @@ async function render(cfg: Config): Promise<void> {
 }
 
 // ── main ────────────────────────────────────────────────────────────────────
-
 const [, , cmd, arg, arg2] = process.argv;
 const ACTIONS = new Set([
   "switch",

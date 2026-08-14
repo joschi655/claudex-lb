@@ -12,6 +12,39 @@ afterEach(() => {
   });
 });
 
+// The live enterprise seat this branch was written for: plan allowance spent,
+// top-up pool behind it still holding money.
+const USAGE_BASED_SEAT = {
+  planType: "claude_enterprise",
+  quotaKind: "usage_based",
+  usage: {
+    primaryRemainingPercent: null,
+    secondaryRemainingPercent: null,
+    monthlyRemainingPercent: null,
+  },
+  windowMinutesPrimary: null,
+  windowMinutesSecondary: null,
+  windowMinutesMonthly: null,
+  resetAtPrimary: null,
+  resetAtSecondary: null,
+  spendBudget: {
+    usedPercent: 100,
+    used: 1000,
+    limit: 1000,
+    remaining: 0,
+    currency: "USD",
+    resetAt: "2026-09-30T20:47:10Z",
+  },
+  extraCredits: {
+    enabled: true,
+    usedPercent: 42.43,
+    used: 84.86,
+    limit: 200,
+    remaining: 115.14,
+    currency: "USD",
+  },
+} as const;
+
 describe("AccountCard", () => {
   it("renders both 5h and weekly quota bars for regular accounts", () => {
     const account = createAccountSummary();
@@ -170,5 +203,44 @@ describe("AccountCard", () => {
 
     await user.click(resetButton);
     expect(onAction).not.toHaveBeenCalledWith(account, "reset-credit");
+  });
+
+  it("shows a usage-based seat's live pool instead of window bars", () => {
+    // Before this, the card branched on window metadata alone; a seat with no
+    // window fell through to the 5h + weekly pair and rendered two empty bars
+    // with no dollar figure anywhere.
+    render(<AccountCard account={createAccountSummary(USAGE_BASED_SEAT)} />);
+
+    expect(screen.getByText("Extra usage")).toBeInTheDocument();
+    expect(screen.getByText("$115.14 of $200.00 left")).toBeInTheDocument();
+    expect(screen.getByText("58%")).toBeInTheDocument();
+    expect(screen.queryByText("5h")).not.toBeInTheDocument();
+    expect(screen.queryByText("Weekly")).not.toBeInTheDocument();
+  });
+
+  it("keeps a usage-based seat on its plan budget while that has headroom", () => {
+    const account = createAccountSummary({
+      ...USAGE_BASED_SEAT,
+      spendBudget: { ...USAGE_BASED_SEAT.spendBudget, usedPercent: 40, used: 400, remaining: 600 },
+    });
+
+    render(<AccountCard account={account} />);
+
+    expect(screen.getByText("Budget")).toBeInTheDocument();
+    expect(screen.getByText("$600.00 of $1,000.00 left")).toBeInTheDocument();
+    expect(screen.queryByText("Extra usage")).not.toBeInTheDocument();
+  });
+
+  it("says so when a usage-based seat has reported no pool yet", () => {
+    const account = createAccountSummary({
+      ...USAGE_BASED_SEAT,
+      spendBudget: null,
+      extraCredits: null,
+    });
+
+    render(<AccountCard account={account} />);
+
+    expect(screen.getByText("No budget reported yet")).toBeInTheDocument();
+    expect(screen.queryByText("5h")).not.toBeInTheDocument();
   });
 });

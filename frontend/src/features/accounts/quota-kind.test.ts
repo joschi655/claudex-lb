@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { resolveQuotaKind } from "@/features/accounts/quota-kind";
+import { resolveLiveQuotaPool, resolveQuotaKind } from "@/features/accounts/quota-kind";
 import { createAccountSummary } from "@/test/mocks/factories";
 
 const WINDOWLESS = {
@@ -90,5 +90,130 @@ describe("resolveQuotaKind", () => {
     expect(account.quotaKind).toBeUndefined();
 
     expect(resolveQuotaKind(account)).toBe("usage_based");
+  });
+});
+
+// Mirrors the live enterprise seat that motivated the resolver: the plan
+// allowance fully spent, and the top-up pool behind it part-used with money
+// left. Reading only the budget reports that seat as spent while it is still a
+// candidate for the next request.
+const SPENT_BUDGET = {
+  usedPercent: 100,
+  used: 1000,
+  limit: 1000,
+  remaining: 0,
+  currency: "USD",
+  resetAt: "2026-09-30T20:47:10Z",
+} as const;
+
+const LIVE_EXTRA_CREDITS = {
+  enabled: true,
+  usedPercent: 42.43,
+  used: 84.86,
+  limit: 200,
+  remaining: 115.14,
+  currency: "USD",
+} as const;
+
+describe("resolveLiveQuotaPool", () => {
+  it("hands off to the extra-usage pool when the budget is spent", () => {
+    const account = createAccountSummary({
+      ...WINDOWLESS,
+      quotaKind: "usage_based",
+      spendBudget: SPENT_BUDGET,
+      extraCredits: LIVE_EXTRA_CREDITS,
+    });
+
+    const pool = resolveLiveQuotaPool(account);
+
+    expect(pool).toMatchObject({
+      kind: "extra_credits",
+      label: "Extra usage",
+      remaining: 115.14,
+      limit: 200,
+      spent: false,
+    });
+    expect(pool?.remainingPercent).toBeCloseTo(57.57);
+  });
+
+  it("keeps the budget while it still has headroom", () => {
+    const account = createAccountSummary({
+      ...WINDOWLESS,
+      quotaKind: "usage_based",
+      spendBudget: BUDGET,
+      extraCredits: LIVE_EXTRA_CREDITS,
+    });
+
+    expect(resolveLiveQuotaPool(account)).toMatchObject({
+      kind: "budget",
+      remainingPercent: 16,
+      spent: false,
+    });
+  });
+
+  it("never selects a disabled pool", () => {
+    // Reported even when switched off, and still carrying a limit and a
+    // remainder -- which is money the seat cannot spend.
+    const account = createAccountSummary({
+      ...WINDOWLESS,
+      quotaKind: "usage_based",
+      spendBudget: SPENT_BUDGET,
+      extraCredits: { ...LIVE_EXTRA_CREDITS, enabled: false },
+    });
+
+    expect(resolveLiveQuotaPool(account)).toMatchObject({
+      kind: "budget",
+      remainingPercent: 0,
+      spent: true,
+    });
+  });
+
+  it("reports spent when neither pool has headroom", () => {
+    const account = createAccountSummary({
+      ...WINDOWLESS,
+      quotaKind: "usage_based",
+      spendBudget: SPENT_BUDGET,
+      extraCredits: { ...LIVE_EXTRA_CREDITS, usedPercent: 100, used: 200, remaining: 0 },
+    });
+
+    expect(resolveLiveQuotaPool(account)).toMatchObject({
+      kind: "extra_credits",
+      remainingPercent: 0,
+      spent: true,
+    });
+  });
+
+  it("clamps an over-limit pool to zero rather than negative", () => {
+    const account = createAccountSummary({
+      ...WINDOWLESS,
+      quotaKind: "usage_based",
+      spendBudget: { ...SPENT_BUDGET, usedPercent: 118, used: 1180, remaining: -180 },
+    });
+
+    expect(resolveLiveQuotaPool(account)).toMatchObject({
+      remainingPercent: 0,
+      spent: true,
+    });
+  });
+
+  it("falls back to the percentage when a pool reports no amounts", () => {
+    const account = createAccountSummary({
+      ...WINDOWLESS,
+      quotaKind: "usage_based",
+      spendBudget: { usedPercent: 30, used: null, limit: null, remaining: null, currency: null, resetAt: null },
+    });
+
+    expect(resolveLiveQuotaPool(account)).toMatchObject({
+      kind: "budget",
+      remainingPercent: 70,
+      remaining: null,
+      limit: null,
+    });
+  });
+
+  it("returns nothing for an account that has reported no pool", () => {
+    const account = createAccountSummary({ ...WINDOWLESS, quotaKind: "usage_based" });
+
+    expect(resolveLiveQuotaPool(account)).toBeNull();
   });
 });
