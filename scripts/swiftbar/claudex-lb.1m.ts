@@ -1197,6 +1197,11 @@ async function renderMenuBlocks(cfg: Config): Promise<void> {
   // One line per account, click switches the proxy; settings sit underneath.
   console.log("#BEGIN:accounts");
   for (const acc of s.accounts) renderAccountLine(acc, cur, s);
+  // In the accounts block rather than behind a new #BEGIN: marker, for the same
+  // reason the Codex section is: the host splits on the markers it knows, so a
+  // new one is dropped silently and the entry would exist only in the
+  // standalone plugin — which is not the menu the operator actually uses.
+  console.log(`--➕ Add a Claude account… | bash="/bin/bash" param1="${SELF}" param2="login" terminal=true refresh=true`);
   // The way back out of a manual choice: un-pause everything and drop the
   // burn-first marking so quota and pace decide again.
   console.log(`--${action("⚖️ Auto: balance across all accounts", [SELF, "auto", "anthropic"])}`);
@@ -1267,8 +1272,19 @@ function renderAccountLine(acc: Account, cur: Account | null, s: Section): void 
 
 // Badge in the shape the menu used before: 5h used · when it resets · 7d used
 // (when that resets).
+// The embedded modes' badge. Reports usage rather than remainder, unlike the
+// standalone plugin's `badge()` -- a host convention that predates this file.
 function accountBadge(acc: Account): string {
   const parts: string[] = [];
+  // A usage-based seat has no window to report against, and said only
+  // "usage-based" here: the literal state the operator opens the menu to see a
+  // number for. Its live pool is that number.
+  const pool = acc.quotaKind === "usage_based" || acc.usage?.primaryRemainingPercent == null ? livePool(acc) : null;
+  if (pool != null) {
+    if (!pool.measurable) return `${pool.label.toLowerCase()} · no limit reported`;
+    const left = money(pool.remaining, pool.currency);
+    return `${pct(100 - (pool.remainingPercent ?? 0))} of ${pool.label.toLowerCase()}${left ? ` · ${left} left` : ""}`;
+  }
   const primary = acc.usage?.primaryRemainingPercent;
   if (primary != null) {
     parts.push(pct(100 - primary));
