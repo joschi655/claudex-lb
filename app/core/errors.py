@@ -63,11 +63,35 @@ def previous_response_stream_incomplete_error() -> OpenAIErrorEnvelope:
     )
 
 
+_PREVIOUS_RESPONSE_ID_FIELD_PATTERN = re.compile(r"previous[_\s-]*response[_\s-]*id", re.IGNORECASE)
+
+_PREVIOUS_RESPONSE_ANCHOR_PARAM = "previous_response_id"
+
+
 def is_previous_response_not_found_message(message: str | None) -> bool:
+    """Report whether upstream refused the ``previous_response_id`` we sent.
+
+    Upstream has more than one way of saying it. The wording this codebase was
+    first written against names the missing response::
+
+        Previous response with id 'resp_...' not found.
+
+    A Codex session on 2026-08-20 was refused with a second wording that names
+    no response at all::
+
+        Invalid `previous_response_id`.
+
+    Both mean the anchor cannot be used, and the recovery is the same either
+    way: drop it and resend the retained full payload. So both classify here.
+    """
     if message is None:
         return False
     normalized = " ".join(message.lower().split())
-    return "previous response" in normalized and "not found" in normalized
+    if "previous response" in normalized and "not found" in normalized:
+        return True
+    if "invalid" not in normalized:
+        return False
+    return _PREVIOUS_RESPONSE_ID_FIELD_PATTERN.search(normalized) is not None
 
 
 def previous_response_id_from_not_found_message(message: str | None) -> str | None:
@@ -93,7 +117,12 @@ def is_previous_response_not_found_error(
 ) -> bool:
     if code == "previous_response_not_found":
         return True
-    if code != "invalid_request_error" or param != "previous_response_id":
+    if code != "invalid_request_error":
+        return False
+    # Upstream is not obliged to name the offending field, and a message that
+    # names it itself is not made ambiguous by the omission. A `param` pointing
+    # at some *other* field still rules the anchor out.
+    if param is not None and param != _PREVIOUS_RESPONSE_ANCHOR_PARAM:
         return False
     return is_previous_response_not_found_message(message)
 

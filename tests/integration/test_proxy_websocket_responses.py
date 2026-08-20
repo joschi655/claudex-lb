@@ -4782,9 +4782,20 @@ def test_responses_websocket_replays_client_full_resend_previous_response_miss_w
     assert replay_payload["client_metadata"] == {"x-codex-installation-id": "account-installation"}
 
 
+@pytest.mark.parametrize(
+    "upstream_error_message",
+    [
+        "Previous response with id 'resp_ws_prev_anchor' not found.",
+        # The second wording upstream uses to refuse an anchor. With no
+        # replayable body there is nothing to retry, so it must mask the
+        # same way rather than fabricate a fresh turn.
+        "Invalid `previous_response_id`.",
+    ],
+)
 def test_v1_responses_websocket_masks_invalid_request_previous_response_not_found_without_retry(
     app_instance,
     monkeypatch,
+    upstream_error_message,
 ):
     first_upstream = _SequencedUpstreamWebSocket(
         [],
@@ -4821,7 +4832,7 @@ def test_v1_responses_websocket_masks_invalid_request_previous_response_not_foun
                             "error": {
                                 "type": "invalid_request_error",
                                 "code": "invalid_request_error",
-                                "message": ("Previous response with id 'resp_ws_prev_anchor' not found."),
+                                "message": upstream_error_message,
                                 "param": "previous_response_id",
                             },
                         },
@@ -9110,3 +9121,175 @@ def test_backend_responses_websocket_closes_before_replaying_exposed_sequence(
     assert log_calls[0]["request_id"] == "resp_ws_sequenced_first"
     assert log_calls[0]["status"] == "error"
     assert log_calls[0]["error_code"] == "stream_incomplete"
+
+
+def test_backend_responses_websocket_recovers_when_upstream_calls_the_injected_anchor_invalid(
+    app_instance,
+    monkeypatch,
+):
+    # Reproduces the live 2026-08-20 failure: on a Codex session the proxy pins a
+    # previous_response_id the client never sent so it can trim the forwarded
+    # input, upstream then refuses that anchor with a wording that never says
+    # "not found", and every following turn re-pins the same dead anchor.
+    def _response_batch(response_id: str) -> list[_FakeUpstreamMessage]:
+        return [
+            _FakeUpstreamMessage(
+                "text",
+                text=json.dumps(
+                    {"type": "response.created", "response": {"id": response_id, "status": "in_progress"}},
+                    separators=(",", ":"),
+                ),
+            ),
+            _FakeUpstreamMessage(
+                "text",
+                text=json.dumps(
+                    {
+                        "type": "response.completed",
+                        "response": {
+                            "id": response_id,
+                            "status": "completed",
+                            "usage": {"input_tokens": 1, "output_tokens": 1, "total_tokens": 2},
+                        },
+                    },
+                    separators=(",", ":"),
+                ),
+            ),
+        ]
+
+    first_upstream = _SequencedUpstreamWebSocket(
+        [],
+        deferred_message_batches=[
+            _response_batch("resp_ws_anchor_live"),
+            [
+                _FakeUpstreamMessage(
+                    "text",
+                    text=json.dumps(
+                        {
+                            "type": "error",
+                            "status": 400,
+                            "error": {
+                                "type": "invalid_request_error",
+                                "code": "invalid_request_error",
+                                "message": "Invalid `previous_response_id`.",
+                                "param": "previous_response_id",
+                            },
+                        },
+                        separators=(",", ":"),
+                    ),
+                )
+            ],
+        ],
+    )
+    recovered_upstream = _SequencedUpstreamWebSocket(
+        [],
+        deferred_message_batches=[_response_batch("resp_ws_anchor_replay")],
+    )
+    connect_count = 0
+
+    class _FakeSettingsCache:
+        async def get(self):
+            return _websocket_settings()
+
+    async def allow_firewall(_websocket):
+        return None
+
+    async def allow_proxy_api_key(_authorization: str | None, *, request: object | None = None):
+        return None
+
+    async def fake_connect_proxy_websocket(
+        self,
+        headers,
+        *,
+        sticky_key,
+        sticky_kind,
+        reallocate_sticky,
+        sticky_max_age_seconds,
+        prefer_earlier_reset,
+        prefer_earlier_reset_window,
+        routing_strategy,
+        model,
+        request_state,
+        api_key,
+        client_send_lock,
+        websocket,
+    ):
+        del self, headers, sticky_key, sticky_kind, reallocate_sticky, sticky_max_age_seconds
+        del prefer_earlier_reset, prefer_earlier_reset_window, routing_strategy, model
+        del request_state, api_key, client_send_lock, websocket
+        nonlocal connect_count
+        connect_count += 1
+        if connect_count == 1:
+            return SimpleNamespace(id="acct_ws_anchor_live"), first_upstream
+        return SimpleNamespace(id="acct_ws_anchor_live"), recovered_upstream
+
+    async def fake_write_request_log(self, **kwargs):
+        del self, kwargs
+
+    monkeypatch.setattr(proxy_api_module, "_websocket_firewall_denial_response", allow_firewall)
+    monkeypatch.setattr(proxy_api_module, "validate_proxy_api_key_authorization", allow_proxy_api_key)
+    monkeypatch.setattr(proxy_module, "get_settings_cache", lambda: _FakeSettingsCache())
+    monkeypatch.setattr(proxy_module.ProxyService, "_connect_proxy_websocket", fake_connect_proxy_websocket)
+    monkeypatch.setattr(proxy_module.ProxyService, "_write_request_log", fake_write_request_log)
+
+    user_hi = {"role": "user", "content": [{"type": "input_text", "text": "hi"}]}
+    assistant_ok = {"role": "assistant", "content": [{"type": "output_text", "text": "ok"}]}
+    user_more = {"role": "user", "content": [{"type": "input_text", "text": "more"}]}
+    requests = [
+        {
+            "type": "response.create",
+            "model": "gpt-5.6-sol",
+            "instructions": "",
+            "input": [user_hi],
+            "stream": True,
+        },
+        # Codex resends the whole conversation and never names an anchor. The
+        # proxy pins the turn-1 response id and trims this down before
+        # forwarding, so the anchor upstream rejects is the proxy's own.
+        {
+            "type": "response.create",
+            "model": "gpt-5.6-sol",
+            "instructions": "",
+            "input": [user_hi, assistant_ok, user_more],
+            "stream": True,
+        },
+    ]
+
+    all_events = []
+    with TestClient(app_instance) as client:
+        with client.websocket_connect(
+            "/backend-api/codex/responses",
+            headers={
+                "Authorization": "Bearer external-token",
+                "chatgpt-account-id": "external-account",
+                "session_id": "thread-ws-anchor-live",
+                "openai-beta": "responses_websockets=2026-02-06",
+            },
+        ) as websocket:
+            for request in requests:
+                websocket.send_text(json.dumps(request))
+                # Read one event at a time and assert as we go. Without the
+                # recovery the client is handed a terminal error here and then
+                # waits forever for events that never arrive, so a test that
+                # reads a fixed pair up front hangs instead of failing.
+                created = json.loads(websocket.receive_text())
+                assert created["type"] == "response.created", created
+                completed = json.loads(websocket.receive_text())
+                assert completed["type"] == "response.completed", completed
+                all_events.append([created, completed])
+
+    # The proxy pinned its own anchor and trimmed the client's payload...
+    first_payloads = [json.loads(text) for text in first_upstream.sent_text]
+    assert first_payloads[1]["previous_response_id"] == "resp_ws_anchor_live"
+    assert len(first_payloads[1]["input"]) < len(requests[1]["input"])
+
+    # ...upstream refused it, and the client got a served turn rather than the
+    # raw invalid-request error it used to receive.
+    assert connect_count == 2
+    assert all_events[1][1]["response"]["id"] == "resp_ws_anchor_replay"
+    assert "previous_response_id" not in json.dumps(all_events)
+    assert "Invalid `previous_response_id`" not in json.dumps(all_events)
+
+    # The replay carried the client's untrimmed conversation, with no anchor.
+    replay_payload = json.loads(recovered_upstream.sent_text[0])
+    assert "previous_response_id" not in replay_payload
+    assert len(replay_payload["input"]) == len(requests[1]["input"])

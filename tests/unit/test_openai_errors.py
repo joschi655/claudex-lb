@@ -62,3 +62,47 @@ def test_previous_response_stream_incomplete_error_is_public_safe():
     assert payload["error"]["code"] == "stream_incomplete"
     assert payload["error"]["type"] == "server_error"
     assert payload["error"]["message"] == PREVIOUS_RESPONSE_STREAM_INCOMPLETE_MESSAGE
+
+
+def test_previous_response_classifier_covers_the_invalid_anchor_wording():
+    # Observed live on 2026-08-20: upstream refused a proxy-injected anchor with
+    # this wording, which names no response and never says "not found".
+    assert is_previous_response_not_found_error(
+        code="invalid_request_error",
+        param="previous_response_id",
+        message="Invalid `previous_response_id`.",
+    )
+
+
+def test_previous_response_classifier_does_not_require_upstream_to_name_the_param():
+    for message in (
+        "Invalid `previous_response_id`.",
+        "Previous response with id 'resp_abc' not found.",
+    ):
+        assert is_previous_response_not_found_error(
+            code="invalid_request_error",
+            param=None,
+            message=message,
+        )
+
+
+def test_previous_response_classifier_ignores_unrelated_invalid_requests():
+    assert not is_previous_response_not_found_error(
+        code="invalid_request_error",
+        param="model",
+        message="Invalid `previous_response_id`.",
+    )
+    assert not is_previous_response_not_found_error(
+        code="invalid_request_error",
+        param=None,
+        message="Invalid value for `temperature`.",
+    )
+    assert not is_previous_response_not_found_error(
+        code="invalid_request_error",
+        param=None,
+        message="Unsupported model.",
+    )
+
+
+def test_invalid_anchor_wording_carries_no_response_id_to_extract():
+    assert previous_response_id_from_not_found_message("Invalid `previous_response_id`.") is None
