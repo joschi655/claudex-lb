@@ -49,7 +49,7 @@ local is written, and the only local requirement is a browser.
 ## What is proven and what is not
 
 The import leg is proven — it is the same endpoint and the same payload shape
-that pushed a live account (`jjwild@gmx.de`, `claude_max`) into the pool on
+that pushed a live account (`claude-c@example.com`, `claude_max`) into the pool on
 2026-08-14, which then polled usage normally. URL construction, the state
 mismatch check, and the malformed-code path are exercised. The token exchange and
 profile fetch are unproven until someone completes a sign-in; they cannot be

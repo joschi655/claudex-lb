@@ -53,7 +53,7 @@ function die(msg: string, ...detail: string[]): never {
 
 function loadConfig(): Config {
   if (!existsSync(CFG_PATH)) {
-    die(`missing ${CFG_PATH}`, `printf '{"baseUrl": "https://codex-proxy.aiwerke.de"}' > ${CFG_PATH}`);
+    die(`missing ${CFG_PATH}`, `printf '{"baseUrl": "https://proxy.example.com"}' > ${CFG_PATH}`);
   }
   let cfg: Config;
   try {

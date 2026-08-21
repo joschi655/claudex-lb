@@ -10,7 +10,7 @@ taken at face value — so `1.04` became **1.04%**. Not merely wrong: inverted. 
 window reads as empty at the exact moment it is spent.
 
 The misreading sustains itself, because a 429 carries the same headers. Observed
-live on `joschibreitfeld@gmail.com`:
+live on `claude-a@example.com`:
 
 | 12:32:19 | usage poll writes `100.0%` — the account is genuinely spent |
 | 12:33:34.798 | a 429's headers write `1.04%` |

@@ -53,7 +53,7 @@ than guessing a name.
 ```bash
 # 1. Config (base URL of your claudex-lb deployment)
 mkdir -p ~/.config/claudex-lb
-printf '{"baseUrl": "https://codex-proxy.aiwerke.de"}' > ~/.config/claudex-lb/menubar.json
+printf '{"baseUrl": "https://proxy.example.com"}' > ~/.config/claudex-lb/menubar.json
 chmod 600 ~/.config/claudex-lb/menubar.json
 
 # 2. Dashboard password → macOS Keychain (preferred; "password" in menubar.json also works)
@@ -70,6 +70,10 @@ The `1m` in the filename is the SwiftBar refresh interval. The plugin logs in
 once and caches the session cookie (`~/.config/claudex-lb/menubar-session.cookie`,
 mode 600); it only re-logins after a 401, so the dashboard login rate limit is
 never in play. A provider with zero accounts simply renders no section.
+
+Use HTTPS for every remote deployment. The menu sends the dashboard credential
+to `baseUrl`; plain HTTP is appropriate only for a loopback address such as
+`http://127.0.0.1:2455`.
 
 ## Adding a Claude account
 

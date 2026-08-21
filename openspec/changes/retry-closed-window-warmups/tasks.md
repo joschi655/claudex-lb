@@ -16,7 +16,7 @@
 
 ## 3. Live data
 
-- [x] 3.1 Close out the stuck `pending` attempt on `ge37wuc@matlab.rbg.tum.de` so the
+- [x] 3.1 Close out the stuck `pending` attempt on `claude-b@example.com` so the
       audit trail carries no permanent in-flight row. Attempt 2 (window `primary`,
       key `0`, opened 2026-08-05 13:18) marked `failed` / `warmup_never_completed`;
       no stranded rows remain.
@@ -42,7 +42,7 @@
       moving value and advances with the cooldown period, both windows still select
       their own candidate, and the previously-blocking row is inert.
 - [x] 5.5 Confirm an actual scheduled warm-up lands once a window next closes.
-      `joschibreitfeld@gmail.com`'s five-hour window elapsed at 12:49:59; a scheduled
+      `claude-a@example.com`'s five-hour window elapsed at 12:49:59; a scheduled
       warm-up fired 30s later keyed on that reset, succeeded, and its response headers
       opened a fresh window (0% used, reset 17:50). Request logged with
       `source=limit_warmup`, `request_kind=warmup`.

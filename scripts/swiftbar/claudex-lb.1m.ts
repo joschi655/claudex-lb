@@ -11,7 +11,7 @@
 //
 // Setup (one-time):
 //   mkdir -p ~/.config/claudex-lb
-//   printf '{"baseUrl": "https://codex-proxy.aiwerke.de"}' > ~/.config/claudex-lb/menubar.json
+//   printf '{"baseUrl": "https://proxy.example.com"}' > ~/.config/claudex-lb/menubar.json
 //   chmod 600 ~/.config/claudex-lb/menubar.json
 //   security add-generic-password -s claudex-lb-dashboard -a menubar -w '<dashboard password>'
 //   ln -sf "$(pwd)/scripts/swiftbar/claudex-lb.1m.ts" ~/Library/Application\ Support/SwiftBar/Plugins/
@@ -171,7 +171,7 @@ let terminalMode = false;
 
 function fail(title: string, lines: string[]): never {
   if (terminalMode) {
-    // Menu actions ("Aktualisieren | refresh=true") are instructions to
+    // Menu actions ("Refresh | refresh=true") are instructions to
     // SwiftBar, not to a reader; only the prose survives.
     const prose = lines.filter((l) => !l.includes("refresh=true")).map((l) => l.split(" | ")[0]);
     throw new Error(prose.join(" — ") || "failed");
@@ -185,19 +185,19 @@ function fail(title: string, lines: string[]): never {
 function loadConfig(): Config {
   if (!existsSync(CFG_PATH)) {
     fail("setup", [
-      "claudex-lb menubar: Konfiguration fehlt | color=#e74c3c",
-      `Erwartet: ${CFG_PATH}`,
-      'Anlegen: printf \'{"baseUrl": "https://codex-proxy.aiwerke.de"}\' > ~/.config/claudex-lb/menubar.json',
-      "Passwort: security add-generic-password -s claudex-lb-dashboard -a menubar -w '<pw>'",
+      "claudex-lb menubar: configuration missing | color=#e74c3c",
+      `Expected: ${CFG_PATH}`,
+      'Create it: printf \'{"baseUrl": "https://proxy.example.com"}\' > ~/.config/claudex-lb/menubar.json',
+      "Password: security add-generic-password -s claudex-lb-dashboard -a menubar -w '<pw>'",
     ]);
   }
   let cfg: Config;
   try {
     cfg = JSON.parse(readFileSync(CFG_PATH, "utf8"));
   } catch {
-    fail("cfg!", [`${CFG_PATH} ist kein gültiges JSON | color=#e74c3c`]);
+    fail("cfg!", [`${CFG_PATH} is not valid JSON | color=#e74c3c`]);
   }
-  if (!cfg.baseUrl) fail("cfg!", ['menubar.json braucht "baseUrl" | color=#e74c3c']);
+  if (!cfg.baseUrl) fail("cfg!", ['menubar.json needs "baseUrl" | color=#e74c3c']);
   cfg.baseUrl = cfg.baseUrl.replace(/\/+$/, "");
   return cfg;
 }
@@ -217,7 +217,7 @@ function resolvePassword(cfg: Config): string {
   const pw = keychainPassword() ?? cfg.password ?? "";
   if (!pw) {
     fail("🔐", [
-      "Dashboard-Passwort fehlt | color=#e74c3c",
+      "Dashboard password missing | color=#e74c3c",
       "Keychain: security add-generic-password -s claudex-lb-dashboard -a menubar -w '<pw>'",
       `…oder "password" in ${CFG_PATH}`,
     ]);
@@ -261,13 +261,13 @@ async function doLogin(cfg: Config): Promise<string> {
       signal: AbortSignal.timeout(10_000),
     });
   } catch {
-    fail("⚠️", [`${cfg.baseUrl} nicht erreichbar | color=#e67e22`, "Aktualisieren | refresh=true"]);
+    fail("⚠️", [`${cfg.baseUrl} is unreachable | color=#e67e22`, "Refresh | refresh=true"]);
   }
   if (!res.ok) {
     fail("🔐", [
       `Login fehlgeschlagen (HTTP ${res.status}) | color=#e74c3c`,
-      "Passwort prüfen (Keychain: claudex-lb-dashboard)",
-      "Aktualisieren | refresh=true",
+      "Check the password (Keychain: claudex-lb-dashboard)",
+      "Refresh | refresh=true",
     ]);
   }
   const setCookie = res.headers.get("set-cookie") ?? "";
@@ -291,7 +291,7 @@ async function apiFetch(cfg: Config, path: string, init: RequestInit = {}, retri
     // soft callers (non-essential data) get the error to handle; hard callers
     // render the offline state.
     if (soft) throw err instanceof Error ? err : new Error(String(err));
-    fail("⚠️", [`${cfg.baseUrl} nicht erreichbar | color=#e67e22`, "Aktualisieren | refresh=true"]);
+    fail("⚠️", [`${cfg.baseUrl} is unreachable | color=#e67e22`, "Refresh | refresh=true"]);
   }
   if (res.status === 401 && !retried) {
     await login(cfg);
@@ -1559,5 +1559,5 @@ try {
     notify(String(err));
     process.exit(1);
   }
-  fail("⚠️", [`Fehler: ${String(err).slice(0, 160)} | color=#e74c3c`, "Aktualisieren | refresh=true"]);
+  fail("⚠️", [`Error: ${String(err).slice(0, 160)} | color=#e74c3c`, "Refresh | refresh=true"]);
 }

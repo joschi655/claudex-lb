@@ -10,7 +10,7 @@ in for one — and a constant never comes round again. The attempt table's guard
 therefore stopped being "one ping per closed-window episode" and became "one ping
 per account per window, for the life of the row".
 
-Observed on `ge37wuc@matlab.rbg.tum.de`: an attempt created 2026-08-05 13:18 was
+Observed on `claude-b@example.com`: an attempt created 2026-08-05 13:18 was
 left `pending` by a restart mid-flight and still held the key three days later.
 While the usage poll reported real reset timestamps the account was warmed every
 five hours, nine times running. At 2026-08-08 10:00 the poll wrote the window's
