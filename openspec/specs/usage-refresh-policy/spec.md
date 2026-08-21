@@ -3,6 +3,27 @@
 ## Purpose
 Define how background usage refresh reacts to auth-like failures without permanently hammering bad accounts.
 ## Requirements
+
+### Requirement: OpenAI usage flows skip anthropic accounts
+
+Schedulers and account actions that call OpenAI/ChatGPT upstream endpoints per account (usage refresh, rate-limit reset credits, model refresh, quota planning, probe, OpenAI-format auth export) MUST skip anthropic accounts or reject them with a clear error; they MUST NOT send anthropic credentials to OpenAI endpoints.
+
+#### Scenario: Usage refresh ignores anthropic accounts
+
+- **GIVEN** accounts of both providers
+- **WHEN** the OpenAI usage refresh cycle runs
+- **THEN** only openai accounts are polled
+
+### Requirement: Proactive anthropic token freshness
+
+When the auth guardian is enabled, an OAuth anthropic account whose access token expires within its staleness horizon MUST be refreshed proactively through the claim-serialized refresh path, keeping idle accounts sign-in-free.
+
+#### Scenario: Idle account stays fresh
+
+- **GIVEN** the guardian enabled and an anthropic account expiring within the horizon
+- **WHEN** the guardian cycle runs
+- **THEN** the account's token is refreshed and rotated material persisted
+
 ### Requirement: Usage refresh cools down repeated auth-like failures
 
 Background usage refresh MUST apply a cooldown to accounts that repeatedly fail usage refresh with ambiguous `401` or `403` responses. Accounts in that cooldown window MUST be skipped until the cooldown expires or a later successful refresh clears it.
@@ -1271,4 +1292,3 @@ On the HTTP bridge / forwarded compact path the caller passes an `api_key_reserv
 - **GIVEN** a compact-responses request whose inner `_call_compact` budget check finds the request budget exhausted and raises the budget-exhausted `upstream_request_timeout` error
 - **WHEN** the enclosing retry-loop `except ProxyResponseError` handler settles the reservation on the `upstream_request_timeout` branch before raising
 - **THEN** no additional settle is performed at the inner terminal, so the reservation is settled exactly once
-

@@ -24,7 +24,9 @@
 
 - [x] 4.1 `anthropic-ratelimit-unified-*` header parser (permissive)
 - [x] 4.2 Relay hook → `UsageHistory` primary/secondary rows + `reset_at`, throttled, selection-cache invalidation
-- [ ] 4.3 Sparse `/api/oauth/usage` polling for accounts without recent passive snapshot — DEFERRED (passive header ingestion is the dominant signal; idle accounts read as low-utilization, which selection handles gracefully)
+- [x] 4.3 Usage polling — superseded by the completed
+      `poll-anthropic-usage-api` change, which polls every OAuth account on the
+      configured cadence and applies per-account cooldowns when Anthropic throttles
 
 ## 4b. Hardening (post-implementation audit)
 

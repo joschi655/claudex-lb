@@ -3,6 +3,22 @@
 ## Purpose
 TBD - created by archiving change add-relative-availability-routing. Update Purpose after archive.
 ## Requirements
+
+### Requirement: Selection is provider-scoped
+
+Account selection MUST be scoped to a single provider per request: a selection for one provider MUST never return another provider's account, selection caches MUST key on the provider, and existing call sites without an explicit provider keep OpenAI semantics unchanged.
+
+#### Scenario: Providers never cross
+
+- **GIVEN** active accounts of both providers
+- **WHEN** an anthropic selection and an openai selection run
+- **THEN** each returns only accounts of its own provider
+
+#### Scenario: Default call sites unchanged
+
+- **WHEN** an existing OpenAI proxy path selects an account without naming a provider
+- **THEN** only `openai` accounts are considered, matching pre-change behavior
+
 ### Requirement: Relative availability routing
 
 The proxy account selector SHALL support a `relative_availability` routing strategy. The strategy SHALL evaluate only accounts that have passed the existing eligibility, health-tier, model-plan, quota, cooldown, circuit-breaker, and budget-safety gates. Re-authentication-required accounts SHALL be treated as hard-blocked routing candidates, the same as paused and deactivated accounts. For each candidate, it SHALL compute a raw score from remaining secondary-window credits divided by seconds until the secondary-window reset, using bounded fallbacks for unknown or near-immediate reset times, and SHALL select from the highest weighted candidates according to the configured power and top-K cutoff.
@@ -485,4 +501,3 @@ tied candidates are reordered.
 - **GIVEN** a fixed set of candidate accounts and a fixed per-replica salt
 - **WHEN** the `round_robin` strategy selects repeatedly with unchanged state
 - **THEN** the same account is selected every time
-
