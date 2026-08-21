@@ -382,6 +382,9 @@ codex-lb does not implement Anthropic's Messages API or manage Claude
 credentials. To use Claude Code's interface with a model served by codex-lb,
 run an Anthropic-to-OpenAI translator in front:
 
+The owning [Responses API compatibility OpenSpec](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/responses-api-compat)
+remains the source of truth for the codex-lb side of this composition.
+
 ```text
 Claude Code -> LiteLLM /v1/messages -> codex-lb /v1/responses
 ```
@@ -406,6 +409,7 @@ litellm_settings:
 
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
+  database_url: os.environ/LITELLM_DATABASE_URL
 ```
 
 The public `codex-lb-gpt-5.6-sol` alias maps to `gpt-5.6-sol` through
@@ -422,8 +426,9 @@ Set separate credentials for the two hops, then bind LiteLLM to loopback:
 
 ```bash
 export CODEX_LB_BASE_URL="http://127.0.0.1:2455/v1"
-export CODEX_LB_API_KEY="sk-clb-..."        # dashboard key; see loopback note below
-export LITELLM_MASTER_KEY="sk-litellm-..." # choose a separate random secret
+export CODEX_LB_API_KEY="sk-clb-..."                 # dashboard key; see loopback note below
+export LITELLM_MASTER_KEY="sk-litellm-admin-..."     # server/admin shell only
+export LITELLM_DATABASE_URL="postgresql://.../litellm" # dedicated LiteLLM database
 
 env -u DEBUG uvx --from 'litellm[proxy]==1.97.0' \
   --with 'fastapi==0.140.0' \
@@ -439,27 +444,61 @@ value from being parsed as LiteLLM's Boolean CLI option. Transitive
 dependencies remain ranged, so repeat the smoke test when the environment is
 recreated.
 
-Do not reuse a Claude.ai OAuth token or Anthropic Console key for either
-value. `CODEX_LB_API_KEY` authenticates LiteLLM to codex-lb;
-`LITELLM_MASTER_KEY` authenticates Claude Code to LiteLLM. A non-empty
+LiteLLM requires PostgreSQL to persist virtual keys. Use a dedicated database;
+do not point it at codex-lb's database. With LiteLLM running, use the admin
+shell to generate a key restricted to the one public model alias and LLM data
+plane:
+
+```bash
+curl --fail-with-body --silent --show-error \
+  --connect-timeout 5 --max-time 30 \
+  http://127.0.0.1:4000/key/generate \
+  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H 'content-type: application/json' \
+  -d '{
+    "key_alias": "claude-code",
+    "models": ["codex-lb-gpt-5.6-sol"],
+    "key_type": "llm_api"
+  }'
+```
+
+Copy the response's `key` value into the client shell as
+`LITELLM_CLAUDE_CODE_KEY`. Do not copy or re-export `LITELLM_MASTER_KEY` there.
+The `models` restriction limits inference to the configured alias, while
+`key_type: llm_api` excludes management routes. Confirm the scoped key cannot
+mint another key before giving it to Claude Code:
+
+```bash
+test "$(curl --silent --show-error --output /dev/null \
+  --write-out '%{http_code}' --connect-timeout 5 --max-time 30 \
+  http://127.0.0.1:4000/key/generate \
+  -H "Authorization: Bearer $LITELLM_CLAUDE_CODE_KEY" \
+  -H 'content-type: application/json' \
+  -d '{"models":["codex-lb-gpt-5.6-sol"],"key_type":"llm_api"}')" = 403
+```
+
+Do not reuse a Claude.ai OAuth token or Anthropic Console key for any value.
+`CODEX_LB_API_KEY` authenticates LiteLLM to codex-lb; the scoped virtual key
+authenticates Claude Code to LiteLLM. A non-empty `CODEX_LB_API_KEY`
 placeholder works only when LiteLLM reaches an auth-disabled codex-lb over
 same-host loopback. Across containers, use their private network and enable
 codex-lb API-key auth with a registered dashboard key. Auth-disabled codex-lb
 rejects non-loopback proxy requests unless the raw peer is explicitly
 allowlisted with `CODEX_LB_PROXY_UNAUTHENTICATED_CLIENT_CIDRS`. Do not expose
-an unencrypted LiteLLM listener or either key to an untrusted network.
+an unencrypted LiteLLM listener or any key to an untrusted network.
 
 ### Verify the translation path
 
-With LiteLLM running, open another shell, re-export the same master key, and
-send a streamed Anthropic-format request:
+With LiteLLM running, open the client shell and send a streamed
+Anthropic-format request with the scoped key:
 
 ```bash
-export LITELLM_MASTER_KEY="sk-litellm-..." # same value used to start LiteLLM
+export LITELLM_CLAUDE_CODE_KEY="sk-..." # `key` from /key/generate
 
 curl --fail-with-body --silent --show-error --no-buffer \
+  --connect-timeout 5 --max-time 120 \
   http://127.0.0.1:4000/v1/messages \
-  -H "Authorization: Bearer $LITELLM_MASTER_KEY" \
+  -H "Authorization: Bearer $LITELLM_CLAUDE_CODE_KEY" \
   -H 'anthropic-version: 2023-06-01' \
   -H 'content-type: application/json' \
   -d '{
@@ -485,13 +524,13 @@ Re-test when upgrading either proxy dependency or Claude Code.
 
 Map the Opus, Sonnet, and Haiku aliases to the configured public alias, and
 force subagents onto it so helper requests do not use an unconfigured Claude
-model name. In the shell that will run Claude Code, re-export the same LiteLLM
-key:
+model name. In the shell that will run Claude Code, export only the scoped
+LiteLLM key:
 
 ```bash
-export LITELLM_MASTER_KEY="sk-litellm-..." # same value used to start LiteLLM
+export LITELLM_CLAUDE_CODE_KEY="sk-..." # `key` from /key/generate
 export ANTHROPIC_BASE_URL="http://127.0.0.1:4000"
-export ANTHROPIC_AUTH_TOKEN="$LITELLM_MASTER_KEY"
+export ANTHROPIC_AUTH_TOKEN="$LITELLM_CLAUDE_CODE_KEY"
 export ANTHROPIC_DEFAULT_OPUS_MODEL="codex-lb-gpt-5.6-sol"
 export ANTHROPIC_DEFAULT_SONNET_MODEL="codex-lb-gpt-5.6-sol"
 export ANTHROPIC_DEFAULT_HAIKU_MODEL="codex-lb-gpt-5.6-sol"
@@ -544,7 +583,7 @@ Common failures:
 
 | Symptom | Check |
 | --- | --- |
-| LiteLLM returns `401` | `ANTHROPIC_AUTH_TOKEN` must equal `LITELLM_MASTER_KEY`. |
+| LiteLLM returns `401` | `ANTHROPIC_AUTH_TOKEN` must equal the generated `LITELLM_CLAUDE_CODE_KEY`; never substitute the master key. |
 | codex-lb returns `401` | Use a valid dashboard `CODEX_LB_API_KEY`. An auth-disabled placeholder works only over loopback; across containers, enable key auth or explicitly allowlist the raw peer. |
 | LiteLLM reports an unknown model | Match `model_name`, the three configured `ANTHROPIC_DEFAULT_*_MODEL` values, `CLAUDE_CODE_SUBAGENT_MODEL`, and `claude --model`. |
 | LiteLLM cannot reach codex-lb | Keep `/v1` in `CODEX_LB_BASE_URL`; across containers, replace loopback with a private-network host. |
