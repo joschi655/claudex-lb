@@ -1,11 +1,7 @@
 name: Sync Beta Release PR
 
 on:
-  push:
-    branches: ["main"]
-  workflow_run:
-    workflows: ["Release Please"]
-    types: [completed]
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-main

@@ -1,6 +1,6 @@
-# Contributing to codex-lb
+# Contributing to claudex-lb
 
-Thanks for thinking about contributing to codex-lb! This document covers
+Thanks for thinking about contributing to claudex-lb! This document covers
 everything you need to get from "clone" to "merged PR" without re-discovering
 the conventions yourself.
 
@@ -38,15 +38,15 @@ You don't need to write code to help:
 - **Triage**: reproduce open issues, ask for missing details, add labels.
 - **Docs**: improve the README, fix typos, document a deployment recipe.
 - **Discussions**: answer "how do I…?" questions in
-  [GitHub Discussions](https://github.com/Soju06/codex-lb/discussions).
+  [GitHub Discussions](https://github.com/joschi655/claudex-lb/discussions).
 - **Bug reports**: file a structured report using the Bug Report issue form.
 - **Feature ideas**: propose them in Discussions first if open-ended; use the
   Feature Request form when the idea is concrete.
 - **Code**: fix a bug, implement a feature, refactor a hot spot.
 
 Look for issues labelled
-[`good first issue`](https://github.com/Soju06/codex-lb/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22) or
-[`help wanted`](https://github.com/Soju06/codex-lb/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22)
+[`good first issue`](https://github.com/joschi655/claudex-lb/issues?q=is%3Aopen+is%3Aissue+label%3A%22good+first+issue%22) or
+[`help wanted`](https://github.com/joschi655/claudex-lb/issues?q=is%3Aopen+is%3Aissue+label%3A%22help+wanted%22)
 if you're looking for a starter task.
 
 ## Development setup
@@ -55,8 +55,8 @@ codex-lb is a Python project managed with [`uv`](https://docs.astral.sh/uv/).
 
 ```bash
 # 1. Fork & clone
-git clone https://github.com/<your-user>/codex-lb.git
-cd codex-lb
+git clone https://github.com/<your-user>/claudex-lb.git
+cd claudex-lb
 
 # 2. Install Python + deps via uv
 uv sync --all-extras --dev
@@ -339,8 +339,9 @@ Releases are automated via [release-please](https://github.com/googleapis/releas
 1. Commits land on `main` with Conventional Commits titles.
 2. release-please opens / updates a "chore(main): release X.Y.Z" PR
    containing the proposed version bump and generated changelog.
-3. When a maintainer merges that PR, a GitHub Release is published and the
-   PyPI / Docker / Helm artifacts are built and uploaded.
+3. Fork releases remain disabled until claudex-lb has namespaced, reviewed
+   package and image publishing. Do not publish to upstream's `codex-lb`
+   PyPI or image namespaces.
 
 Contributors **never** need to edit `CHANGELOG.md`, version strings, or tag
 manually.
@@ -349,7 +350,7 @@ manually.
 
 Please do **not** open public issues for security vulnerabilities. Report them
 privately via
-[GitHub Security Advisories](https://github.com/Soju06/codex-lb/security/advisories/new).
+[GitHub Security Advisories](https://github.com/joschi655/claudex-lb/security/advisories/new).
 See [SECURITY.md](./SECURITY.md) for full details.
 
 ---

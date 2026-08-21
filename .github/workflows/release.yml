@@ -1,12 +1,13 @@
 name: Release
 
 on:
-  release:
-    types: [published]
   workflow_dispatch:
     inputs:
       tag:
         description: "Release tag (e.g. v1.19.0 or v1.19.0-beta.1)"
+        required: true
+      fork_release_acknowledgement:
+        description: "Type ENABLE-CLAUDEX-RELEASE after configuring fork-owned package namespaces"
         required: true
 
 concurrency:
@@ -20,8 +21,22 @@ env:
   RELEASE_TAG: ${{ github.event.release.tag_name || inputs.tag }}
 
 jobs:
+  fork-release-guard:
+    name: Confirm fork release namespace
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Refuse accidental upstream-package publication
+        env:
+          ACK: ${{ inputs.fork_release_acknowledgement }}
+        run: |
+          if [ "${ACK}" != "ENABLE-CLAUDEX-RELEASE" ]; then
+            echo "::error::Fork releases are disabled until package names and trusted publishers are fork-owned."
+            exit 1
+          fi
+
   release-metadata:
     name: Resolve release metadata
+    needs: [fork-release-guard]
     runs-on: ubuntu-24.04
 
     outputs:
@@ -115,32 +130,12 @@ jobs:
           path: dist/*
 
   publish-to-pypi:
-    name: Publish to PyPI
+    name: PyPI publishing intentionally disabled for fork
     needs: [build]
     runs-on: ubuntu-24.04
 
-    permissions:
-      id-token: write
-
-    environment:
-      name: pypi
-      url: https://pypi.org/project/codex-lb/
-
     steps:
-      - name: Download dist artifacts
-        uses: actions/download-artifact@fc02353415da80201a0da48ab47022efd7725d11
-        with:
-          name: dist
-          path: dist
-
-      - name: List dist files
-        run: ls -la dist/
-
-      - name: Publish to PyPI (Trusted Publishing)
-        uses: pypa/gh-action-pypi-publish@cef221092ed1bacb1cc03d23a2d87d1d172e277b
-        with:
-          verbose: true
-          print-hash: true
+      - run: echo "PyPI publish is disabled; codex-lb belongs to the upstream project."
 
   docker-image:
     name: Build and push Docker image
@@ -263,7 +258,7 @@ jobs:
 
   create-github-release:
     name: Create GitHub Release
-    needs: [publish-to-pypi, docker-image, helm-chart, release-metadata]
+    needs: [build, docker-image, helm-chart, release-metadata]
     runs-on: ubuntu-24.04
 
     permissions:

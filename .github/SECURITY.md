@@ -6,25 +6,25 @@
 discussions, or pull requests.**
 
 Instead, report them privately using GitHub's
-[Private Vulnerability Reporting](https://github.com/Soju06/codex-lb/security/advisories/new):
+[Private Vulnerability Reporting](https://github.com/joschi655/claudex-lb/security/advisories/new):
 
-1. Open <https://github.com/Soju06/codex-lb/security/advisories/new>
+1. Open <https://github.com/joschi655/claudex-lb/security/advisories/new>
 2. Fill in a clear title and a detailed description of the issue.
 3. Include reproduction steps, affected versions, and any proof-of-concept you
    have.
 4. Submit. The report is visible only to repository maintainers.
 
 If for some reason you cannot use the private advisory flow, you may instead
-contact the maintainer via the email address listed in
-[CODE_OF_CONDUCT.md](../CODE_OF_CONDUCT.md), with a subject line starting with
-`[codex-lb security]`.
+contact the fork owner through the private contact details on their
+[GitHub profile](https://github.com/joschi655), with a subject line starting
+with `[claudex-lb security]`.
 
 ## What to include
 
 A good report makes triage much faster:
 
-- **Affected version(s)**: e.g. `codex-lb 1.16.0`, ghcr image digest, or commit SHA.
-- **Deployment**: uvx / pip / Docker / Helm / from source.
+- **Affected revision**: the exact claudex-lb commit SHA.
+- **Deployment**: source checkout, locally built Docker image, or local Helm chart.
 - **Impact**: what can an attacker do? (data disclosure, account takeover,
   RCE, DoS, auth bypass, log injection, etc.)
 - **Reproduction**: minimal steps — config snippet, request payload, log
@@ -35,12 +35,11 @@ A good report makes triage much faster:
 
 In scope:
 
-- The codex-lb proxy (`app/`) — auth, routing, account management, the
+- The claudex-lb proxy (`app/`) — auth, routing, account management, the
   dashboard backend, the `/v1/*` and `/backend-api/*` surfaces.
 - The dashboard frontend (`frontend/`).
-- The published Docker image (`ghcr.io/Soju06/codex-lb`) and Helm chart
-  (`oci://ghcr.io/soju06/charts/codex-lb`).
-- Released PyPI artifacts (`codex-lb` on PyPI).
+- The source-build Dockerfile and Helm chart in this repository.
+- The SwiftBar and credential-transfer scripts in this repository.
 
 Out of scope (please don't file these as security advisories):
 
@@ -49,8 +48,7 @@ Out of scope (please don't file these as security advisories):
   attack surface — file those upstream.
 - Self-inflicted misconfiguration (exposing the dashboard publicly without
   auth, leaking your own API keys via committed `.env`, etc.).
-- Findings on outdated releases (older than the latest two minor versions)
-  unless they affect supported versions too.
+- Findings that do not reproduce on the current default-branch source.
 
 ## Disclosure process
 
@@ -70,15 +68,10 @@ Out of scope (please don't file these as security advisories):
 
 ## Supported versions
 
-Security fixes are issued for the **latest minor release** and the **previous
-minor release** on a best-effort basis. Older versions may not receive
-backports — please upgrade.
-
-| Version    | Supported          |
-|------------|--------------------|
-| 1.17.x     | ✅ active           |
-| 1.16.x     | ✅ critical fixes   |
-| < 1.16     | ❌ upgrade required |
+The fork has not published a release, image, PyPI package, or Helm artifact yet.
+Security fixes apply to the current default-branch source on a best-effort basis.
+The similarly named upstream artifacts are maintained by Soju06 and do not
+contain claudex-lb's native Claude support.
 
 ## Hall of fame
 

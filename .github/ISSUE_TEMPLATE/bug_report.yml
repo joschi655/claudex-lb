@@ -1,5 +1,5 @@
 name: 🐛 Bug Report
-description: Report a reproducible bug, crash, or unexpected behavior in codex-lb.
+description: Report a reproducible bug, crash, or unexpected behavior in claudex-lb.
 title: "bug: <one-line summary of what's broken>"
 labels: ["bug", "triage"]
 body:
@@ -9,9 +9,9 @@ body:
         Thanks for taking the time to file a bug report! 🙏
 
         Before you continue:
-        - Search [open & closed issues](https://github.com/Soju06/codex-lb/issues?q=is%3Aissue) — your problem may already be known.
-        - For "how do I…?" questions, please use [Discussions](https://github.com/Soju06/codex-lb/discussions) instead.
-        - For security vulnerabilities, use a [private advisory](https://github.com/Soju06/codex-lb/security/advisories/new) — **do not** post them here.
+        - Search [open & closed issues](https://github.com/joschi655/claudex-lb/issues?q=is%3Aissue) — your problem may already be known.
+        - For "how do I…?" questions, please use [Discussions](https://github.com/joschi655/claudex-lb/discussions) instead.
+        - For security vulnerabilities, use a [private advisory](https://github.com/joschi655/claudex-lb/security/advisories/new) — **do not** post them here.
 
   - type: checkboxes
     id: preflight
@@ -21,7 +21,7 @@ body:
       options:
         - label: I searched existing issues and confirmed this is not a duplicate.
           required: true
-        - label: I am running a supported codex-lb version (see Releases).
+        - label: I can reproduce this on the current claudex-lb default-branch source.
           required: true
         - label: I can reproduce the problem with the steps below.
           required: true
@@ -29,9 +29,9 @@ body:
   - type: input
     id: version
     attributes:
-      label: codex-lb version
-      description: Output of `codex-lb --version` or the image tag you deployed.
-      placeholder: "1.17.0"
+      label: claudex-lb commit
+      description: Exact `git rev-parse HEAD` output from the source checkout.
+      placeholder: "full commit SHA"
     validations:
       required: true
 
@@ -41,12 +41,9 @@ body:
       label: Deployment method
       multiple: false
       options:
-        - uvx (codex-lb)
-        - pip install codex-lb
-        - Docker (ghcr.io/Soju06/codex-lb)
-        - Docker Compose
-        - Helm chart (oci://ghcr.io/soju06/charts/codex-lb)
         - From source
+        - Locally built Docker / Docker Compose
+        - Local Helm chart
         - Other (describe below)
     validations:
       required: true
@@ -58,6 +55,8 @@ body:
       multiple: true
       description: Select every client that triggers the bug.
       options:
+        - Claude Code
+        - Anthropic SDK / direct Messages API
         - Codex CLI
         - Codex app (desktop / web)
         - ОpenCode
@@ -69,7 +68,7 @@ body:
   - type: dropdown
     id: account_plan
     attributes:
-      label: ChatGPT account plan(s) involved
+      label: Account plan(s) involved
       multiple: true
       description: Plan type of the upstream account(s) in the affected pool.
       options:
@@ -80,7 +79,10 @@ body:
         - Business
         - Enterprise
         - Edu
-        - API-key only (no ChatGPT account)
+        - Claude Pro / Max
+        - Claude Team / Enterprise
+        - Anthropic API-key only
+        - OpenAI API-key only
         - Mixed pool
         - Not sure
     validations:
