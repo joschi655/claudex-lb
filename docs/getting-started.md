@@ -1,19 +1,17 @@
 # Getting Started
 
-codex-lb runs with zero configuration — every setting has a working default, and Docker vs. host paths are auto-detected.
+claudex-lb runs with zero configuration — every setting has a working default,
+and Docker vs. host paths are auto-detected. Until the fork publishes signed
+packages, build it from source; upstream codex-lb images and PyPI releases do
+not include native Claude pooling.
 
 ## Quick Start
 
 ```bash
-# Docker (recommended)
-docker volume create codex-lb-data
-docker run -d --name codex-lb \
-  -p 2455:2455 -p 1455:1455 \
-  -v codex-lb-data:/var/lib/codex-lb \
-  ghcr.io/soju06/codex-lb:latest
-
-# or uvx
-uvx codex-lb
+git clone https://github.com/joschi655/claudex-lb.git
+cd claudex-lb
+cp .env.example .env.local
+docker compose up -d --build server
 ```
 
 Open [localhost:2455](http://localhost:2455) → Add account → Done.
@@ -43,7 +41,7 @@ docker run -d --name codex-lb \
   -e CODEX_LB_DASHBOARD_BOOTSTRAP_TOKEN=your-secret-token \
   -p 2455:2455 -p 1455:1455 \
   -v codex-lb-data:/var/lib/codex-lb \
-  ghcr.io/soju06/codex-lb:latest
+  claudex-lb:local
 ```
 
 **Local access** (localhost) bypasses bootstrap entirely — no token needed.
@@ -52,4 +50,4 @@ Running behind a reverse proxy or exposing codex-lb to other machines? See [Remo
 
 ---
 
-*Spec: [deployment-installation](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/deployment-installation)*
+*Spec: [deployment-installation](https://github.com/joschi655/claudex-lb/tree/main/openspec/specs/deployment-installation)*

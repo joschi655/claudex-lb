@@ -1,61 +1,87 @@
 <!--
 About
-Codex/ChatGPT account load balancer & proxy with usage tracking, dashboard, and OpenCode-compatible endpoints
+Native Claude Code/Anthropic + Codex/ChatGPT account pooling with quota-aware failover, dashboard, and SwiftBar menu
 
 Topics
-python oauth sqlalchemy dashboard load-balancer openai rate-limit api-proxy codex fastapi usage-tracking chatgpt opencode
+python oauth anthropic claude-code dashboard load-balancer openai codex fastapi usage-tracking chatgpt swiftbar
 -->
 
-# codex-lb
+# claudex-lb
 
-**English** | [简体中文](./README.zh-CN.md)
+**English** | [Upstream 简体中文](./README.zh-CN.md)
 
-Load balancer for ChatGPT accounts. Pool multiple accounts, track usage, manage API keys, view everything in a dashboard.
+Native multi-account pooling for both Claude Code/Anthropic and Codex/ChatGPT,
+with quota-aware failover, centralized OAuth custody, usage tracking, API keys,
+and one dashboard.
+
+This is a public fork of [Soju06/codex-lb](https://github.com/Soju06/codex-lb).
+It keeps codex-lb's OpenAI-compatible paths and adds a direct Anthropic Messages
+relay for pooled Claude accounts:
+
+```text
+Claude Code  → claudex-lb /v1/messages       → pooled Anthropic/Claude accounts
+Codex clients → claudex-lb Responses API     → pooled ChatGPT/Codex accounts
+```
+
+Claude traffic is relayed natively; it is **not** translated through LiteLLM or
+routed to non-Claude models.
 
 | ![dashboard](docs/screenshots/dashboard.jpg) | ![accounts](docs/screenshots/accounts.jpg) |
 |:---:|:---:|
 
-**Documentation: <https://soju06.github.io/codex-lb/>** — getting started, client setup, configuration, deployment, troubleshooting, and more screenshots.
+**Documentation: <https://joschi655.github.io/claudex-lb/>** — getting started,
+direct Claude Code setup, configuration, deployment, and troubleshooting.
 
 ## Features
 
 <table>
 <tr>
-<td><b>Account Pooling</b><br>Load balance across multiple ChatGPT accounts</td>
-<td><b>Usage Tracking</b><br>Per-account tokens, cost, 28-day trends</td>
+<td><b>Claude + Codex Pooling</b><br>Provider-isolated account pools and failover</td>
+<td><b>Native Claude Relay</b><br>Messages API + byte-preserving SSE</td>
 <td><b>API Keys</b><br>Per-key rate limits by token, cost, window, model</td>
 </tr>
 <tr>
-<td><b>Dashboard Auth</b><br>Password + optional TOTP</td>
-<td><b>OpenAI-compatible</b><br>Codex CLI, OpenCode, any OpenAI client</td>
-<td><b>Auto Model Sync</b><br>Available models fetched from upstream</td>
+<td><b>Central OAuth Custody</b><br>Serialized token rotation without client relogins</td>
+<td><b>Quota-aware Routing</b><br>Usage polling, pace gates, pins, and warmups</td>
+<td><b>SwiftBar Menu</b><br>macOS pool status and per-provider controls</td>
 </tr>
 </table>
 
 ## Quick Start
 
 ```bash
-# Docker (recommended)
+# Build this fork locally; upstream packages do not contain Claude support.
+git clone https://github.com/joschi655/claudex-lb.git
+cd claudex-lb
+docker build -t claudex-lb:local .
+
 docker volume create codex-lb-data
 docker network inspect codex-lb-net >/dev/null 2>&1 || docker network create codex-lb-net
 docker run -d --name codex-lb \
   --network codex-lb-net \
   -p 2455:2455 -p 1455:1455 \
   -v codex-lb-data:/var/lib/codex-lb \
-  ghcr.io/soju06/codex-lb:latest
-
-# or uvx
-uvx codex-lb
+  claudex-lb:local
 ```
 
-Open [localhost:2455](http://localhost:2455) → Add account → Done.
+Open [localhost:2455](http://localhost:2455), create a proxy API key, and add
+Codex accounts or import Claude credentials through the account dialog.
 
 Accessing the dashboard remotely for the first time? You need a one-time bootstrap token —
-see [Getting started](https://soju06.github.io/codex-lb/getting-started/).
+see [Getting started](https://joschi655.github.io/claudex-lb/getting-started/).
 
 ## Client Setup
 
-Point any OpenAI-compatible client at codex-lb. For Codex CLI, `~/.codex/config.toml`:
+For Claude Code, point the native Messages client at claudex-lb and give it a
+proxy API key created in the dashboard:
+
+```bash
+ANTHROPIC_BASE_URL=http://127.0.0.1:2455 \
+ANTHROPIC_AUTH_TOKEN=sk-clb-your-proxy-key \
+claude
+```
+
+For Codex CLI, use `~/.codex/config.toml`:
 
 ```toml
 model = "gpt-5.6-sol"
@@ -72,18 +98,19 @@ requires_openai_auth = true # required for codex app
 
 | Logo | Client | Endpoint | Guide |
 |---|--------|----------|-------|
-| <img src="https://avatars.githubusercontent.com/u/14957082?s=200" width="32" alt="OpenAI"> | **Codex CLI / IDE** | `http://127.0.0.1:2455/backend-api/codex` | [Client setup → Codex CLI](https://soju06.github.io/codex-lb/client-setup/#codex-cli-ide-extension) |
-| <img src="https://avatars.githubusercontent.com/u/66570915?s=200" width="32" alt="OpenCode (Anomaly)"> | **OpenCode** | `http://127.0.0.1:2455/v1` | [Client setup → OpenCode](https://soju06.github.io/codex-lb/client-setup/#opencode) |
-| <img src="https://avatars.githubusercontent.com/u/252820863?s=200" width="32" alt="OpenClaw"> | **OpenClaw** | `http://127.0.0.1:2455/v1` | [Client setup → OpenClaw](https://soju06.github.io/codex-lb/client-setup/#openclaw) |
-| <img src="https://avatars.githubusercontent.com/u/134168893?s=200" width="32" alt="Hermes Agent (Nous Research)"> | **Hermes Agent** | `http://127.0.0.1:2455/v1` | [Client setup → Hermes Agent](https://soju06.github.io/codex-lb/client-setup/#hermes-agent) |
-| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/python/python-original.svg" width="32" alt="Python"> | **OpenAI Python SDK** | `http://127.0.0.1:2455/v1` | [Client setup → Python SDK](https://soju06.github.io/codex-lb/client-setup/#openai-python-sdk) |
+| ✳ | **Claude Code** | `http://127.0.0.1:2455` | [Client setup → Claude Code](https://joschi655.github.io/claudex-lb/client-setup/#claude-code) |
+| <img src="https://avatars.githubusercontent.com/u/14957082?s=200" width="32" alt="OpenAI"> | **Codex CLI / IDE** | `http://127.0.0.1:2455/backend-api/codex` | [Client setup → Codex CLI](https://joschi655.github.io/claudex-lb/client-setup/#codex-cli-ide-extension) |
+| <img src="https://avatars.githubusercontent.com/u/66570915?s=200" width="32" alt="OpenCode (Anomaly)"> | **OpenCode** | `http://127.0.0.1:2455/v1` | [Client setup → OpenCode](https://joschi655.github.io/claudex-lb/client-setup/#opencode) |
+| <img src="https://avatars.githubusercontent.com/u/252820863?s=200" width="32" alt="OpenClaw"> | **OpenClaw** | `http://127.0.0.1:2455/v1` | [Client setup → OpenClaw](https://joschi655.github.io/claudex-lb/client-setup/#openclaw) |
+| <img src="https://avatars.githubusercontent.com/u/134168893?s=200" width="32" alt="Hermes Agent (Nous Research)"> | **Hermes Agent** | `http://127.0.0.1:2455/v1` | [Client setup → Hermes Agent](https://joschi655.github.io/claudex-lb/client-setup/#hermes-agent) |
+| <img src="https://cdn.jsdelivr.net/gh/devicons/devicon/icons/python/python-original.svg" width="32" alt="Python"> | **OpenAI Python SDK** | `http://127.0.0.1:2455/v1` | [Client setup → Python SDK](https://joschi655.github.io/claudex-lb/client-setup/#openai-python-sdk) |
 
-Remote clients need an [API key](https://soju06.github.io/codex-lb/api-keys/) created from the dashboard.
+Remote clients need an [API key](https://joschi655.github.io/claudex-lb/api-keys/) created from the dashboard.
 
 ## Configuration
 
 Environment variables with `CODEX_LB_` prefix or `.env.local` — see [`.env.example`](.env.example) and the
-[configuration guide](https://soju06.github.io/codex-lb/configuration/). SQLite is the default database backend;
+[configuration guide](https://joschi655.github.io/claudex-lb/configuration/). SQLite is the default database backend;
 PostgreSQL is optional via `CODEX_LB_DATABASE_URL`.
 
 ## Data
@@ -97,17 +124,18 @@ Backup this directory to preserve your data.
 
 ## Documentation
 
-Full docs live at **<https://soju06.github.io/codex-lb/>**:
+Full docs live at **<https://joschi655.github.io/claudex-lb/>**:
 
-- [Getting started](https://soju06.github.io/codex-lb/getting-started/) — quick start, remote bootstrap token
-- [Client setup](https://soju06.github.io/codex-lb/client-setup/) — Codex CLI, OpenCode, OpenClaw, Python SDK
-- [Configuration](https://soju06.github.io/codex-lb/configuration/) — the few settings that matter
-- [Authentication](https://soju06.github.io/codex-lb/authentication/) — dashboard auth modes
-- [API keys](https://soju06.github.io/codex-lb/api-keys/) — protecting proxy routes
-- [Routing](https://soju06.github.io/codex-lb/routing/) — strategy guide
-- [Database](https://soju06.github.io/codex-lb/database/) — SQLite / PostgreSQL, Postgres 16 → 18 upgrade
-- [Deployment](https://soju06.github.io/codex-lb/deployment/docker/) — [Docker](https://soju06.github.io/codex-lb/deployment/docker/), [Kubernetes](https://soju06.github.io/codex-lb/deployment/kubernetes/), [remote access](https://soju06.github.io/codex-lb/deployment/remote/)
-- [Troubleshooting](https://soju06.github.io/codex-lb/troubleshooting/)
+- [Getting started](https://joschi655.github.io/claudex-lb/getting-started/) — source build and remote bootstrap token
+- [Client setup](https://joschi655.github.io/claudex-lb/client-setup/) — Claude Code, Codex CLI, and compatible clients
+- [Configuration](https://joschi655.github.io/claudex-lb/configuration/) — the few settings that matter
+- [Authentication](https://joschi655.github.io/claudex-lb/authentication/) — dashboard auth modes
+- [API keys](https://joschi655.github.io/claudex-lb/api-keys/) — protecting proxy routes
+- [Routing](https://joschi655.github.io/claudex-lb/routing/) — strategy guide
+- [SwiftBar menu](scripts/swiftbar/README.md) — macOS pool status and controls
+- [Database](https://joschi655.github.io/claudex-lb/database/) — SQLite / PostgreSQL and upgrades
+- [Deployment](https://joschi655.github.io/claudex-lb/deployment/docker/) — Docker, Kubernetes, and remote access
+- [Troubleshooting](https://joschi655.github.io/claudex-lb/troubleshooting/)
 
 ## Development
 

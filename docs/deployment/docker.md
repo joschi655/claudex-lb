@@ -2,14 +2,20 @@
 
 ## Basic run
 
+Build the fork locally first. The upstream `ghcr.io/soju06/codex-lb` image
+does not contain claudex-lb's Claude support.
+
 ```bash
+git clone https://github.com/joschi655/claudex-lb.git
+cd claudex-lb
+docker build -t claudex-lb:local .
 docker volume create codex-lb-data
 docker network inspect codex-lb-net >/dev/null 2>&1 || docker network create codex-lb-net
 docker run -d --name codex-lb \
   --network codex-lb-net \
   -p 2455:2455 -p 1455:1455 \
   -v codex-lb-data:/var/lib/codex-lb \
-  ghcr.io/soju06/codex-lb:latest
+  claudex-lb:local
 ```
 
 Ports:
@@ -27,7 +33,9 @@ codex-lb retries only when the transport can prove that the request failed befor
 
 For laptops that switch networks frequently:
 
-- **Simplest on Linux, macOS, and Windows:** run `uvx codex-lb` directly on the host. This avoids Docker's additional DNS layer.
+- **Simplest on Linux, macOS, and Windows:** run the checked-out fork with
+  `uv run codex-lb`. This avoids Docker's additional DNS layer. The published
+  `uvx codex-lb` package is upstream-only.
 - **Docker Engine on Linux (verified with `systemd-resolved`):** use host networking so the container shares the host resolver path. This survives network switches only when the host exposes a stable resolver address, such as the `127.0.0.53` `systemd-resolved` stub. If the host's `/etc/resolv.conf` points directly to a DNS server supplied by Wi-Fi or other DHCP, that address can still become stale. In that case, configure a stable host resolver, follow the [bridge-listener runbook](https://github.com/Soju06/codex-lb/blob/main/openspec/specs/deployment-networking/context.md#diagnostics-and-recovery), or prefer `uvx`. Use the following command instead of the portable Docker command above.
 - **Docker Desktop on macOS or Windows:** Docker Desktop 4.34 and later offers opt-in host networking, but containers still run through Docker Desktop's virtual machine and its DNS behavior can vary by version and configuration. This setup has not been verified as a reliable fix for switching networks. Keep Docker Desktop current; if failures persist, prefer the native `uvx` installation.
 
@@ -36,7 +44,7 @@ docker volume create codex-lb-data
 docker run -d --name codex-lb \
   --network host \
   -v codex-lb-data:/var/lib/codex-lb \
-  ghcr.io/soju06/codex-lb:latest
+  claudex-lb:local
 ```
 
 In the verified Docker Engine setup on Linux, host networking does not use `-p`; codex-lb still listens on ports 2455 and 1455. It also removes Docker's network-namespace isolation. The command is an opt-in path to a stable host resolver, not a DNS fix by itself.
@@ -67,7 +75,7 @@ docker run -d --name codex-lb \
   -e CODEX_LB_FIREWALL_TRUST_PROXY_HEADERS=true \
   -e CODEX_LB_FIREWALL_TRUSTED_PROXY_CIDRS=172.18.0.0/16 \
   -v codex-lb-data:/var/lib/codex-lb \
-  ghcr.io/soju06/codex-lb:latest
+  claudex-lb:local
 ```
 
 **Hard override / no app-level dashboard auth**
@@ -77,11 +85,11 @@ docker run -d --name codex-lb \
   -p 2455:2455 -p 1455:1455 \
   -e CODEX_LB_DASHBOARD_AUTH_MODE=disabled \
   -v codex-lb-data:/var/lib/codex-lb \
-  ghcr.io/soju06/codex-lb:latest
+  claudex-lb:local
 ```
 
 For Helm, pass the same values through `extraEnv`. What these modes mean and when to use them is covered in [Authentication](../authentication.md).
 
 ---
 
-*Specs: [deployment-installation](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/deployment-installation) · [deployment-networking](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/deployment-networking)*
+*Specs: [deployment-installation](https://github.com/joschi655/claudex-lb/tree/main/openspec/specs/deployment-installation) · [deployment-networking](https://github.com/joschi655/claudex-lb/tree/main/openspec/specs/deployment-networking)*

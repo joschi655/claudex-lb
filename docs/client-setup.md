@@ -1,6 +1,8 @@
 # Client Setup
 
-Point any OpenAI-compatible client at codex-lb. If [API key auth](api-keys.md) is enabled, pass a key from the dashboard as a Bearer token.
+claudex-lb accepts the native Anthropic Messages protocol for Claude clients and
+the existing OpenAI/Codex-compatible APIs for Codex clients. If
+[API key auth](api-keys.md) is enabled, use a key created in the dashboard.
 
 Model availability is discovered from the upstream Codex model catalog and can vary by account plan, workspace, rollout, and upstream deprecation state. Prefer the live `GET /v1/models` or `GET /backend-api/codex/models` response over a copied static table when configuring clients or API-key model allowlists.
 
@@ -8,11 +10,46 @@ The examples below use the current frontier lineup: **`gpt-5.6-sol`** (strongest
 
 | Client | Endpoint | Config |
 |--------|----------|--------|
+| [Claude Code](#claude-code) | `http://127.0.0.1:2455` | `ANTHROPIC_BASE_URL` |
 | [Codex CLI](#codex-cli-ide-extension) | `http://127.0.0.1:2455/backend-api/codex` | `~/.codex/config.toml` |
 | [OpenCode](#opencode) | `http://127.0.0.1:2455/v1` | `~/.config/opencode/opencode.json` |
 | [OpenClaw](#openclaw) | `http://127.0.0.1:2455/v1` | `~/.openclaw/openclaw.json` |
 | [Hermes Agent](#hermes-agent) | `http://127.0.0.1:2455/v1` | `~/.hermes/config.yaml` |
 | [OpenAI Python SDK](#openai-python-sdk) | `http://127.0.0.1:2455/v1` | Code |
+
+## Claude Code
+
+First add Anthropic accounts. In the dashboard's account dialog, import each
+Claude Code credential JSON or a supported static Anthropic credential. Keep one
+OAuth credential chain under one custodian: once imported, claudex-lb owns and
+rotates it centrally, so another client must not keep refreshing the same chain.
+
+Create a proxy API key in the dashboard, then launch Claude Code with the proxy
+base URL. Claude Code appends `/v1/messages` itself, so the URL has no `/v1`
+suffix:
+
+```bash
+ANTHROPIC_BASE_URL=http://127.0.0.1:2455 \
+ANTHROPIC_AUTH_TOKEN=sk-clb-your-proxy-key \
+claude
+```
+
+For a persistent setup, merge the same values into the `env` object in
+`~/.claude/settings.json`; preserve every unrelated setting already in that
+file. Use HTTPS for a remote claudex-lb instance.
+
+Verify the direct relay without starting an interactive session:
+
+```bash
+ANTHROPIC_BASE_URL=http://127.0.0.1:2455 \
+ANTHROPIC_AUTH_TOKEN=sk-clb-your-proxy-key \
+claude -p "Reply with OK only."
+```
+
+This is a native Messages relay to pooled Anthropic accounts, not a LiteLLM
+translation layer. Account selection, refresh, quota ingestion, and failover all
+remain provider-scoped. See [Claude traffic in statistics](claude-statistics.md)
+for the request-log behavior.
 
 ## Codex CLI / IDE Extension
 
@@ -325,4 +362,4 @@ print(response.choices[0].message.content)
 
 ---
 
-*Specs: [responses-api-compat](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/responses-api-compat) · [chat-completions-compat](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/chat-completions-compat) · [model-catalog-compat](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/model-catalog-compat) · [runtime-portability](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/runtime-portability)*
+*Specs: [anthropic-provider](https://github.com/joschi655/claudex-lb/tree/main/openspec/specs/anthropic-provider) · [responses-api-compat](https://github.com/joschi655/claudex-lb/tree/main/openspec/specs/responses-api-compat) · [chat-completions-compat](https://github.com/joschi655/claudex-lb/tree/main/openspec/specs/chat-completions-compat) · [model-catalog-compat](https://github.com/joschi655/claudex-lb/tree/main/openspec/specs/model-catalog-compat) · [runtime-portability](https://github.com/joschi655/claudex-lb/tree/main/openspec/specs/runtime-portability)*

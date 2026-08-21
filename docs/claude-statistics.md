@@ -78,5 +78,5 @@ that was never spent. Token counts and latency are recorded in full.
 
 ---
 
-*Specs: [anthropic-provider](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/anthropic-provider),
-[proxy-runtime-observability](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/proxy-runtime-observability)*
+*Specs: [anthropic-provider](https://github.com/joschi655/claudex-lb/tree/main/openspec/specs/anthropic-provider),
+[proxy-runtime-observability](https://github.com/joschi655/claudex-lb/tree/main/openspec/specs/proxy-runtime-observability)*

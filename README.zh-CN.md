@@ -6,7 +6,11 @@ Codex / ChatGPT 账户负载均衡与代理，提供用量追踪、仪表盘和 
 python oauth sqlalchemy dashboard load-balancer openai rate-limit api-proxy codex fastapi usage-tracking chatgpt opencode
 -->
 
-# codex-lb
+# codex-lb（上游文档）
+
+> 这是上游 codex-lb 的中文文档，安装命令指向上游构建，不包含此分支的
+> Claude/Anthropic 账户池功能。claudex-lb 的当前说明和源码构建步骤请参阅
+> [英文 README](README.md)。
 
 [English](./README.md) | **简体中文**
 

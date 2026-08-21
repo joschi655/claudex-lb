@@ -1,8 +1,8 @@
-site_name: codex-lb
-site_description: Codex load balancer and proxy for ChatGPT accounts with usage dashboard
-site_url: https://soju06.github.io/codex-lb/
-repo_url: https://github.com/Soju06/codex-lb
-repo_name: Soju06/codex-lb
+site_name: claudex-lb
+site_description: Native Claude Code/Anthropic and Codex/ChatGPT account pooling
+site_url: https://joschi655.github.io/claudex-lb/
+repo_url: https://github.com/joschi655/claudex-lb
+repo_name: joschi655/claudex-lb
 edit_uri: edit/main/docs/
 docs_dir: docs
 
@@ -64,6 +64,7 @@ nav:
   - Pace Gates: pace-gates.md
   - Account Pin: account-pin.md
   - Claude Statistics: claude-statistics.md
+  - SwiftBar Menu: https://github.com/joschi655/claudex-lb/tree/main/scripts/swiftbar
   - Database: database.md
   - Deployment:
       - Docker: deployment/docker.md
