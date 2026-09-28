@@ -965,6 +965,7 @@ async def test_stream_first_event_429_with_owner_state_transparently_fails_over(
         "model": "gpt-5.6-sol",
         "reasoning": {"effort": "xhigh"},
         "prompt_cache_key": "sticky-usage-limit-failover",
+        "client_metadata": {"session_id": "codex-session", "turn_id": "codex-turn"},
         "instructions": "hi",
         "input": [
             {

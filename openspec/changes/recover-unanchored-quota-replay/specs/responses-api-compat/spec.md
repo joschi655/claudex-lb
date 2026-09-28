@@ -107,6 +107,8 @@ projected request MUST pass the shared account-neutral fresh-replay validation a
 completed assistant output followed by fresh user input or an exact Codex host-generated
 scheduled-task heartbeat. The proxy MUST preserve the requested
 model, reasoning configuration, instructions, tools, and other account-neutral controls. It
+MUST treat Codex client trace labels as account-neutral while leaving unknown metadata and
+explicit turn-state ownership fail-closed. It
 MUST clear the failed attempt's soft payload-owner marker, exclude the rejected account, and
 reallocate advisory prompt-cache affinity before reselection.
 
@@ -131,6 +133,13 @@ MUST retain its existing retry and ownership behavior.
 - **WHEN** the pre-visible quota rejection arrives as either an HTTP error status or the first
   `response.failed` SSE event
 - **THEN** the same account-neutral failover rules apply
+
+#### Scenario: Codex client trace labels remain portable
+
+- **GIVEN** a full resend contains Codex session and turn trace labels in `client_metadata`
+- **WHEN** the selected account rejects it for quota before output
+- **THEN** the complete projected conversation can retry on an eligible account
+- **AND** unknown metadata or an explicit turn-state owner still prevents cross-account replay
 
 #### Scenario: Scheduled heartbeat survives an exhausted sticky account
 

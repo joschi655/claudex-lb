@@ -19,3 +19,4 @@
 - [x] 3.4 Run strict OpenSpec validation: `npx --yes @fission-ai/openspec@1.11.0 validate recover-unanchored-quota-replay --strict` passes.
 
 - [x] Reconcile current-main status-error failover: establish a verified portable projection before evaluating dispatch ownership, preserving hard pins and visible-output rejection.
+- [x] Verify current Codex client trace labels remain portable through the route, while unknown metadata remains fail-closed.

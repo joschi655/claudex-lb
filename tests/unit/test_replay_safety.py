@@ -121,6 +121,19 @@ from app.modules.proxy.replay_safety import (
         },
         {
             "input": [],
+            "client_metadata": {
+                "session_id": "session-1",
+                "thread_id": "thread-1",
+                "turn_id": "turn-2",
+                "parent_turn_id": "turn-1",
+                "root_turn_id": "turn-1",
+                "ws_request_header_traceparent": "00-trace-span-01",
+                "ws_request_header_tracestate": "vendor=value",
+                "x-codex-ws-stream-request-start-ms": "123456",
+            },
+        },
+        {
+            "input": [],
             "tools": [{"type": "function", "name": "lookup"}, {"type": "web_search"}],
             "tool_choice": {
                 "type": "allowed_tools",
@@ -2519,6 +2532,7 @@ def test_full_resend_tool_loop_manifest_rejects_call_id_reused_from_unsupported_
         },
         {"input": [], "text": {"format": {"type": "stored_template", "template_id": "tmpl_account_a"}}},
         {"input": [], "client_metadata": {"future_account_handle": "acct-A"}},
+        {"input": [], "client_metadata": {"x-codex-turn-state": "account-owned-token"}},
         {"input": [], "container_id": "container_1"},
         {"input": [], "future_state": {"vector_store_id": "vs_1"}},
         {"input": [], "future": {"file_id": "file_1"}},

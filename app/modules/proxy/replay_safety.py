@@ -114,6 +114,14 @@ _ACCOUNT_NEUTRAL_APPLY_PATCH_OPERATION_FIELDS = {
 _ACCOUNT_NEUTRAL_REASONING_CONFIG_FIELDS = frozenset({"effort", "summary"})
 _ACCOUNT_NEUTRAL_CLIENT_METADATA_FIELDS = frozenset(
     {
+        "session_id",
+        "thread_id",
+        "turn_id",
+        "parent_turn_id",
+        "root_turn_id",
+        "ws_request_header_traceparent",
+        "ws_request_header_tracestate",
+        "x-codex-ws-stream-request-start-ms",
         "ws_request_header_x_openai_internal_codex_responses_lite",
         "x-codex-installation-id",
         "x-codex-parent-thread-id",
