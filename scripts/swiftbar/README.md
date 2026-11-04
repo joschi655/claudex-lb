@@ -97,6 +97,12 @@ flow — a different protocol with a different client.
 
 The menu invokes the plugin itself: `claudex-lb.1m.ts switch <account_id>`,
 `claudex-lb.1m.ts auto [openai|anthropic]`, and `claudex-lb.1m.ts login`.
+Under each account, **🛑 Stop at (5h)** and **🛑 Stop at (7d)** set a
+[usage ceiling](../../docs/usage-ceilings.md): the account stops serving once
+that window reaches the chosen share and keeps the rest for its owner, even
+while pinned. An account held there shows `🛑 at 7d ceiling` on its row. The
+same from a shell: `claudex-lb.1m.ts ceiling <account_id> 7d 80` (or `clear`).
+
 Errors from menu actions surface as macOS notifications; `login` runs in a
 Terminal window and prints its errors there instead, since a notification would
 drop the detail that says which step failed.
@@ -112,6 +118,6 @@ its `accounts` block rather than behind a new `#BEGIN:` marker — a host splits
 on the markers it knows, so a new one would be dropped silently.
 
 Codex accounts get the same click-to-serve switching and the same pace /
-pre-reset controls as Claude ones. The 5h-window restart entries stay
+pre-reset / usage-ceiling controls as Claude ones. The 5h-window restart entries stay
 Claude-only. `#TITLE:` is unchanged (still the Claude figure) so the host's
 menu-bar text keeps its current shape.
