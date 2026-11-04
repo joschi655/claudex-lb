@@ -46,6 +46,7 @@ async def _relay(request: Request, upstream_path: str) -> Response:
         body=body,
         api_key_id=api_key.id if api_key is not None else None,
         scoped_account_ids=_scoped_account_ids(api_key),
+        routing_rules=api_key.account_routing_rules if api_key is not None else None,
         client_ip=request.client.host if request.client is not None else None,
     )
 

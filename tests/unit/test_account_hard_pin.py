@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from typing import Any
+
 import pytest
 
 from app.core.balancer.logic import (
@@ -30,22 +33,21 @@ def _secondary_reset_after(fraction_elapsed: float) -> int:
     return int(NOW + length * (1.0 - fraction_elapsed))
 
 
-def _state(account_id: str, **overrides: object) -> AccountState:
-    base = {
-        "account_id": account_id,
-        "status": AccountStatus.ACTIVE,
-        "used_percent": 0.0,
-        "primary_reset_at": _primary_reset_after(0.5),
-        "primary_window_minutes": PRIMARY_WINDOW_MINUTES,
-        "secondary_used_percent": 0.0,
-        "secondary_reset_at": _secondary_reset_after(0.5),
-    }
-    base.update(overrides)
-    return AccountState(**base)  # type: ignore[arg-type]
+def _state(account_id: str, **overrides: Any) -> AccountState:
+    base = AccountState(
+        account_id=account_id,
+        status=AccountStatus.ACTIVE,
+        used_percent=0.0,
+        primary_reset_at=_primary_reset_after(0.5),
+        primary_window_minutes=PRIMARY_WINDOW_MINUTES,
+        secondary_used_percent=0.0,
+        secondary_reset_at=_secondary_reset_after(0.5),
+    )
+    return replace(base, **overrides)
 
 
-def _pick(*states: AccountState, **kwargs: object) -> str | None:
-    result = select_account(list(states), now=NOW, **kwargs)  # type: ignore[arg-type]
+def _pick(*states: AccountState, **kwargs: Any) -> str | None:
+    result = select_account(list(states), now=NOW, **kwargs)
     return result.account.account_id if result.account else None
 
 

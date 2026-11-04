@@ -33,6 +33,7 @@ from app.core.auth.refresh import (
     pop_token_refresh_timeout_override,
     push_token_refresh_timeout_override,
 )
+from app.core.balancer.routing_rules import AccountRoutingRules
 from app.core.balancer.types import UpstreamError
 from app.core.config.settings import get_settings
 from app.core.config.settings_cache import get_settings_cache
@@ -45,6 +46,7 @@ from app.modules.accounts.auth_manager import AccountsRepositoryPort, AuthManage
 from app.modules.anthropic_proxy.schemas import anthropic_error_body, error_type_for_status
 from app.modules.proxy.account_cache import get_account_selection_cache
 from app.modules.proxy.load_balancer import LoadBalancer, NextAccountPreview
+from app.modules.proxy.service import _prefer_earlier_reset_window as resolve_prefer_earlier_reset_window
 from app.modules.proxy.service import _routing_strategy as resolve_routing_strategy
 from app.modules.request_logs.repository import RequestLogsRepository
 from app.modules.usage.repository import UsageRepository
@@ -141,9 +143,12 @@ class AnthropicProxyService:
         answer depends on runtime state — leases, cooldowns, health tiers — that
         lives only on the instance actually serving Claude traffic.
         """
+        dashboard_settings = await get_settings_cache().get()
         return await self._load_balancer.preview_next_account(
             provider=PROVIDER_ANTHROPIC,
-            routing_strategy=resolve_routing_strategy(await get_settings_cache().get()),
+            routing_strategy=resolve_routing_strategy(dashboard_settings),
+            prefer_earlier_reset_accounts=bool(dashboard_settings.prefer_earlier_reset_accounts),
+            prefer_earlier_reset_window=resolve_prefer_earlier_reset_window(dashboard_settings),
         )
 
     async def relay(
@@ -155,9 +160,15 @@ class AnthropicProxyService:
         api_key_id: str | None = None,
         scoped_account_ids: Collection[str] | None = None,
         client_ip: str | None = None,
+        routing_rules: AccountRoutingRules | None = None,
     ) -> Response:
         settings = get_settings()
-        routing_strategy = resolve_routing_strategy(await get_settings_cache().get())
+        dashboard_settings = await get_settings_cache().get()
+        routing_strategy = resolve_routing_strategy(dashboard_settings)
+        # The same reset-window preference the Codex surfaces honour: among accounts
+        # the earlier rules leave equal, spend the one whose window closes first.
+        prefer_earlier_reset_accounts = bool(dashboard_settings.prefer_earlier_reset_accounts)
+        prefer_earlier_reset_window = resolve_prefer_earlier_reset_window(dashboard_settings)
         url = f"{ANTHROPIC_API_BASE}{upstream_path}"
         tried: set[str] = set()
         last_error: tuple[int, bytes, list[tuple[str, str]]] | None = None
@@ -183,6 +194,9 @@ class AnthropicProxyService:
                 account_ids=scoped_account_ids,
                 exclude_account_ids=tried,
                 routing_strategy=routing_strategy,
+                prefer_earlier_reset_accounts=prefer_earlier_reset_accounts,
+                prefer_earlier_reset_window=prefer_earlier_reset_window,
+                routing_rules=routing_rules,
             )
             account = selection.account
             if account is None:

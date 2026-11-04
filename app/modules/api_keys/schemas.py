@@ -71,6 +71,26 @@ class ApiKeyUsageSummaryResponse(DashboardModel):
     total_cost_usd: float
 
 
+class ApiKeyAccountRoutingRuleSchema(DashboardModel):
+    """How this key ranks and gates one account; omitted accounts inherit everything."""
+
+    account_id: str = Field(min_length=1)
+    # None inherits the account's own policy.
+    routing_policy: str | None = Field(default=None, pattern=r"^(normal|burn_first|preserve)$")
+    # False inherits the account's ceilings and pace gates; True replaces all five
+    # with the values below, where None switches that gate off for this key.
+    override_gates: bool = False
+    usage_ceiling_primary_pct: float | None = Field(default=None, gt=0.0, le=100.0)
+    usage_ceiling_secondary_pct: float | None = Field(default=None, gt=0.0, le=100.0)
+    pace_margin_primary_pct: float | None = Field(default=None, ge=0.0, le=100.0)
+    pace_margin_secondary_pct: float | None = Field(default=None, ge=0.0, le=100.0)
+    pre_reset_window_minutes: int | None = Field(default=None, ge=0)
+
+
+class ApiKeyAccountRoutingRulesUpdateRequest(DashboardModel):
+    rules: list[ApiKeyAccountRoutingRuleSchema] = Field(default_factory=list)
+
+
 class ApiKeyResponse(DashboardModel):
     id: str
     name: str
@@ -96,6 +116,7 @@ class ApiKeyResponse(DashboardModel):
     pooled_remaining_percent_primary: float | None = None
     pooled_remaining_percent_secondary: float | None = None
     pooled_capacity_credits_primary: float = 0.0
+    account_routing_rules: list[ApiKeyAccountRoutingRuleSchema] = Field(default_factory=list)
 
 
 class ApiKeyCreateResponse(ApiKeyResponse):

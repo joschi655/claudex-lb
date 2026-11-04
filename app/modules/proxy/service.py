@@ -1490,6 +1490,7 @@ class ProxyService(
             secondary_budget_threshold_pct=_sticky_reallocation_secondary_budget_threshold_pct(settings),
             traffic_class=traffic_class,
             concurrency_caps=effective_account_concurrency_caps(settings),
+            routing_rules=api_key.account_routing_rules if api_key is not None else None,
         )
         if selection.account is None:
             return None
@@ -1871,6 +1872,7 @@ class ProxyService(
                         stream_reserve_slots=stream_reserve_slots,
                         traffic_class=effective_traffic_class,
                         concurrency_caps=concurrency_caps,
+                        routing_rules=api_key.account_routing_rules if api_key is not None else None,
                     )
                     if preferred_selection.account is not None:
                         logger.info(
@@ -1916,6 +1918,7 @@ class ProxyService(
                     stream_reserve_slots=stream_reserve_slots,
                     traffic_class=effective_traffic_class,
                     concurrency_caps=concurrency_caps,
+                    routing_rules=api_key.account_routing_rules if api_key is not None else None,
                 )
                 if selection.account is not None and selection.account.id in excluded_account_ids_set:
                     logger.warning(

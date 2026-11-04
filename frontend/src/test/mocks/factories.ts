@@ -101,6 +101,8 @@ export function createAccountSummary(
 		displayName: "primary@example.com",
 		planType: "plus",
 		routingPolicy: "normal",
+		usageCeilingPrimaryPct: null,
+		usageCeilingSecondaryPct: null,
 		status: "active",
 		securityWorkAuthorized: false,
 		usage: {
@@ -678,6 +680,7 @@ export function createApiKey(overrides: Partial<ApiKey> = {}): ApiKey {
 		accountAssignmentScopeEnabled: false,
 		sourceAssignmentScopeEnabled: false,
 		assignedAccountIds: [],
+		accountRoutingRules: [],
 		assignedSourceIds: [],
 		createdAt: offsetIso(-60),
 		lastUsedAt: offsetIso(-5),

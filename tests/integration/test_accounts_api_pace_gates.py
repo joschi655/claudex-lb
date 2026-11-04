@@ -77,6 +77,8 @@ async def test_set_and_read_back_gates(async_client):
         "paceMarginPrimaryPct": 10.0,
         "paceMarginSecondaryPct": 20.0,
         "preResetWindowMinutes": 120,
+        "usageCeilingPrimaryPct": None,
+        "usageCeilingSecondaryPct": None,
     }
 
     summary = await _summary(async_client, account_id)
@@ -152,3 +154,38 @@ async def test_unknown_account_is_not_found(async_client):
         json={"pace_margin_primary_pct": 10.0},
     )
     assert response.status_code == 404, response.text
+
+
+@pytest.mark.asyncio
+async def test_usage_ceilings_set_read_and_clear(async_client):
+    account_id = await _import_account(async_client, "ceiling@example.com", "acc_ceiling")
+    summary = await _summary(async_client, account_id)
+    assert summary["usageCeilingPrimaryPct"] is None
+    assert summary["usageCeilingSecondaryPct"] is None
+
+    response = await async_client.put(
+        f"/api/accounts/{account_id}/pace-gates",
+        json={"usageCeilingPrimaryPct": 80.0, "usageCeilingSecondaryPct": 90.0},
+    )
+    assert response.status_code == 200, response.text
+    summary = await _summary(async_client, account_id)
+    assert summary["usageCeilingPrimaryPct"] == 80.0
+    assert summary["usageCeilingSecondaryPct"] == 90.0
+
+    response = await async_client.put(f"/api/accounts/{account_id}/pace-gates", json={"usageCeilingPrimaryPct": None})
+    assert response.status_code == 200, response.text
+    summary = await _summary(async_client, account_id)
+    assert summary["usageCeilingPrimaryPct"] is None
+    assert summary["usageCeilingSecondaryPct"] == 90.0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("value", [0, -5, 100.5])
+async def test_usage_ceiling_out_of_range_is_rejected(async_client, value):
+    account_id = await _import_account(async_client, f"ceiling-bad-{value}@example.com", f"acc_ceiling_bad_{value}")
+    response = await async_client.put(
+        f"/api/accounts/{account_id}/pace-gates", json={"usageCeilingSecondaryPct": value}
+    )
+    assert response.status_code in (400, 422), response.text
+    summary = await _summary(async_client, account_id)
+    assert summary["usageCeilingSecondaryPct"] is None

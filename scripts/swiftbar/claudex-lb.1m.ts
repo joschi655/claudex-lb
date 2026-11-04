@@ -30,6 +30,8 @@
 //   route <proxy|local>            point Claude Code at the proxy, or at its local login
 //   pace <account_id> <pct|clear>  pace-diagonal margin for the 5h window
 //   prereset <account_id> <min|clear>  serve only in the last N min before reset
+//   ceiling <account_id> <5h|7d> <pct|clear>  stop serving once that window
+//                                  reaches pct, leaving the rest for the owner
 //   menu-blocks                    #BEGIN:-separated blocks the live
 //                                  proxy-status menu embeds (silent + exit 1
 //                                  when the server is unreachable)
@@ -136,6 +138,8 @@ interface Account {
   pinned?: boolean;
   paceMarginPrimaryPct?: number | null;
   preResetWindowMinutes?: number | null;
+  usageCeilingPrimaryPct?: number | null;
+  usageCeilingSecondaryPct?: number | null;
   usage?: AccountUsage | null;
   resetAtPrimary?: string | null;
   resetAtSecondary?: string | null;
@@ -556,6 +560,36 @@ async function cmdPreReset(cfg: Config, accountId: string, raw: string): Promise
     body: JSON.stringify({ preResetWindowMinutes: value }),
   });
   notify(value === null ? "Pre-reset hold cleared" : `Serves only in the last ${value} min before reset`);
+}
+
+// An absolute stop, unlike the pace margin: once the window reaches this much
+// usage the account sits out until it resets, even while pinned. Meant for a
+// seat whose owner still uses ChatGPT or Claude chat from the same quota.
+async function cmdCeiling(cfg: Config, accountId: string, window: string, raw: string): Promise<void> {
+  const field = window === "5h" ? "usageCeilingPrimaryPct" : window === "7d" ? "usageCeilingSecondaryPct" : null;
+  if (field === null) throw new Error(`Not a window: ${window} (use 5h or 7d)`);
+  const value = raw === "clear" ? null : Number(raw);
+  if (value !== null && (!Number.isFinite(value) || value <= 0 || value > 100)) throw new Error(`Not a percentage: ${raw}`);
+  await apiFetch(cfg, `/api/accounts/${accountId}/pace-gates`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ [field]: value }),
+  });
+  notify(value === null ? `${window} ceiling cleared` : `Stops serving at ${value}% of the ${window} window`);
+}
+
+// Which ceiling, if any, holds this account out right now. Mirrors the server:
+// a window whose reset has already passed no longer counts.
+function heldAtCeiling(acc: Account): string | null {
+  const now = Date.now();
+  const check = (ceiling: number | null | undefined, remainingPct: number | null | undefined, resetAt: string | null | undefined) => {
+    if (ceiling == null || remainingPct == null) return false;
+    if (resetAt && new Date(resetAt).getTime() <= now) return false;
+    return 100 - remainingPct >= ceiling;
+  };
+  if (check(acc.usageCeilingPrimaryPct, acc.usage?.primaryRemainingPercent, acc.resetAtPrimary)) return "5h";
+  if (check(acc.usageCeilingSecondaryPct, acc.usage?.secondaryRemainingPercent, acc.resetAtSecondary)) return "7d";
+  return null;
 }
 
 async function cmdAuto(cfg: Config, provider?: string): Promise<void> {
@@ -1225,13 +1259,16 @@ function renderAccountLine(acc: Account, cur: Account | null, s: Section): void 
   const next = cur != null && acc.accountId === cur.accountId;
   const dead = acc.status === "reauth_required" || acc.status === "deactivated";
   const icon = isPinned(acc) ? "📌" : next ? "✅" : dead ? "💀" : acc.status === "paused" ? "⏸" : "🔄";
+  const held = dead ? null : heldAtCeiling(acc);
   const suffix = next
     ? s.certain
       ? " • next"
       : " • likely next"
     : dead
       ? ` • ${sane(acc.status).replace(/_/g, " ")}`
-      : "";
+      : held
+        ? ` • 🛑 at ${held} ceiling`
+        : "";
   const line = `${icon} ${name(acc)} — ${accountBadge(acc)}${suffix}`;
   if (dead) {
     console.log(`--${line} | color=#e74c3c`);
@@ -1267,6 +1304,18 @@ function renderAccountLine(acc: Account, cur: Account | null, s: Section): void 
     console.log(
       `----${action(`${mark}${opt === null ? "off" : `${opt} min`}`, [SELF, "prereset", acc.accountId, opt === null ? "clear" : String(opt)])}`,
     );
+  }
+  for (const [window, current] of [
+    ["5h", acc.usageCeilingPrimaryPct],
+    ["7d", acc.usageCeilingSecondaryPct],
+  ] as const) {
+    console.log(`----🛑 Stop at (${window}): ${current == null ? "off" : `${current}%`} | size=11`);
+    for (const opt of [null, 70, 80, 90, 95]) {
+      const mark = (current ?? null) === opt ? "• " : "  ";
+      console.log(
+        `----${action(`${mark}${opt === null ? "off" : `${opt}%`}`, [SELF, "ceiling", acc.accountId, window, opt === null ? "clear" : String(opt)])}`,
+      );
+    }
   }
 }
 
@@ -1502,7 +1551,7 @@ async function cmdLogin(cfg: Config): Promise<void> {
   notify(`Added ${email} to claudex-lb`);
 }
 
-const [, , cmd, arg, arg2] = process.argv;
+const [, , cmd, arg, arg2, arg3] = process.argv;
 const ACTIONS = new Set([
   "switch",
   "auto",
@@ -1513,6 +1562,7 @@ const ACTIONS = new Set([
   "route",
   "pace",
   "prereset",
+  "ceiling",
 ]);
 // Before loadConfig, which can fail() too.
 terminalMode = cmd === "login";
@@ -1537,6 +1587,8 @@ try {
     await cmdPace(cfg, arg, arg2);
   } else if (cmd === "prereset" && arg && arg2) {
     await cmdPreReset(cfg, arg, arg2);
+  } else if (cmd === "ceiling" && arg && arg2 && arg3) {
+    await cmdCeiling(cfg, arg, arg2, arg3);
   } else if (cmd === "login") {
     await cmdLogin(cfg);
   } else if (cmd === "menu-blocks") {

@@ -10,7 +10,7 @@ import { ApiKeyQuotaPrivacyToggle } from "@/features/api-keys/components/api-key
 import { ApiKeyCreatedDialog } from "@/features/api-keys/components/api-key-created-dialog";
 import { ApiKeyTable } from "@/features/api-keys/components/api-key-table";
 import { useApiKeys } from "@/features/api-keys/hooks/use-api-keys";
-import type { ApiKey, ApiKeyCreateRequest, ApiKeyUpdateRequest } from "@/features/api-keys/schemas";
+import type { ApiKey, ApiKeyAccountRoutingRulesUpdateRequest, ApiKeyCreateRequest, ApiKeyUpdateRequest } from "@/features/api-keys/schemas";
 import { getErrorMessageOrNull } from "@/utils/errors";
 
 const ApiKeyCreateDialog = lazy(() =>
@@ -18,6 +18,9 @@ const ApiKeyCreateDialog = lazy(() =>
 );
 const ApiKeyEditDialog = lazy(() =>
   import("@/features/api-keys/components/api-key-edit-dialog").then((m) => ({ default: m.ApiKeyEditDialog })),
+);
+const AccountRoutingDialog = lazy(() =>
+  import("@/features/api-keys/components/account-routing-dialog").then((m) => ({ default: m.AccountRoutingDialog })),
 );
 
 export type ApiKeysSectionProps = {
@@ -39,12 +42,14 @@ export function ApiKeysSection({
     apiKeysQuery,
     createMutation,
     updateMutation,
+    accountRoutingRulesMutation,
     deleteMutation,
     regenerateMutation,
   } = useApiKeys();
 
   const createDialog = useDialogState();
   const editDialog = useDialogState<ApiKey>();
+  const accountRoutingDialog = useDialogState<ApiKey>();
   const deleteDialog = useDialogState<ApiKey>();
   const createdDialog = useDialogState<string>();
 
@@ -54,6 +59,7 @@ export function ApiKeysSection({
     apiKeysQuery.isFetching ||
     createMutation.isPending ||
     updateMutation.isPending ||
+    accountRoutingRulesMutation.isPending ||
     deleteMutation.isPending ||
     regenerateMutation.isPending;
 
@@ -61,9 +67,10 @@ export function ApiKeysSection({
     () =>
       getErrorMessageOrNull(createMutation.error) ||
       getErrorMessageOrNull(updateMutation.error) ||
+      getErrorMessageOrNull(accountRoutingRulesMutation.error) ||
       getErrorMessageOrNull(deleteMutation.error) ||
       getErrorMessageOrNull(regenerateMutation.error),
-    [createMutation.error, deleteMutation.error, regenerateMutation.error, updateMutation.error],
+    [createMutation.error, deleteMutation.error, regenerateMutation.error, updateMutation.error, accountRoutingRulesMutation.error],
   );
 
   const handleCreate = async (payload: ApiKeyCreateRequest) => {
@@ -76,6 +83,11 @@ export function ApiKeysSection({
       return;
     }
     await updateMutation.mutateAsync({ keyId: editDialog.data.id, payload });
+  };
+
+  const handleAccountRoutingUpdate = async (payload: ApiKeyAccountRoutingRulesUpdateRequest) => {
+    if (!accountRoutingDialog.data) return;
+    await accountRoutingRulesMutation.mutateAsync({ keyId: accountRoutingDialog.data.id, payload });
   };
 
   return (
@@ -113,6 +125,7 @@ export function ApiKeysSection({
         keys={keys}
         busy={busy}
         onEdit={(apiKey) => editDialog.show(apiKey)}
+        onAccountRouting={(apiKey) => accountRoutingDialog.show(apiKey)}
         onDelete={(apiKey) => deleteDialog.show(apiKey)}
         onRegenerate={(apiKey) => {
           void regenerateMutation.mutateAsync(apiKey.id).then((result) => {
@@ -134,6 +147,14 @@ export function ApiKeysSection({
         apiKey={editDialog.data}
         onOpenChange={editDialog.onOpenChange}
         onSubmit={handleUpdate}
+      />
+
+      <AccountRoutingDialog
+        open={accountRoutingDialog.open}
+        busy={accountRoutingRulesMutation.isPending}
+        apiKey={accountRoutingDialog.data}
+        onOpenChange={accountRoutingDialog.onOpenChange}
+        onSubmit={handleAccountRoutingUpdate}
       />
 
       <ApiKeyCreatedDialog

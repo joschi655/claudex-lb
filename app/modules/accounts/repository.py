@@ -64,6 +64,8 @@ class PaceGateUpdate:
     pace_margin_primary_pct: tuple[float | None] | None = None
     pace_margin_secondary_pct: tuple[float | None] | None = None
     pre_reset_window_minutes: tuple[int | None] | None = None
+    usage_ceiling_primary_pct: tuple[float | None] | None = None
+    usage_ceiling_secondary_pct: tuple[float | None] | None = None
 
     def as_column_values(self) -> dict[str, float | int | None]:
         values: dict[str, float | int | None] = {}
@@ -73,6 +75,10 @@ class PaceGateUpdate:
             values["pace_margin_secondary_pct"] = self.pace_margin_secondary_pct[0]
         if self.pre_reset_window_minutes is not None:
             values["pre_reset_window_minutes"] = self.pre_reset_window_minutes[0]
+        if self.usage_ceiling_primary_pct is not None:
+            values["usage_ceiling_primary_pct"] = self.usage_ceiling_primary_pct[0]
+        if self.usage_ceiling_secondary_pct is not None:
+            values["usage_ceiling_secondary_pct"] = self.usage_ceiling_secondary_pct[0]
         return values
 
 

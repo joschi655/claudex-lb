@@ -133,6 +133,8 @@ class AccountSummary(DashboardModel):
     pace_margin_primary_pct: float | None = None
     pace_margin_secondary_pct: float | None = None
     pre_reset_window_minutes: int | None = None
+    usage_ceiling_primary_pct: float | None = None
+    usage_ceiling_secondary_pct: float | None = None
     status: str
     security_work_authorized: bool = False
     usage: AccountUsage | None = None
@@ -313,6 +315,10 @@ class AccountPaceGatesUpdateRequest(DashboardModel):
     pace_margin_primary_pct: float | None = Field(default=None, ge=0.0, le=100.0)
     pace_margin_secondary_pct: float | None = Field(default=None, ge=0.0, le=100.0)
     pre_reset_window_minutes: int | None = Field(default=None, ge=0)
+    # Absolute ceilings rather than pace margins: the account leaves the pool once
+    # a window reaches this much usage and stays out until the window resets.
+    usage_ceiling_primary_pct: float | None = Field(default=None, gt=0.0, le=100.0)
+    usage_ceiling_secondary_pct: float | None = Field(default=None, gt=0.0, le=100.0)
 
 
 class AccountPaceGatesUpdateResponse(DashboardModel):
@@ -320,6 +326,8 @@ class AccountPaceGatesUpdateResponse(DashboardModel):
     pace_margin_primary_pct: float | None = None
     pace_margin_secondary_pct: float | None = None
     pre_reset_window_minutes: int | None = None
+    usage_ceiling_primary_pct: float | None = None
+    usage_ceiling_secondary_pct: float | None = None
 
 
 class AccountDeleteResponse(DashboardModel):

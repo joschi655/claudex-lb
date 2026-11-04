@@ -252,11 +252,11 @@ export function useAccountMutations() {
       gates: AccountPaceGatesUpdate;
     }) => updateAccountPaceGates(accountId, gates),
     onSuccess: () => {
-      toast.success("Pace gates updated");
+      toast.success("Account limits updated");
       void invalidateAccountRelatedQueries(queryClient);
     },
     onError: (error: Error) => {
-      toast.error(error.message || "Pace gate update failed");
+      toast.error(error.message || "Account limits update failed");
     },
   });
 

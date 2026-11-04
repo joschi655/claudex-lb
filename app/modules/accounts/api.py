@@ -515,6 +515,12 @@ async def update_account_pace_gates(
             pre_reset_window_minutes=(
                 (payload.pre_reset_window_minutes,) if "pre_reset_window_minutes" in supplied else None
             ),
+            usage_ceiling_primary_pct=(
+                (payload.usage_ceiling_primary_pct,) if "usage_ceiling_primary_pct" in supplied else None
+            ),
+            usage_ceiling_secondary_pct=(
+                (payload.usage_ceiling_secondary_pct,) if "usage_ceiling_secondary_pct" in supplied else None
+            ),
         ),
     )
     if account is None:
@@ -524,6 +530,8 @@ async def update_account_pace_gates(
         pace_margin_primary_pct=account.pace_margin_primary_pct,
         pace_margin_secondary_pct=account.pace_margin_secondary_pct,
         pre_reset_window_minutes=account.pre_reset_window_minutes,
+        usage_ceiling_primary_pct=account.usage_ceiling_primary_pct,
+        usage_ceiling_secondary_pct=account.usage_ceiling_secondary_pct,
     )
 
 

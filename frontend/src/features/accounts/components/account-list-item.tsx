@@ -7,6 +7,7 @@ import { usePrivacyStore } from "@/hooks/use-privacy";
 import { useAccountQuotaDisplayStore } from "@/hooks/use-account-quota-display";
 import { StatusBadge } from "@/components/status-badge";
 import { MiniQuotaBar } from "@/components/mini-quota-bar";
+import { UsageCeilingBadge, UsageCeilingMarker } from "@/components/usage-ceiling-marker";
 import { ProviderBadge } from "@/components/provider-badge";
 import type { NextUpMark } from "@/features/accounts/next-up";
 import type { LiveQuotaPool } from "@/features/accounts/quota-kind";
@@ -159,6 +160,7 @@ export function AccountListItem({
             label="5h"
             percent={primary}
             resetAt={account.resetAtPrimary}
+            ceilingPct={account.usageCeilingPrimaryPct}
           />
         ) : null}
         {showSecondaryRow ? (
@@ -166,6 +168,7 @@ export function AccountListItem({
             label="Weekly"
             percent={secondary}
             resetAt={account.resetAtSecondary}
+            ceilingPct={account.usageCeilingSecondaryPct}
           />
         ) : null}
         {showBudgetRow ? <MiniBudgetRow pool={livePool} /> : null}
@@ -260,24 +263,32 @@ function MiniQuotaRow({
   label,
   percent,
   resetAt,
+  ceilingPct,
 }: {
   label: string;
   percent: number | null;
   resetAt: string | null | undefined;
+  ceilingPct?: number | null;
 }) {
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-[11px]">
-        <span className="text-muted-foreground">{label}</span>
+        <span className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
+          <span>{label}</span>
+          <UsageCeilingBadge label={label} ceilingPct={ceilingPct} remainingPercent={percent} resetAt={resetAt} />
+        </span>
         <span className="tabular-nums font-medium">
           {formatPercentNullable(percent)}
         </span>
       </div>
-      <MiniQuotaBar
-        aria-label={`${label} credits remaining`}
-        percent={percent}
-        testId={`mini-quota-track-${label.toLowerCase()}`}
-      />
+      <div className="relative">
+        <MiniQuotaBar
+          aria-label={`${label} credits remaining`}
+          percent={percent}
+          testId={`mini-quota-track-${label.toLowerCase()}`}
+        />
+        <UsageCeilingMarker label={label} ceilingPct={ceilingPct} />
+      </div>
       <div className="text-[10px] text-muted-foreground">
         {formatMiniQuotaResetLabel(resetAt ?? null)}
       </div>

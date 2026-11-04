@@ -331,6 +331,8 @@ def _account_to_summary(
         pace_margin_primary_pct=account.pace_margin_primary_pct,
         pace_margin_secondary_pct=account.pace_margin_secondary_pct,
         pre_reset_window_minutes=account.pre_reset_window_minutes,
+        usage_ceiling_primary_pct=account.usage_ceiling_primary_pct,
+        usage_ceiling_secondary_pct=account.usage_ceiling_secondary_pct,
         security_work_authorized=bool(account.security_work_authorized),
         usage=AccountUsage(
             primary_remaining_percent=primary_remaining_percent,

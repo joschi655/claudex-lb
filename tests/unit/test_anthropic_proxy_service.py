@@ -131,7 +131,11 @@ def _build_service(
     # settings cache; keep unit tests DB-free with a canned settings object.
     class _FakeSettingsCache:
         async def get(self) -> Any:
-            return SimpleNamespace(routing_strategy=routing_strategy)
+            return SimpleNamespace(
+                routing_strategy=routing_strategy,
+                prefer_earlier_reset_accounts=False,
+                prefer_earlier_reset_window="secondary",
+            )
 
     monkeypatch.setattr(anthropic_service_module, "get_settings_cache", lambda: _FakeSettingsCache())
 

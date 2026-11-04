@@ -22,6 +22,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { UsageCeilingFields } from "@/features/accounts/components/usage-ceiling-fields";
 import { PaceGateFields } from "@/features/accounts/components/pace-gate-fields";
 import type {
   AccountPaceGatesUpdate,
@@ -175,6 +176,15 @@ export function AccountActions({
             onCheckedChange={(checked) => onPinChange(account.accountId, checked)}
           />
         </label>
+      ) : null}
+
+      {!showOperatorRecoveryAction ? (
+        <UsageCeilingFields
+          account={account}
+          busy={busy}
+          readOnly={readOnly}
+          onChange={onPaceGatesChange}
+        />
       ) : null}
 
       {!showOperatorRecoveryAction ? (

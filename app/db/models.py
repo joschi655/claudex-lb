@@ -144,6 +144,8 @@ class Account(Base):
     pace_margin_primary_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     pace_margin_secondary_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
     pre_reset_window_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    usage_ceiling_primary_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    usage_ceiling_secondary_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     access_token_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     refresh_token_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
@@ -1002,6 +1004,11 @@ class ApiKey(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
+    account_routing_rules: Mapped[list["ApiKeyAccountRoutingRule"]] = relationship(
+        "ApiKeyAccountRoutingRule",
+        cascade="all, delete-orphan",
+        lazy="selectin",
+    )
 
 
 class ApiKeyAccountAssignment(Base):
@@ -1021,6 +1028,38 @@ class ApiKeyAccountAssignment(Base):
 
     api_key: Mapped["ApiKey"] = relationship("ApiKey", back_populates="account_assignments")
     account: Mapped["Account"] = relationship("Account", back_populates="api_key_assignments")
+
+
+class ApiKeyAccountRoutingRule(Base):
+    """How one API key draws on one account, overriding the account's own settings.
+
+    Independent of ``api_key_accounts``: a rule changes how an account is ranked
+    and gated for this key, never whether the key may reach it. ``routing_policy``
+    NULL inherits the account's policy. With ``override_gates`` false the five
+    gate columns are ignored and the account's gates apply; with it true they
+    replace the account's gates wholesale, and NULL there means "off for this key".
+    """
+
+    __tablename__ = "api_key_account_routing_rules"
+
+    api_key_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("api_keys.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    account_id: Mapped[str] = mapped_column(
+        String,
+        ForeignKey("accounts.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+    routing_policy: Mapped[str | None] = mapped_column(String, nullable=True)
+    override_gates: Mapped[bool] = mapped_column(Boolean, default=False, server_default=false(), nullable=False)
+    usage_ceiling_primary_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    usage_ceiling_secondary_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pace_margin_primary_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pace_margin_secondary_pct: Mapped[float | None] = mapped_column(Float, nullable=True)
+    pre_reset_window_minutes: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), nullable=False)
 
 
 class ModelSource(Base):

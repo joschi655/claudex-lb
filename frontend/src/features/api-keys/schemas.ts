@@ -41,6 +41,36 @@ export const REASONING_EFFORTS = ["minimal", "low", "medium", "high", "xhigh", "
 export type ReasoningEffortType = (typeof REASONING_EFFORTS)[number];
 export const ENFORCED_REASONING_EFFORTS = ["none", ...REASONING_EFFORTS] as const;
 
+export const ACCOUNT_ROUTING_POLICIES = ["burn_first", "normal", "preserve"] as const;
+
+export const ApiKeyAccountRoutingRuleSchema = z.object({
+  accountId: z.string(),
+  routingPolicy: z.enum(ACCOUNT_ROUTING_POLICIES).nullable(),
+  overrideGates: z.boolean(),
+  usageCeilingPrimaryPct: z.number().nullable(),
+  usageCeilingSecondaryPct: z.number().nullable(),
+  paceMarginPrimaryPct: z.number().nullable(),
+  paceMarginSecondaryPct: z.number().nullable(),
+  preResetWindowMinutes: z.number().nullable(),
+});
+
+const ApiKeyAccountRoutingRuleRequestSchema = ApiKeyAccountRoutingRuleSchema.extend({
+  usageCeilingPrimaryPct: z.number().gt(0).max(100).nullable(),
+  usageCeilingSecondaryPct: z.number().gt(0).max(100).nullable(),
+  paceMarginPrimaryPct: z.number().min(0).max(100).nullable(),
+  paceMarginSecondaryPct: z.number().min(0).max(100).nullable(),
+  preResetWindowMinutes: z.number().int().min(0).nullable(),
+});
+
+export const ApiKeyAccountRoutingRulesUpdateRequestSchema = z.object({
+  rules: z.array(ApiKeyAccountRoutingRuleRequestSchema),
+});
+
+export type ApiKeyAccountRoutingRule = z.infer<typeof ApiKeyAccountRoutingRuleSchema>;
+export type ApiKeyAccountRoutingRulesUpdateRequest = z.infer<
+  typeof ApiKeyAccountRoutingRulesUpdateRequestSchema
+>;
+
 export const ApiKeySchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -63,6 +93,7 @@ export const ApiKeySchema = z.object({
   accountAssignmentScopeEnabled: z.boolean().default(false),
   sourceAssignmentScopeEnabled: z.boolean().default(false),
   assignedAccountIds: z.array(z.string()).default([]),
+  accountRoutingRules: z.array(ApiKeyAccountRoutingRuleSchema).default([]),
   assignedSourceIds: z.array(z.string()).default([]),
   createdAt: z.iso.datetime({ offset: true }),
   lastUsedAt: z.iso.datetime({ offset: true }).nullable(),

@@ -147,6 +147,8 @@ class AccountState:
     pace_margin_primary_pct: float | None = None
     pace_margin_secondary_pct: float | None = None
     pre_reset_window_minutes: int | None = None
+    usage_ceiling_primary_pct: float | None = None
+    usage_ceiling_secondary_pct: float | None = None
     secondary_window_minutes: int = SECONDARY_WINDOW_MINUTES
 
 
@@ -416,6 +418,56 @@ def evaluate_pace_gates(state: AccountState, current: float) -> str | None:
     return None
 
 
+def _ceiling_reached(
+    *,
+    ceiling_pct: float | None,
+    used_pct: float | None,
+    reset_at: float | None,
+    current: float,
+) -> bool:
+    if ceiling_pct is None or used_pct is None:
+        return False
+    # A sample taken before the window rolled over describes a window that no
+    # longer exists; holding the account back on it would strand the account
+    # until traffic it is not allowed to serve brings in a fresh sample.
+    if reset_at is not None and current >= float(reset_at):
+        return False
+    return used_pct >= ceiling_pct
+
+
+def evaluate_usage_ceilings(state: AccountState, current: float) -> str | None:
+    """Return the name of the first usage ceiling the account has reached, else ``None``.
+
+    A ceiling is an absolute cap on a window's usage, where a pace margin is a
+    cap relative to the time left in it. It keeps the rest of the window for the
+    account's owner, so unlike the pace gates it also holds for a pinned account.
+    Unknown usage passes, for the same reason an unevaluable pace gate does.
+    """
+    if _ceiling_reached(
+        ceiling_pct=state.usage_ceiling_primary_pct,
+        used_pct=state.used_percent,
+        reset_at=state.primary_reset_at,
+        current=current,
+    ):
+        return "primary_ceiling"
+    if _ceiling_reached(
+        ceiling_pct=state.usage_ceiling_secondary_pct,
+        used_pct=state.secondary_used_percent,
+        reset_at=state.secondary_reset_at,
+        current=current,
+    ):
+        return "secondary_ceiling"
+    return None
+
+
+def evaluate_eligibility_gates(state: AccountState, current: float) -> str | None:
+    """The first ceiling or pace gate that holds the account out of the pool, else ``None``."""
+    ceiling = evaluate_usage_ceilings(state, current)
+    if ceiling is not None:
+        return ceiling
+    return None if is_pinned(state) else evaluate_pace_gates(state, current)
+
+
 def _reset_preference_bucket(state: AccountState, current: float, window: ResetPreferenceWindow) -> int:
     if window == "primary":
         reset_at = state.primary_reset_at
@@ -542,8 +594,11 @@ def select_account(
         # re-admitted by a later tier (burn-first, budget-safe, or backoff
         # fallback). Gating is an operator promise about someone else's quota.
         # A pin is the same operator withdrawing that promise for one account,
-        # which is why it is the single exemption.
-        failed_gate = None if is_pinned(state) else evaluate_pace_gates(state, current)
+        # which is why it is the single exemption -- from the pace gates only.
+        # A usage ceiling reserves the rest of the window for the account's
+        # owner, so a pinned account at its ceiling falls through like an
+        # exhausted one.
+        failed_gate = evaluate_eligibility_gates(state, current)
         if failed_gate is not None:
             pace_gated[state.account_id] = failed_gate
             continue
@@ -604,6 +659,8 @@ def select_account(
         if pace_gated:
             gates = ", ".join(sorted(set(pace_gated.values())))
             if len(pace_gated) == len(all_states):
+                if all(gate.endswith("_ceiling") for gate in pace_gated.values()):
+                    return SelectionResult(None, f"All accounts are held at their usage ceilings ({gates})")
                 return SelectionResult(None, f"All accounts are excluded by pace gates ({gates})")
             logger.info(
                 "Pace gates excluded %d of %d candidate accounts (%s)",

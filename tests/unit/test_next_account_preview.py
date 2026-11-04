@@ -6,6 +6,8 @@ Contract: openspec/changes/show-the-next-serving-account/specs/account-routing/s
 from __future__ import annotations
 
 import time
+from dataclasses import replace
+from typing import Any
 
 import pytest
 
@@ -23,14 +25,9 @@ from app.modules.proxy.load_balancer import (
 pytestmark = pytest.mark.unit
 
 
-def _state(account_id: str, **overrides) -> AccountState:
-    fields = {
-        "status": AccountStatus.ACTIVE,
-        "used_percent": 10.0,
-        "secondary_used_percent": 10.0,
-    }
-    fields.update(overrides)
-    return AccountState(account_id, **fields)
+def _state(account_id: str, **overrides: Any) -> AccountState:
+    base = AccountState(account_id, status=AccountStatus.ACTIVE, used_percent=10.0, secondary_used_percent=10.0)
+    return replace(base, **overrides)
 
 
 def _next_up(states: list[AccountState], **kwargs) -> str | None:

@@ -15,6 +15,7 @@ from app.db.models import (
     AccountStatus,
     ApiKey,
     ApiKeyAccountAssignment,
+    ApiKeyAccountRoutingRule,
     ApiKeyLimit,
     ApiKeyModelSourceAssignment,
     ApiKeyUsageReservation,
@@ -149,6 +150,7 @@ class ApiKeysRepository:
                 selectinload(ApiKey.limits),
                 selectinload(ApiKey.account_assignments),
                 selectinload(ApiKey.source_assignments),
+                selectinload(ApiKey.account_routing_rules),
             )
         )
 
@@ -439,6 +441,17 @@ class ApiKeysRepository:
         parent = await self._session.get(ApiKey, key_id)
         if parent is not None:
             await self._session.refresh(parent, attribute_names=["account_assignments"])
+
+    async def replace_account_routing_rules(self, key_id: str, rules: list[ApiKeyAccountRoutingRule]) -> None:
+        await self._session.execute(
+            delete(ApiKeyAccountRoutingRule).where(ApiKeyAccountRoutingRule.api_key_id == key_id)
+        )
+        for rule in rules:
+            self._session.add(rule)
+        await self._session.commit()
+        parent = await self._session.get(ApiKey, key_id)
+        if parent is not None:
+            await self._session.refresh(parent, attribute_names=["account_routing_rules"])
 
     async def replace_source_assignments(self, key_id: str, source_ids: list[str], *, commit: bool = True) -> None:
         await self._session.execute(
