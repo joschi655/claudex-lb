@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
 
+import { listAccounts, updateAccountPaceGates } from "@/features/accounts/api";
+import { listApiKeys, replaceApiKeyAccountRoutingRules } from "@/features/api-keys/api";
+import type { ApiKeyAccountRoutingRule } from "@/features/api-keys/schemas";
 import { handlers } from "@/test/mocks/handlers";
 
 /**
@@ -41,6 +44,7 @@ const EXPECTED_ENDPOINTS = [
 	"PUT /api/accounts/:accountId/limit-warmup",
 	"PUT /api/accounts/:accountId/routing-policy",
 	"PUT /api/accounts/:accountId/pin",
+	"PUT /api/accounts/:accountId/pace-gates",
 	"GET /api/accounts/:accountId/trends",
 	"GET /api/accounts/:accountId/usage-reset-credits",
 	"POST /api/accounts/:accountId/usage-reset-credits/consume",
@@ -99,6 +103,7 @@ const EXPECTED_ENDPOINTS = [
 	"GET /api/api-keys/",
 	"POST /api/api-keys/",
 	"PATCH /api/api-keys/:keyId",
+	"PUT /api/api-keys/:keyId/account-routing-rules",
 	"DELETE /api/api-keys/:keyId",
 	"POST /api/api-keys/:keyId/regenerate",
 	"GET /api/api-keys/:keyId/trends",
@@ -132,4 +137,93 @@ describe("MSW handler coverage", () => {
 			"Unexpected MSW handlers — add them to EXPECTED_ENDPOINTS",
 		).toEqual([]);
 	});
+});
+
+
+describe("account limit and routing rule handlers", () => {
+  const rule: ApiKeyAccountRoutingRule = {
+    accountId: "acc_primary",
+    routingPolicy: "preserve",
+    overrideGates: true,
+    usageCeilingPrimaryPct: 90,
+    usageCeilingSecondaryPct: 95,
+    paceMarginPrimaryPct: 0,
+    paceMarginSecondaryPct: 10,
+    preResetWindowMinutes: 30,
+  };
+
+  it("persists ceilings, preserves omitted fields, and clears explicit nulls", async () => {
+    await updateAccountPaceGates("acc_primary", {
+      usageCeilingPrimaryPct: 85,
+      usageCeilingSecondaryPct: 95,
+      paceMarginPrimaryPct: 0,
+    });
+    const updated = await updateAccountPaceGates("acc_primary", {
+      usageCeilingPrimaryPct: null,
+    });
+    expect(updated).toMatchObject({
+      usageCeilingPrimaryPct: null,
+      usageCeilingSecondaryPct: 95,
+      paceMarginPrimaryPct: 0,
+    });
+    const accounts = await listAccounts();
+    expect(accounts.accounts.find((account) => account.accountId === "acc_primary"))
+      .toMatchObject({
+        usageCeilingPrimaryPct: null,
+        usageCeilingSecondaryPct: 95,
+        paceMarginPrimaryPct: 0,
+      });
+  });
+
+  it("drops fully inherited rules and clears gates for policy-only rules", async () => {
+    const keys = await listApiKeys();
+    const key = keys[0];
+    const updated = await replaceApiKeyAccountRoutingRules(key.id, {
+      rules: [
+        { ...rule, overrideGates: false },
+        { ...rule, accountId: "acc_secondary", routingPolicy: null, overrideGates: false },
+        { ...rule, accountId: "acc_other", routingPolicy: null },
+      ],
+    });
+    expect(updated.assignedAccountIds).toEqual(key.assignedAccountIds);
+    expect(updated.accountRoutingRules).toEqual([
+      {
+        ...rule,
+        overrideGates: false,
+        usageCeilingPrimaryPct: null,
+        usageCeilingSecondaryPct: null,
+        paceMarginPrimaryPct: null,
+        paceMarginSecondaryPct: null,
+        preResetWindowMinutes: null,
+      },
+      { ...rule, accountId: "acc_other", routingPolicy: null },
+    ]);
+    expect((await listApiKeys())[0].accountRoutingRules).toEqual(updated.accountRoutingRules);
+    const cleared = await replaceApiKeyAccountRoutingRules(key.id, { rules: [] });
+    expect(cleared.accountRoutingRules).toEqual([]);
+  });
+
+  it.each([
+    "/api/accounts/missing/pace-gates",
+    "/api/api-keys/missing/account-routing-rules",
+  ])("returns 404 for missing resources at %s", async (path) => {
+    const response = await fetch(path, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ rules: [] }),
+    });
+    expect(response.status).toBe(404);
+  });
+
+  it.each([
+    ["/api/accounts/acc_primary/pace-gates", { usageCeilingPrimaryPct: 0 }],
+    ["/api/api-keys/key_1/account-routing-rules", { rules: [{ ...rule, usageCeilingSecondaryPct: 0 }] }],
+  ])("returns 422 for invalid limits at %s", async (path, body) => {
+    const response = await fetch(path, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    expect(response.status).toBe(422);
+  });
 });

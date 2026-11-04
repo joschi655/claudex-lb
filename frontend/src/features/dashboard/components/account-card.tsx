@@ -3,6 +3,7 @@ import { Clock, ExternalLink, Play, RotateCcw, Wallet, Zap } from "lucide-react"
 import { usePrivacyStore } from "@/hooks/use-privacy";
 import { Button } from "@/components/ui/button";
 import { StatusBadge } from "@/components/status-badge";
+import { UsageCeilingBadge, UsageCeilingMarker } from "@/components/usage-ceiling-marker";
 import { cn } from "@/lib/utils";
 import type { LiveQuotaPool } from "@/features/accounts/quota-kind";
 import {
@@ -43,6 +44,8 @@ function QuotaBar({
   label,
   percent,
   resetLabel,
+  resetAt,
+  ceilingPct,
   // A window's footnote is always a reset time; a dollar pool's is usually an
   // amount, and a clock beside "$115.14 of $200 left" would claim a deadline
   // the pool has not stated.
@@ -51,6 +54,8 @@ function QuotaBar({
   label: string;
   percent: number | null;
   resetLabel: string;
+  resetAt?: string | null;
+  ceilingPct?: number | null;
   icon?: typeof Clock;
 }) {
   const clamped = percent === null ? 0 : Math.max(0, Math.min(100, percent));
@@ -58,7 +63,10 @@ function QuotaBar({
   return (
     <div className="space-y-1">
       <div className="flex items-center justify-between text-xs">
-        <span className="text-muted-foreground">{label}</span>
+        <span className="flex flex-wrap items-center gap-1.5 text-muted-foreground">
+          <span>{label}</span>
+          <UsageCeilingBadge label={label} ceilingPct={ceilingPct} remainingPercent={percent} resetAt={resetAt} />
+        </span>
         <span
           className={cn(
             "tabular-nums font-medium",
@@ -74,11 +82,14 @@ function QuotaBar({
           {formatPercentNullable(percent)}
         </span>
       </div>
-      <div className={cn("h-1.5 w-full overflow-hidden rounded-full", quotaBarTrack(clamped))}>
-        <div
-          className={cn("h-full rounded-full transition-all duration-500 ease-out", quotaBarColor(clamped))}
-          style={{ width: `${clamped}%` }}
-        />
+      <div className="relative">
+        <div className={cn("h-1.5 w-full overflow-hidden rounded-full", quotaBarTrack(clamped))}>
+          <div
+            className={cn("h-full rounded-full transition-all duration-500 ease-out", quotaBarColor(clamped))}
+            style={{ width: `${clamped}%` }}
+          />
+        </div>
+        <UsageCeilingMarker label={label} ceilingPct={ceilingPct} />
       </div>
       <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
         <Icon className="h-3 w-3 shrink-0" />
@@ -206,8 +217,22 @@ export function AccountCard({ account, showAccountId = false, readOnly = false, 
           <QuotaBar label="Monthly" percent={monthlyRemaining} resetLabel={monthlyReset} />
         ) : (
           <>
-            {!weeklyOnly && <QuotaBar label="5h" percent={primaryRemaining} resetLabel={primaryReset} />}
-            <QuotaBar label="Weekly" percent={secondaryRemaining} resetLabel={secondaryReset} />
+            {!weeklyOnly && (
+              <QuotaBar
+                label="5h"
+                percent={primaryRemaining}
+                resetLabel={primaryReset}
+                resetAt={account.resetAtPrimary}
+                ceilingPct={account.usageCeilingPrimaryPct}
+              />
+            )}
+            <QuotaBar
+              label="Weekly"
+              percent={secondaryRemaining}
+              resetLabel={secondaryReset}
+              resetAt={account.resetAtSecondary}
+              ceilingPct={account.usageCeilingSecondaryPct}
+            />
           </>
         )}
       </div>

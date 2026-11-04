@@ -73,7 +73,7 @@ export function PaceGateFields({
       </div>
       <p className="text-xs text-muted-foreground">
         Bound how fast this account is drawn from. Leave a field empty to switch
-        that gate off. A pinned account ignores all three while it is pinned.
+        that gate off. Pinning an account skips these gates; usage ceilings still apply.
       </p>
       <div className="grid gap-2 sm:grid-cols-3">
         {GATES.map((gate) => (

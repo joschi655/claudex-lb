@@ -6,6 +6,40 @@ import { AccountActions } from "@/features/accounts/components/account-actions";
 import { createAccountSummary } from "@/test/mocks/factories";
 
 describe("AccountActions", () => {
+  it("renders and edits usage ceilings alongside pace gates while pinned", async () => {
+    const user = userEvent.setup();
+    const onPaceGatesChange = vi.fn();
+    render(
+      <AccountActions
+        account={createAccountSummary({ pinned: true })}
+        busy={false}
+        onPause={vi.fn()}
+        onResume={vi.fn()}
+        onProbe={vi.fn()}
+        onDelete={vi.fn()}
+        onReauth={vi.fn()}
+        onExportAuth={vi.fn()}
+        onResetCredit={vi.fn()}
+        onSecurityWorkAuthorizedChange={vi.fn()}
+        onLimitWarmupChange={vi.fn()}
+        onRoutingPolicyChange={vi.fn()}
+        onPinChange={vi.fn()}
+        onQuotaKindChange={vi.fn()}
+        onPaceGatesChange={onPaceGatesChange}
+      />,
+    );
+
+    expect(screen.getByText("Usage ceiling")).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: "5h ceiling" })).toBeInTheDocument();
+    expect(screen.getByRole("spinbutton", { name: "Weekly ceiling" })).toBeInTheDocument();
+    expect(screen.getByText("Pace gates")).toBeInTheDocument();
+    await user.type(screen.getByRole("spinbutton", { name: "5h ceiling" }), "85");
+    await user.tab();
+    expect(onPaceGatesChange).toHaveBeenCalledExactlyOnceWith("acc_primary", {
+      usageCeilingPrimaryPct: 85,
+    });
+  });
+
   it("renders an explicit routing policy selector", async () => {
     const onRoutingPolicyChange = vi.fn();
     const account = createAccountSummary({ routingPolicy: "normal" });

@@ -1,7 +1,9 @@
 import { HttpResponse, http } from "msw";
 import { z } from "zod";
 
+import { AccountPaceGatesUpdateRequestSchema } from "@/features/accounts/schemas";
 import {
+  ApiKeyAccountRoutingRulesUpdateRequestSchema,
   LIMIT_TYPES,
   LIMIT_WINDOWS,
   TRAFFIC_CLASSES,
@@ -1001,6 +1003,33 @@ export const handlers = [
       account.securityWorkAuthorized = payload.securityWorkAuthorized;
     }
     return HttpResponse.json({ status: "updated" });
+  }),
+
+  http.put("/api/accounts/:accountId/pace-gates", async ({ params, request }) => {
+    const accountId = String(params.accountId);
+    const account = findAccount(accountId);
+    if (!account) {
+      return HttpResponse.json(
+        { error: { code: "account_not_found", message: "Account not found" } },
+        { status: 404 },
+      );
+    }
+    const payload = await parseJsonBody(request, AccountPaceGatesUpdateRequestSchema);
+    if (!payload) {
+      return HttpResponse.json(
+        { error: { code: "invalid_request", message: "Invalid account limits" } },
+        { status: 422 },
+      );
+    }
+    Object.assign(account, payload);
+    return HttpResponse.json({
+      accountId,
+      usageCeilingPrimaryPct: account.usageCeilingPrimaryPct ?? null,
+      usageCeilingSecondaryPct: account.usageCeilingSecondaryPct ?? null,
+      paceMarginPrimaryPct: account.paceMarginPrimaryPct ?? null,
+      paceMarginSecondaryPct: account.paceMarginSecondaryPct ?? null,
+      preResetWindowMinutes: account.preResetWindowMinutes ?? null,
+    });
   }),
 
   http.get("/api/accounts/:accountId/trends", ({ params }) => {
@@ -2264,6 +2293,35 @@ export const handlers = [
       item.id === keyId ? updated : item,
     );
     return HttpResponse.json(updated);
+  }),
+
+  http.put("/api/api-keys/:keyId/account-routing-rules", async ({ params, request }) => {
+    const keyId = String(params.keyId);
+    const existing = findApiKey(keyId);
+    if (!existing) {
+      return HttpResponse.json(
+        { error: { code: "not_found", message: "API key not found" } },
+        { status: 404 },
+      );
+    }
+    const payload = await parseJsonBody(request, ApiKeyAccountRoutingRulesUpdateRequestSchema);
+    if (!payload) {
+      return HttpResponse.json(
+        { error: { code: "invalid_request", message: "Invalid account routing rules" } },
+        { status: 422 },
+      );
+    }
+    existing.accountRoutingRules = payload.rules
+      .filter((rule) => rule.routingPolicy !== null || rule.overrideGates)
+      .map((rule) => rule.overrideGates ? rule : {
+        ...rule,
+        usageCeilingPrimaryPct: null,
+        usageCeilingSecondaryPct: null,
+        paceMarginPrimaryPct: null,
+        paceMarginSecondaryPct: null,
+        preResetWindowMinutes: null,
+      });
+    return HttpResponse.json(existing);
   }),
 
   http.delete("/api/api-keys/:keyId", ({ params }) => {

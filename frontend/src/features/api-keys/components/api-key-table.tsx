@@ -1,4 +1,4 @@
-import { Ellipsis, KeyRound, Pencil, RefreshCw, Trash2 } from "lucide-react";
+import { Ellipsis, KeyRound, Pencil, RefreshCw, Route, Trash2 } from "lucide-react";
 
 import { EmptyState } from "@/components/empty-state";
 import { Button } from "@/components/ui/button";
@@ -94,11 +94,12 @@ export type ApiKeyTableProps = {
   keys: ApiKey[];
   busy: boolean;
   onEdit: (apiKey: ApiKey) => void;
+  onAccountRouting: (apiKey: ApiKey) => void;
   onDelete: (apiKey: ApiKey) => void;
   onRegenerate: (apiKey: ApiKey) => void;
 };
 
-export function ApiKeyTable({ keys, busy, onEdit, onDelete, onRegenerate }: ApiKeyTableProps) {
+export function ApiKeyTable({ keys, busy, onEdit, onAccountRouting, onDelete, onRegenerate }: ApiKeyTableProps) {
   if (keys.length === 0) {
     return <EmptyState icon={KeyRound} title="No API keys created yet" />;
   }
@@ -126,7 +127,15 @@ export function ApiKeyTable({ keys, busy, onEdit, onDelete, onRegenerate }: ApiK
 
           return (
             <TableRow key={apiKey.id}>
-              <TableCell className="pl-4 font-medium truncate">{apiKey.name}</TableCell>
+              <TableCell className="pl-4 font-medium">
+                <div className="truncate">{apiKey.name}</div>
+                {apiKey.accountRoutingRules.length > 0 ? (
+                  <Badge variant="secondary" className="mt-1 text-[10px]"
+                    title={`${apiKey.accountRoutingRules.length} account${apiKey.accountRoutingRules.length === 1 ? " has" : "s have"} their own routing for this key`}>
+                    {apiKey.accountRoutingRules.length} custom
+                  </Badge>
+                ) : null}
+              </TableCell>
               <TableCell className="truncate font-mono text-xs">{apiKey.keyPrefix}</TableCell>
               <TableCell className="truncate">{models}</TableCell>
               <TableCell className="truncate text-xs tabular-nums">{trafficClass}</TableCell>
@@ -146,10 +155,14 @@ export function ApiKeyTable({ keys, busy, onEdit, onDelete, onRegenerate }: ApiK
                       <span className="sr-only">Actions</span>
                     </Button>
                   </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
+                  <DropdownMenuContent align="end" className="min-w-44">
                     <DropdownMenuItem onClick={() => onEdit(apiKey)}>
                       <Pencil className="size-4" />
                       Edit
+                    </DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => onAccountRouting(apiKey)}>
+                      <Route className="size-4" />
+                      Account routing
                     </DropdownMenuItem>
                     <DropdownMenuItem onClick={() => onRegenerate(apiKey)}>
                       <RefreshCw className="size-4" />

@@ -12,6 +12,7 @@ describe("ApiKeyTable", () => {
       <ApiKeyTable
         keys={[]}
         busy={false}
+        onAccountRouting={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onRegenerate={vi.fn()}
@@ -28,6 +29,7 @@ describe("ApiKeyTable", () => {
       <ApiKeyTable
         keys={keys}
         busy={false}
+        onAccountRouting={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onRegenerate={vi.fn()}
@@ -60,6 +62,7 @@ describe("ApiKeyTable", () => {
       <ApiKeyTable
         keys={keys}
         busy={false}
+        onAccountRouting={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onRegenerate={vi.fn()}
@@ -86,6 +89,7 @@ describe("ApiKeyTable", () => {
       <ApiKeyTable
         keys={[restricted, unrestricted]}
         busy={false}
+        onAccountRouting={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onRegenerate={vi.fn()}
@@ -107,6 +111,7 @@ describe("ApiKeyTable", () => {
       <ApiKeyTable
         keys={[target]}
         busy={false}
+        onAccountRouting={vi.fn()}
         onEdit={onEdit}
         onDelete={onDelete}
         onRegenerate={onRegenerate}
@@ -131,6 +136,7 @@ describe("ApiKeyTable", () => {
       <ApiKeyTable
         keys={[createApiKey()]}
         busy={true}
+        onAccountRouting={vi.fn()}
         onEdit={vi.fn()}
         onDelete={vi.fn()}
         onRegenerate={vi.fn()}
@@ -138,5 +144,36 @@ describe("ApiKeyTable", () => {
     );
 
     expect(screen.getByRole("button", { name: "Actions" })).toBeDisabled();
+  });
+
+  it.each([1, 2])("shows the custom routing count for %i rules and hides it for zero", (count) => {
+    const rule = {
+      accountId: "first", routingPolicy: "preserve", overrideGates: false,
+      usageCeilingPrimaryPct: null, usageCeilingSecondaryPct: null,
+      paceMarginPrimaryPct: null, paceMarginSecondaryPct: null, preResetWindowMinutes: null,
+    } as const;
+    renderWithProviders(
+      <ApiKeyTable keys={[
+        createApiKey({ accountRoutingRules: [rule, { ...rule, accountId: "second" }].slice(0, count) }),
+        createApiKey({ id: "other", name: "No custom routing" }),
+      ]} busy={false} onEdit={vi.fn()} onAccountRouting={vi.fn()} onDelete={vi.fn()} onRegenerate={vi.fn()} />,
+    );
+    expect(screen.getByText(`${count} custom`)).toHaveAttribute("title",
+      count === 1 ? "1 account has their own routing for this key" : "2 accounts have their own routing for this key");
+    const rows = screen.getAllByRole("row");
+    expect(within(rows[2]).queryByText(/\d+ custom/)).not.toBeInTheDocument();
+  });
+
+  it("opens account routing for the selected row", async () => {
+    const user = userEvent.setup();
+    const onAccountRouting = vi.fn();
+    const apiKey = createApiKey();
+    renderWithProviders(
+      <ApiKeyTable keys={[apiKey]} busy={false} onEdit={vi.fn()} onAccountRouting={onAccountRouting}
+        onDelete={vi.fn()} onRegenerate={vi.fn()} />,
+    );
+    await user.click(screen.getByRole("button", { name: "Actions" }));
+    await user.click(screen.getByRole("menuitem", { name: "Account routing" }));
+    expect(onAccountRouting).toHaveBeenCalledExactlyOnceWith(apiKey);
   });
 });

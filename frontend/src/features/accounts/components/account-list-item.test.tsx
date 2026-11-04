@@ -16,6 +16,105 @@ describe("AccountListItem", () => {
     vi.useRealTimers();
   });
 
+  it.each([
+    { label: "5h", primaryCeiling: 90, secondaryCeiling: null },
+    { label: "Weekly", primaryCeiling: null, secondaryCeiling: 90 },
+  ])("marks only the configured $label ceiling", ({ label, primaryCeiling, secondaryCeiling }) => {
+    const account = createAccountSummary({
+      usageCeilingPrimaryPct: primaryCeiling,
+      usageCeilingSecondaryPct: secondaryCeiling,
+    });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.getAllByTestId("usage-ceiling-marker")).toHaveLength(1);
+    expect(screen.getByTestId("usage-ceiling-marker")).toHaveAttribute("title", `${label} ceiling at 90% used`);
+  });
+
+  it("marks both remaining bars at 10% for 90% used ceilings", () => {
+    const account = createAccountSummary({
+      usageCeilingPrimaryPct: 90,
+      usageCeilingSecondaryPct: 90,
+    });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    const markers = screen.getAllByTestId("usage-ceiling-marker");
+    expect(markers).toHaveLength(2);
+    expect(markers[0]).toHaveAttribute("title", "5h ceiling at 90% used");
+    expect(markers[1]).toHaveAttribute("title", "Weekly ceiling at 90% used");
+    for (const marker of markers) {
+      expect(marker).toHaveStyle({ left: "10%" });
+      expect(marker.parentElement).toHaveClass("relative");
+      expect(marker.parentElement).not.toHaveClass("overflow-hidden");
+    }
+  });
+
+  it.each([null, undefined])("omits ceiling markers and badges with %s ceilings", (ceilingPct) => {
+    const account = createAccountSummary({
+      usageCeilingPrimaryPct: ceilingPct,
+      usageCeilingSecondaryPct: ceilingPct,
+      usage: { primaryRemainingPercent: 5, secondaryRemainingPercent: 5 },
+    });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.queryByTestId("usage-ceiling-marker")).not.toBeInTheDocument();
+    expect(screen.queryByText("At ceiling")).not.toBeInTheDocument();
+  });
+
+  it.each([
+    { label: "5h", primary: 5, secondary: 50 },
+    { label: "Weekly", primary: 50, secondary: 5 },
+  ])("shows the $label ceiling badge independently, including when pinned", ({ label, primary, secondary }) => {
+    const account = createAccountSummary({
+      pinned: true,
+      usageCeilingPrimaryPct: 90,
+      usageCeilingSecondaryPct: 90,
+      usage: { primaryRemainingPercent: primary, secondaryRemainingPercent: secondary },
+      resetAtPrimary: "2099-01-01T00:00:00Z",
+      resetAtSecondary: "2099-01-01T00:00:00Z",
+    });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.getAllByText("At ceiling")).toHaveLength(1);
+    expect(screen.getByText("At ceiling")).toHaveAttribute(
+      "title",
+      `${label} usage reached this account's 90% ceiling. It is skipped until the window resets.`,
+    );
+  });
+
+  it.each([50, null])("keeps markers but omits badges with %s remaining", (remainingPercent) => {
+    const account = createAccountSummary({
+      usageCeilingPrimaryPct: 90,
+      usageCeilingSecondaryPct: 90,
+      usage: { primaryRemainingPercent: remainingPercent, secondaryRemainingPercent: remainingPercent },
+      resetAtPrimary: "2099-01-01T00:00:00Z",
+      resetAtSecondary: "2099-01-01T00:00:00Z",
+    });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.getAllByTestId("usage-ceiling-marker")).toHaveLength(2);
+    expect(screen.queryByText("At ceiling")).not.toBeInTheDocument();
+  });
+
+  it("omits badges for stale samples after both windows reset", () => {
+    const account = createAccountSummary({
+      usageCeilingPrimaryPct: 90,
+      usageCeilingSecondaryPct: 90,
+      usage: { primaryRemainingPercent: 5, secondaryRemainingPercent: 5 },
+      resetAtPrimary: "2025-01-01T00:00:00Z",
+      resetAtSecondary: "2025-01-01T00:00:00Z",
+    });
+
+    render(<AccountListItem account={account} selected={false} onSelect={vi.fn()} />);
+
+    expect(screen.getAllByTestId("usage-ceiling-marker")).toHaveLength(2);
+    expect(screen.queryByText("At ceiling")).not.toBeInTheDocument();
+  });
+
   it("renders neutral quota track when secondary remaining percent is unknown", () => {
     const account = createAccountSummary({
       usage: {
@@ -55,6 +154,8 @@ describe("AccountListItem", () => {
 
   it("shows only the monthly row for monthly-only accounts", () => {
     const account = createAccountSummary({
+      usageCeilingPrimaryPct: 90,
+      usageCeilingSecondaryPct: 90,
       planType: "free",
       usage: {
         primaryRemainingPercent: null,
@@ -74,6 +175,8 @@ describe("AccountListItem", () => {
     expect(screen.queryByText("5h")).not.toBeInTheDocument();
     expect(screen.queryByText("Weekly")).not.toBeInTheDocument();
     expect(screen.getByText("Monthly")).toBeInTheDocument();
+    expect(screen.queryByTestId("usage-ceiling-marker")).not.toBeInTheDocument();
+    expect(screen.queryByText("At ceiling")).not.toBeInTheDocument();
   });
 
   it("renders legacy primary quota data without window metadata", () => {
@@ -315,6 +418,8 @@ describe("AccountListItem", () => {
   // explicitly forbids.
   function budgetSeat() {
     return createAccountSummary({
+      usageCeilingPrimaryPct: 90,
+      usageCeilingSecondaryPct: 90,
       usage: {
         primaryRemainingPercent: null,
         secondaryRemainingPercent: null,
@@ -341,6 +446,8 @@ describe("AccountListItem", () => {
     render(<AccountListItem account={budgetSeat()} selected={false} onSelect={vi.fn()} />);
 
     expect(screen.getByText("Budget")).toBeInTheDocument();
+    expect(screen.queryByTestId("usage-ceiling-marker")).not.toBeInTheDocument();
+    expect(screen.queryByText("At ceiling")).not.toBeInTheDocument();
     // The bar reads left-to-spend, matching how a window bar reads.
     expect(screen.getByTestId("mini-quota-track-budget-fill")).toHaveStyle({ width: "16%" });
     expect(screen.getByText("$160.00 of $1,000.00 left")).toBeInTheDocument();

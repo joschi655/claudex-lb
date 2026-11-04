@@ -1,6 +1,7 @@
-import { del, get, patch, post } from "@/lib/api-client";
+import { del, get, patch, post, put } from "@/lib/api-client";
 
 import {
+  ApiKeyAccountRoutingRulesUpdateRequestSchema,
   ApiKeyCreateRequestSchema,
   ApiKeyCreateResponseSchema,
   ApiKeyListSchema,
@@ -28,6 +29,15 @@ export function updateApiKey(keyId: string, payload: unknown) {
   return patch(`${API_KEYS_BASE_PATH}/${encodeURIComponent(keyId)}`, ApiKeySchema, {
     body: validated,
   });
+}
+
+export function replaceApiKeyAccountRoutingRules(keyId: string, payload: unknown) {
+  const validated = ApiKeyAccountRoutingRulesUpdateRequestSchema.parse(payload);
+  return put(
+    `${API_KEYS_BASE_PATH}/${encodeURIComponent(keyId)}/account-routing-rules`,
+    ApiKeySchema,
+    { body: validated },
+  );
 }
 
 export function deleteApiKey(keyId: string) {

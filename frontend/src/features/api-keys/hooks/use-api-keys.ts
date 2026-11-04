@@ -6,9 +6,11 @@ import {
   deleteApiKey,
   listApiKeys,
   regenerateApiKey,
+  replaceApiKeyAccountRoutingRules,
   updateApiKey,
 } from "@/features/api-keys/api";
 import type {
+  ApiKeyAccountRoutingRulesUpdateRequest,
   ApiKeyCreateRequest,
   ApiKeyUpdateRequest,
 } from "@/features/api-keys/schemas";
@@ -45,6 +47,23 @@ export function useApiKeys() {
     },
   });
 
+  const accountRoutingRulesMutation = useMutation({
+    mutationFn: ({
+      keyId,
+      payload,
+    }: {
+      keyId: string;
+      payload: ApiKeyAccountRoutingRulesUpdateRequest;
+    }) => replaceApiKeyAccountRoutingRules(keyId, payload),
+    onSuccess: () => {
+      toast.success("Account routing rules updated");
+      void queryClient.invalidateQueries({ queryKey: ["api-keys", "list"] });
+    },
+    onError: (error: Error) => {
+      toast.error(error.message || "Failed to update account routing rules");
+    },
+  });
+
   const deleteMutation = useMutation({
     mutationFn: (keyId: string) => deleteApiKey(keyId),
     onSuccess: () => {
@@ -71,6 +90,7 @@ export function useApiKeys() {
     apiKeysQuery,
     createMutation,
     updateMutation,
+    accountRoutingRulesMutation,
     deleteMutation,
     regenerateMutation,
   };

@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  ApiKeyAccountRoutingRuleSchema,
+  ApiKeyAccountRoutingRulesUpdateRequestSchema,
   ApiKeyCreateRequestSchema,
   ApiKeyCreateResponseSchema,
   ApiKeySchema,
@@ -57,6 +59,7 @@ describe("ApiKeySchema", () => {
     });
 
     expect(parsed.limits).toEqual([]);
+    expect(parsed.accountRoutingRules).toEqual([]);
     expect(parsed.applyToCodexModel).toBe(false);
     expect(parsed.pooledRemainingPercentPrimary).toBeNull();
     expect(parsed.pooledRemainingPercentSecondary).toBeNull();
@@ -289,5 +292,63 @@ describe("LimitRuleCreateSchema", () => {
       maxValue: 0,
     });
     expect(result.success).toBe(false);
+  });
+});
+
+
+describe("API key account routing rules", () => {
+  const rule = {
+    accountId: "acc_primary",
+    routingPolicy: "preserve",
+    overrideGates: true,
+    usageCeilingPrimaryPct: 90,
+    usageCeilingSecondaryPct: 100,
+    paceMarginPrimaryPct: 0,
+    paceMarginSecondaryPct: 100,
+    preResetWindowMinutes: 0,
+  };
+
+  it("accepts a valid rule in responses and requests", () => {
+    expect(ApiKeyAccountRoutingRuleSchema.parse(rule)).toEqual(rule);
+    expect(ApiKeyAccountRoutingRulesUpdateRequestSchema.parse({ rules: [rule] }))
+      .toEqual({ rules: [rule] });
+  });
+
+  it("accepts inheritance and disabled gates", () => {
+    const inherited = {
+      accountId: "acc_primary",
+      routingPolicy: null,
+      overrideGates: false,
+      usageCeilingPrimaryPct: null,
+      usageCeilingSecondaryPct: null,
+      paceMarginPrimaryPct: null,
+      paceMarginSecondaryPct: null,
+      preResetWindowMinutes: null,
+    };
+    expect(ApiKeyAccountRoutingRulesUpdateRequestSchema.parse({ rules: [inherited] }))
+      .toEqual({ rules: [inherited] });
+    expect(ApiKeyAccountRoutingRulesUpdateRequestSchema.parse({ rules: [] }))
+      .toEqual({ rules: [] });
+  });
+
+  it.each([
+    ["usageCeilingPrimaryPct", 0],
+    ["usageCeilingSecondaryPct", 0],
+    ["usageCeilingPrimaryPct", 101],
+    ["usageCeilingSecondaryPct", -1],
+    ["paceMarginPrimaryPct", -1],
+    ["paceMarginSecondaryPct", 101],
+    ["preResetWindowMinutes", -1],
+    ["preResetWindowMinutes", 1.5],
+    ["routingPolicy", "pinned"],
+  ])("rejects invalid request field %s=%s", (key, value) => {
+    expect(ApiKeyAccountRoutingRulesUpdateRequestSchema.safeParse({
+      rules: [{ ...rule, [key]: value }],
+    }).success).toBe(false);
+  });
+
+  it("keeps stored values outside current request ranges readable", () => {
+    const stored = { ...rule, usageCeilingPrimaryPct: 0, paceMarginSecondaryPct: 101 };
+    expect(ApiKeyAccountRoutingRuleSchema.parse(stored)).toEqual(stored);
   });
 });

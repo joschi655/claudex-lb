@@ -99,6 +99,8 @@ export const AccountSummarySchema = z.object({
   routingPolicy: z.enum(["normal", "burn_first", "preserve"]).optional(),
   pinned: z.boolean().optional(),
   lastServedAt: z.string().nullable().optional(),
+  usageCeilingPrimaryPct: z.number().nullable().optional(),
+  usageCeilingSecondaryPct: z.number().nullable().optional(),
   paceMarginPrimaryPct: z.number().nullable().optional(),
   paceMarginSecondaryPct: z.number().nullable().optional(),
   preResetWindowMinutes: z.number().nullable().optional(),
@@ -277,6 +279,8 @@ const AccountRoutingPolicySchema = z.enum([
 // stored value alone, while an explicit null clears that gate. The form sends
 // only the field the operator touched.
 export const AccountPaceGatesUpdateRequestSchema = z.object({
+  usageCeilingPrimaryPct: z.number().gt(0).max(100).nullable().optional(),
+  usageCeilingSecondaryPct: z.number().gt(0).max(100).nullable().optional(),
   paceMarginPrimaryPct: z.number().min(0).max(100).nullable().optional(),
   paceMarginSecondaryPct: z.number().min(0).max(100).nullable().optional(),
   preResetWindowMinutes: z.number().int().min(0).nullable().optional(),
@@ -284,6 +288,8 @@ export const AccountPaceGatesUpdateRequestSchema = z.object({
 
 export const AccountPaceGatesUpdateResponseSchema = z.object({
   accountId: z.string(),
+  usageCeilingPrimaryPct: z.number().nullable().optional(),
+  usageCeilingSecondaryPct: z.number().nullable().optional(),
   paceMarginPrimaryPct: z.number().nullable().optional(),
   paceMarginSecondaryPct: z.number().nullable().optional(),
   preResetWindowMinutes: z.number().nullable().optional(),

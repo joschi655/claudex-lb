@@ -2,6 +2,7 @@ import { lazy, Suspense } from "react";
 import { Clock, CirclePlus, Flame, RotateCcw, Wallet } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import { UsageCeilingBadge, UsageCeilingMarker } from "@/components/usage-ceiling-marker";
 import { cn } from "@/lib/utils";
 import type { AccountTrendChartProps } from "@/features/accounts/components/account-trend-chart";
 import type {
@@ -42,17 +43,22 @@ function QuotaRow({
   label,
   percent,
   resetAt,
+  ceilingPct,
 }: {
   label: string;
   percent: number | null;
   resetAt: string | null | undefined;
+  ceilingPct?: number | null;
 }) {
   const clamped = percent === null ? 0 : Math.max(0, Math.min(100, percent));
   const hasPercent = percent !== null;
   return (
     <div className="space-y-1.5">
       <div className="flex items-center justify-between text-xs">
-        <span className="font-medium">{label} remaining</span>
+        <span className="flex flex-wrap items-center gap-1.5 font-medium">
+          <span>{label} remaining</span>
+          <UsageCeilingBadge label={label} ceilingPct={ceilingPct} remainingPercent={percent} resetAt={resetAt} />
+        </span>
         <span
           className={cn(
             "tabular-nums font-medium",
@@ -68,11 +74,14 @@ function QuotaRow({
           {formatPercentNullable(percent)}
         </span>
       </div>
-      <div className={cn("h-1.5 w-full overflow-hidden rounded-full", quotaBarTrack(clamped))}>
-        <div
-          className={cn("h-full rounded-full transition-all duration-500 ease-out", quotaBarColor(clamped))}
-          style={{ width: `${clamped}%` }}
-        />
+      <div className="relative">
+        <div className={cn("h-1.5 w-full overflow-hidden rounded-full", quotaBarTrack(clamped))}>
+          <div
+            className={cn("h-full rounded-full transition-all duration-500 ease-out", quotaBarColor(clamped))}
+            style={{ width: `${clamped}%` }}
+          />
+        </div>
+        <UsageCeilingMarker label={label} ceilingPct={ceilingPct} />
       </div>
       <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
         <Clock className="h-3 w-3 shrink-0" />
@@ -374,8 +383,10 @@ export function AccountUsagePanel({
           <QuotaRow label="Monthly" percent={monthly} resetAt={account.resetAtMonthly} />
         ) : (
           <>
-            {!weeklyOnly && <QuotaRow label="5h" percent={primary} resetAt={account.resetAtPrimary} />}
-            <QuotaRow label="Weekly" percent={secondary} resetAt={account.resetAtSecondary} />
+            {!weeklyOnly && (
+              <QuotaRow label="5h" percent={primary} resetAt={account.resetAtPrimary} ceilingPct={account.usageCeilingPrimaryPct} />
+            )}
+            <QuotaRow label="Weekly" percent={secondary} resetAt={account.resetAtSecondary} ceilingPct={account.usageCeilingSecondaryPct} />
           </>
         )}
       </div>
