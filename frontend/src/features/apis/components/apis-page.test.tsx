@@ -56,6 +56,7 @@ function renderApisPage({
 	updateMutation = createMutationMock(),
 	deleteMutation = createMutationMock(),
 	regenerateMutation = createMutationMock(),
+	accountRoutingRulesMutation = createMutationMock(),
 }: {
 	apiKeys?: ReturnType<typeof createApiKey>[];
 	apiKeysQuery?: QueryMock<ReturnType<typeof createApiKey>[]>;
@@ -65,6 +66,7 @@ function renderApisPage({
 	updateMutation?: MutationMock;
 	deleteMutation?: MutationMock;
 	regenerateMutation?: MutationMock;
+	accountRoutingRulesMutation?: MutationMock;
 } = {}) {
 	hookMocks.useApiKeys.mockReturnValue({
 		apiKeysQuery,
@@ -72,6 +74,7 @@ function renderApisPage({
 		updateMutation,
 		deleteMutation,
 		regenerateMutation,
+		accountRoutingRulesMutation,
 	});
 	hookMocks.useApiKeyTrends.mockReturnValue(trendsQuery);
 	hookMocks.useApiKeyUsage7Day.mockReturnValue(usage7DayQuery);
@@ -126,6 +129,28 @@ describe("ApisPage", () => {
 		});
 		expect(screen.getByRole("dialog", { name: "Edit API key" })).toBeInTheDocument();
 		expect(screen.getByLabelText("Name")).toHaveValue("Renamed key");
+	});
+
+	it("opens account routing from the APIs tab and saves through the routing mutation", async () => {
+		const user = userEvent.setup();
+		const apiKey = createApiKey({ name: "Desktop" });
+		const accountRoutingRulesMutation = createMutationMock();
+		accountRoutingRulesMutation.mutateAsync.mockResolvedValue(apiKey);
+
+		renderApisPage({ apiKeys: [apiKey], accountRoutingRulesMutation });
+
+		await user.click(screen.getByRole("button", { name: "Actions" }));
+		await user.click(screen.getByRole("menuitem", { name: "Account routing" }));
+
+		const dialog = await screen.findByRole("dialog", { name: "Account routing" });
+		await user.click(within(dialog).getByRole("button", { name: "Save" }));
+
+		await waitFor(() => {
+			expect(accountRoutingRulesMutation.mutateAsync).toHaveBeenCalledWith({
+				keyId: apiKey.id,
+				payload: { rules: [] },
+			});
+		});
 	});
 
 	it("shows a retry state when the initial API key query fails", async () => {

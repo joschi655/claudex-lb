@@ -16,6 +16,7 @@ const callbacks = {
 	onEdit: vi.fn(),
 	onDelete: vi.fn(),
 	onRegenerate: vi.fn(),
+	onAccountRouting: vi.fn(),
 	onToggleActive: vi.fn(),
 };
 
@@ -289,6 +290,19 @@ describe("ApiDetail", () => {
 		await user.click(screen.getByRole("menuitem", { name: "Regenerate" }));
 
 		expect(onRegenerate).toHaveBeenCalledWith(apiKey);
+	});
+
+	it("opens account routing from the actions menu", async () => {
+		const user = userEvent.setup();
+		const apiKey = createApiKey();
+		const onAccountRouting = vi.fn();
+
+		renderApiDetail({ apiKey, onAccountRouting });
+
+		await user.click(screen.getByRole("button", { name: "Actions" }));
+		await user.click(screen.getByRole("menuitem", { name: "Account routing" }));
+
+		expect(onAccountRouting).toHaveBeenCalledWith(apiKey);
 	});
 
 	it("disables all mutation actions while busy", async () => {

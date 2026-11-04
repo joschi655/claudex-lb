@@ -4,6 +4,7 @@ import {
 	Pencil,
 	Play,
 	RefreshCw,
+	Route,
 	Trash2,
 } from "lucide-react";
 import { lazy, Suspense, useMemo, useState } from "react";
@@ -46,6 +47,7 @@ export type ApiDetailProps = {
 	onEdit: (apiKey: ApiKey) => void;
 	onDelete: (apiKey: ApiKey) => void;
 	onRegenerate: (apiKey: ApiKey) => void;
+	onAccountRouting: (apiKey: ApiKey) => void;
 	onToggleActive: (apiKey: ApiKey) => void;
 };
 
@@ -69,6 +71,7 @@ export function ApiDetail({
 	onEdit,
 	onDelete,
 	onRegenerate,
+	onAccountRouting,
 	onToggleActive,
 }: ApiDetailProps) {
 	const [showAccumulated, setShowAccumulated] = useState(false);
@@ -137,10 +140,14 @@ export function ApiDetail({
 							<span className="sr-only">Actions</span>
 						</Button>
 					</DropdownMenuTrigger>
-					<DropdownMenuContent align="end">
+					<DropdownMenuContent align="end" className="min-w-44">
 						<DropdownMenuItem onClick={() => onEdit(apiKey)}>
 							<Pencil className="size-4" />
 							Edit
+						</DropdownMenuItem>
+						<DropdownMenuItem onClick={() => onAccountRouting(apiKey)}>
+							<Route className="size-4" />
+							Account routing
 						</DropdownMenuItem>
 						<DropdownMenuItem onClick={() => onRegenerate(apiKey)}>
 							<RefreshCw className="size-4" />

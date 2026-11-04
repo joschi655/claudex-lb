@@ -6,6 +6,7 @@ import { LoadingOverlay } from "@/components/layout/loading-overlay";
 import { Button } from "@/components/ui/button";
 import type {
 	ApiKey,
+	ApiKeyAccountRoutingRulesUpdateRequest,
 	ApiKeyCreateRequest,
 	ApiKeyUpdateRequest,
 } from "@/features/api-keys/schemas";
@@ -27,6 +28,11 @@ const ApiKeyCreateDialog = lazy(() =>
 		default: m.ApiKeyCreateDialog,
 	})),
 );
+const AccountRoutingDialog = lazy(() =>
+	import("@/features/api-keys/components/account-routing-dialog").then((m) => ({
+		default: m.AccountRoutingDialog,
+	})),
+);
 const ApiKeyEditDialog = lazy(() =>
 	import("@/features/api-keys/components/api-key-edit-dialog").then((m) => ({
 		default: m.ApiKeyEditDialog,
@@ -41,10 +47,12 @@ export function ApisPage() {
 		updateMutation,
 		deleteMutation,
 		regenerateMutation,
+		accountRoutingRulesMutation,
 	} = useApiKeys();
 
 	const createDialog = useDialogState();
 	const editDialog = useDialogState<ApiKey>();
+	const accountRoutingDialog = useDialogState<ApiKey>();
 	const deleteDialog = useDialogState<ApiKey>();
 	const createdDialog = useDialogState<string>();
 
@@ -82,16 +90,28 @@ export function ApisPage() {
 		createMutation.isPending ||
 		updateMutation.isPending ||
 		deleteMutation.isPending ||
-		regenerateMutation.isPending;
+		regenerateMutation.isPending ||
+		accountRoutingRulesMutation.isPending;
 
 	const mutationError =
 		getErrorMessageOrNull(createMutation.error) ||
 		getErrorMessageOrNull(updateMutation.error) ||
 		getErrorMessageOrNull(deleteMutation.error) ||
-		getErrorMessageOrNull(regenerateMutation.error);
+		getErrorMessageOrNull(regenerateMutation.error) ||
+		getErrorMessageOrNull(accountRoutingRulesMutation.error);
 	const listError = getErrorMessageOrNull(apiKeysQuery.error);
 	const usage7DayError = getErrorMessageOrNull(usage7DayQuery.error);
 	const pageError = mutationError || (apiKeysQuery.data ? listError : null);
+
+	const handleAccountRoutingUpdate = async (
+		payload: ApiKeyAccountRoutingRulesUpdateRequest,
+	) => {
+		if (!accountRoutingDialog.data) return;
+		await accountRoutingRulesMutation.mutateAsync({
+			keyId: accountRoutingDialog.data.id,
+			payload,
+		});
+	};
 
 	const handleCreate = async (payload: ApiKeyCreateRequest) => {
 		const created = await createMutation.mutateAsync(payload);
@@ -157,6 +177,7 @@ export function ApisPage() {
 							usage7DayError={usage7DayError}
 							busy={mutationBusy}
 							onEdit={(apiKey) => editDialog.show(apiKey)}
+							onAccountRouting={(apiKey) => accountRoutingDialog.show(apiKey)}
 							onToggleActive={(apiKey) => {
 								void updateMutation
 									.mutateAsync({
@@ -193,6 +214,14 @@ export function ApisPage() {
 					apiKey={editDialog.data}
 					onOpenChange={editDialog.onOpenChange}
 					onSubmit={handleUpdate}
+				/>
+
+				<AccountRoutingDialog
+					open={accountRoutingDialog.open}
+					busy={accountRoutingRulesMutation.isPending}
+					apiKey={accountRoutingDialog.data}
+					onOpenChange={accountRoutingDialog.onOpenChange}
+					onSubmit={handleAccountRoutingUpdate}
 				/>
 			</Suspense>
 
