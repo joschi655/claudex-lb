@@ -17,6 +17,25 @@ For low-volume, policy-compliant personal use, start with **Capacity weighted** 
 
 Change the strategy live in the dashboard under **Settings → Routing** — no restart required.
 
+## Spend the window that closes first
+
+With **Prefer earlier reset** on and its window set to **5h**, a new session goes to the account
+whose 5h window resets soonest. Quota left in that window is used before it expires instead of
+being thrown away at the reset. Established sessions stay where they are.
+
+It orders only the accounts the earlier rules leave equal. In order of precedence:
+
+1. Hard filters: paused or failing accounts, [usage ceilings](usage-ceilings.md), [pace gates](pace-gates.md)
+2. The [account pin](account-pin.md)
+3. Accounts under the budget threshold (95% by default) ahead of accounts above it, and the health tier
+4. Priority: *Use first* (`burn_first`), *Normal*, *Use last* (`preserve`), including an
+   [API key's own rule](usage-ceilings.md#per-key-routing-rules)
+5. **Earliest 5h reset**
+6. The routing strategy (for example *Fill first* picks the fuller account among equal resets)
+
+An account with no open 5h window ranks after every account with one, so the preference does not
+open fresh windows while open ones still have quota. It applies to Codex and Claude traffic alike.
+
 ---
 
 *Spec: [account-routing](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/account-routing)*

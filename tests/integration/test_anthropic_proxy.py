@@ -356,3 +356,67 @@ async def test_relay_no_accounts_returns_anthropic_429(async_client, monkeypatch
     )
     assert response.status_code == 429
     assert response.json()["type"] == "error"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("prefer_earlier_reset", "expected_email"),
+    [(True, "closing@example.com"), (False, "fuller@example.com")],
+)
+async def test_relay_honours_the_primary_reset_preference(
+    async_client, monkeypatch, prefer_earlier_reset: bool, expected_email: str
+):
+    # fill_first alone would pick the fuller account; with the 5h reset preference
+    # on, the one whose window closes first is spent before it expires.
+    await _import_claude_account(async_client, "fuller@example.com")
+    await _import_claude_account(async_client, "closing@example.com")
+    response = await async_client.put(
+        "/api/settings",
+        json={
+            "routingStrategy": "fill_first",
+            "preferEarlierResetAccounts": prefer_earlier_reset,
+            "preferEarlierResetWindow": "primary",
+        },
+    )
+    assert response.status_code == 200, response.text
+
+    now = int(time.time())
+    async with SessionLocal() as session:
+        rows = (await session.execute(select(Account).where(Account.provider == "anthropic"))).scalars().all()
+        by_email = {row.email: row for row in rows}
+        session.add_all(
+            [
+                UsageHistory(
+                    account_id=by_email["fuller@example.com"].id,
+                    window="primary",
+                    used_percent=70.0,
+                    reset_at=now + 4 * 3600,
+                    window_minutes=300,
+                ),
+                UsageHistory(
+                    account_id=by_email["closing@example.com"].id,
+                    window="primary",
+                    used_percent=10.0,
+                    reset_at=now + 20 * 60,
+                    window_minutes=300,
+                ),
+            ]
+        )
+        await session.commit()
+
+    served: list[str | None] = []
+
+    async def _fake_open_messages(url: str, *, body: bytes, headers: Mapping[str, str], idle_timeout_seconds: float):
+        del url, body, idle_timeout_seconds
+        served.append(headers.get("Authorization"))
+        return _FakeUpstreamResponse(200, headers={"content-type": "application/json"}, body=b"{}")
+
+    monkeypatch.setattr(anthropic_service_module, "open_messages", _fake_open_messages)
+
+    response = await async_client.post(
+        "/v1/messages",
+        headers={"content-type": "application/json"},
+        content=b'{"model":"claude-sonnet-5"}',
+    )
+    assert response.status_code == 200, response.text
+    assert served == [f"Bearer sk-ant-oat01-{expected_email}"]
