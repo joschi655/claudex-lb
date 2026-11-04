@@ -14,6 +14,7 @@ from typing import Protocol
 from sqlalchemy.exc import OperationalError
 
 from app.core.auth.api_key_cache import get_api_key_cache
+from app.core.balancer.routing_rules import ROUTING_RULE_POLICIES, AccountRoutingRule
 from app.core.cache.invalidation import NAMESPACE_API_KEY, get_cache_invalidation_poller
 from app.core.usage.pricing import (
     UsageTokens,
@@ -22,7 +23,17 @@ from app.core.usage.pricing import (
 )
 from app.core.usage.types import UsageWindowRow
 from app.core.utils.time import to_utc_naive, utcnow
-from app.db.models import Account, AccountStatus, ApiKey, ApiKeyLimit, LimitType, LimitWindow, ModelSource, UsageHistory
+from app.db.models import (
+    Account,
+    AccountStatus,
+    ApiKey,
+    ApiKeyAccountRoutingRule,
+    ApiKeyLimit,
+    LimitType,
+    LimitWindow,
+    ModelSource,
+    UsageHistory,
+)
 from app.db.session import sqlite_writer_section
 from app.modules.api_keys.limit_windows import advance_limit_reset, limit_window_delta, next_limit_reset
 from app.modules.api_keys.repository import (
@@ -116,6 +127,7 @@ class ApiKeysRepositoryProtocol(Protocol):
         self, key_id: str, account_ids: list[str], *, commit: bool = True
     ) -> None: ...
     async def replace_source_assignments(self, key_id: str, source_ids: list[str], *, commit: bool = True) -> None: ...
+    async def replace_account_routing_rules(self, key_id: str, rules: list[ApiKeyAccountRoutingRule]) -> None: ...
 
     async def increment_limit_usage(
         self,
@@ -338,6 +350,8 @@ class ApiKeyData:
     assigned_account_ids: list[str] = field(default_factory=list)
     assigned_source_ids: list[str] = field(default_factory=list)
     pooled_credits: "PooledCreditData | None" = None
+    # Keyed by account id, the shape the load balancer consumes.
+    account_routing_rules: dict[str, AccountRoutingRule] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -708,6 +722,46 @@ class ApiKeysService:
         if poller is not None:
             await poller.bump(NAMESPACE_API_KEY)
         return _to_api_key_data(row)
+
+    async def replace_account_routing_rules(self, key_id: str, rules: list[AccountRoutingRule]) -> ApiKeyData:
+        """Replace every per-account routing rule of one key in a single write."""
+        row = await self._repository.get_by_id(key_id)
+        if row is None:
+            raise ApiKeyNotFoundError(f"API key not found: {key_id}")
+        account_ids = [rule.account_id for rule in rules]
+        if len(set(account_ids)) != len(account_ids):
+            raise ApiKeyValidationError("Each account may carry at most one routing rule per key")
+        for rule in rules:
+            if rule.routing_policy is not None and rule.routing_policy not in ROUTING_RULE_POLICIES:
+                raise ApiKeyValidationError(f"Unknown routing policy: {rule.routing_policy}")
+        await self._resolve_assigned_account_ids(account_ids)
+        await self._repository.replace_account_routing_rules(
+            key_id,
+            [
+                ApiKeyAccountRoutingRule(
+                    api_key_id=key_id,
+                    account_id=rule.account_id,
+                    routing_policy=rule.routing_policy,
+                    override_gates=rule.override_gates,
+                    usage_ceiling_primary_pct=rule.usage_ceiling_primary_pct if rule.override_gates else None,
+                    usage_ceiling_secondary_pct=rule.usage_ceiling_secondary_pct if rule.override_gates else None,
+                    pace_margin_primary_pct=rule.pace_margin_primary_pct if rule.override_gates else None,
+                    pace_margin_secondary_pct=rule.pace_margin_secondary_pct if rule.override_gates else None,
+                    pre_reset_window_minutes=rule.pre_reset_window_minutes if rule.override_gates else None,
+                )
+                for rule in rules
+                # A rule that inherits everything is the same as no rule.
+                if rule.routing_policy is not None or rule.override_gates
+            ],
+        )
+        refreshed = await self._repository.get_by_id(key_id)
+        if refreshed is None:
+            raise ApiKeyNotFoundError(f"API key not found: {key_id}")
+        await get_api_key_cache().invalidate(refreshed.key_hash)
+        poller = get_cache_invalidation_poller()
+        if poller is not None:
+            await poller.bump(NAMESPACE_API_KEY)
+        return _to_api_key_data(refreshed)
 
     async def _resolve_assigned_account_ids(self, account_ids: list[str] | None) -> list[str]:
         normalized_account_ids = _normalize_assigned_account_ids(account_ids)
@@ -1640,6 +1694,7 @@ def _to_created_data(data: ApiKeyData, key: str) -> ApiKeyCreatedData:
         source_assignment_scope_enabled=data.source_assignment_scope_enabled,
         assigned_account_ids=data.assigned_account_ids,
         assigned_source_ids=data.assigned_source_ids,
+        account_routing_rules=data.account_routing_rules,
         key=key,
     )
 
@@ -1678,6 +1733,22 @@ def _to_api_key_data(
         assigned_account_ids=[assignment.account_id for assignment in account_assignments],
         assigned_source_ids=[assignment.source_id for assignment in source_assignments],
         pooled_credits=pooled_credits,
+        account_routing_rules={
+            rule.account_id: _to_account_routing_rule(rule) for rule in getattr(row, "account_routing_rules", [])
+        },
+    )
+
+
+def _to_account_routing_rule(row: ApiKeyAccountRoutingRule) -> AccountRoutingRule:
+    return AccountRoutingRule(
+        account_id=row.account_id,
+        routing_policy=row.routing_policy,
+        override_gates=row.override_gates,
+        usage_ceiling_primary_pct=row.usage_ceiling_primary_pct,
+        usage_ceiling_secondary_pct=row.usage_ceiling_secondary_pct,
+        pace_margin_primary_pct=row.pace_margin_primary_pct,
+        pace_margin_secondary_pct=row.pace_margin_secondary_pct,
+        pre_reset_window_minutes=row.pre_reset_window_minutes,
     )
 
 

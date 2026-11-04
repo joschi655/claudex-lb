@@ -36,6 +36,7 @@ from app.core.balancer import (
     pinned_states,
     select_account,
 )
+from app.core.balancer.routing_rules import AccountRoutingRules, apply_routing_rule
 from app.core.balancer.types import UpstreamError
 from app.core.config import settings as config_settings
 from app.core.config.settings import get_settings
@@ -352,6 +353,7 @@ class LoadBalancer:
         budget_threshold_pct: float = 95.0,
         secondary_budget_threshold_pct: float = 100.0,
         account_ids: Collection[str] | None = None,
+        routing_rules: AccountRoutingRules | None = None,
     ) -> NextAccountPreview:
         """Which account a new request would land on, without taking it.
 
@@ -402,6 +404,7 @@ class LoadBalancer:
             runtime=runtime_snapshot,
             routing_policy_override=selection_inputs.routing_policy_override,
             ignore_standard_quota_account_ids=selection_inputs.ignore_standard_quota_account_ids,
+            routing_rules=routing_rules,
         )
         result = _select_account_preferring_budget_safe(
             states,
@@ -455,6 +458,7 @@ class LoadBalancer:
         traffic_class: TrafficClass = TRAFFIC_CLASS_FOREGROUND,
         concurrency_caps: AccountConcurrencyCaps | None = None,
         provider: str = PROVIDER_OPENAI,
+        routing_rules: AccountRoutingRules | None = None,
     ) -> AccountSelection:
         excluded_ids = set(exclude_account_ids or ())
         scoped_account_ids = None if account_ids is None else set(account_ids)
@@ -563,6 +567,7 @@ class LoadBalancer:
                         runtime=self._runtime,
                         routing_policy_override=selection_inputs.routing_policy_override,
                         ignore_standard_quota_account_ids=selection_inputs.ignore_standard_quota_account_ids,
+                        routing_rules=routing_rules,
                     )
                     effective_routing_costs = (
                         routing_costs_by_account_id
@@ -748,6 +753,7 @@ class LoadBalancer:
                         runtime=self._runtime,
                         routing_policy_override=selection_inputs.routing_policy_override,
                         ignore_standard_quota_account_ids=selection_inputs.ignore_standard_quota_account_ids,
+                        routing_rules=routing_rules,
                     )
                     effective_routing_costs = (
                         routing_costs_by_account_id
@@ -1778,6 +1784,8 @@ class LoadBalancer:
             pace_margin_primary_pct=account.pace_margin_primary_pct,
             pace_margin_secondary_pct=account.pace_margin_secondary_pct,
             pre_reset_window_minutes=account.pre_reset_window_minutes,
+            usage_ceiling_primary_pct=account.usage_ceiling_primary_pct,
+            usage_ceiling_secondary_pct=account.usage_ceiling_secondary_pct,
         )
 
     def _sync_runtime_state(
@@ -1920,6 +1928,7 @@ def _build_states(
     runtime: dict[str, RuntimeState],
     routing_policy_override: str | None = None,
     ignore_standard_quota_account_ids: frozenset[str] = frozenset(),
+    routing_rules: AccountRoutingRules | None = None,
 ) -> tuple[list[AccountState], dict[str, Account]]:
     states: list[AccountState] = []
     account_map: dict[str, Account] = {}
@@ -1938,6 +1947,10 @@ def _build_states(
             secondary_entry=secondary_entry,
             runtime=runtime.setdefault(account.id, RuntimeState()),
         )
+        # The calling key's rule goes first so an additional quota's policy below
+        # still wins for the accounts it scopes.
+        if routing_rules:
+            apply_routing_rule(state, routing_rules.get(account.id))
         # An additional quota overrides the account's ranking tier. The pin is no
         # longer one of those, so it needs no exemption here: it lives on its own
         # field and this override cannot reach it.
@@ -2461,6 +2474,8 @@ def _state_from_account(
         pace_margin_primary_pct=account.pace_margin_primary_pct,
         pace_margin_secondary_pct=account.pace_margin_secondary_pct,
         pre_reset_window_minutes=account.pre_reset_window_minutes,
+        usage_ceiling_primary_pct=account.usage_ceiling_primary_pct,
+        usage_ceiling_secondary_pct=account.usage_ceiling_secondary_pct,
     )
 
 

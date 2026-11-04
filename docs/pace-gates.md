@@ -58,8 +58,10 @@ Omitting a field leaves that gate as it is. Sending an explicit `null` clears it
   ranking runs, so no later tier can re-admit it — including `burn_first`, budget-safe fallback, and
   backoff fallback. If every candidate is gated out, the request fails with an error naming pace
   gating rather than quietly using a gated account.
-- **Gates are not a quota cap.** They shape the *rate* of consumption. The existing budget
-  thresholds, routing policy, and account status all still apply.
+- **Gates are not a quota cap.** They shape the *rate* of consumption, and the pace line reaches
+  100% at the end of a window. To keep part of a window back for the account's owner, set a
+  [usage ceiling](usage-ceilings.md). The existing budget thresholds, routing policy, and account
+  status all still apply.
 - **A gate needs window bounds to act.** If the reset timestamp or window length for a window is
   unknown, that gate does not apply. This matters for a freshly imported account: window data
   arrives with served traffic, so a newly added account is not gated until it has reported usage.

@@ -23,6 +23,7 @@ Load balancer for ChatGPT accounts. Pool multiple accounts, track usage, manage 
 - [API Keys](api-keys.md) — protecting proxy routes
 - [Routing](routing.md) — routing strategy guide
 - [Pace Gates](pace-gates.md) — bounding how fast a shared account is drawn from
+- [Usage Ceilings](usage-ceilings.md) — capping how much of a shared account is used, per account and per key
 - [Account Pin](account-pin.md) — routing everything to one account until it cannot serve
 - [Claude Statistics](claude-statistics.md) — how Claude traffic appears in the request log
 - [Database](database.md) — SQLite / PostgreSQL, data paths, Postgres upgrades

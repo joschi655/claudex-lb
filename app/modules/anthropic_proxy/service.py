@@ -33,6 +33,7 @@ from app.core.auth.refresh import (
     pop_token_refresh_timeout_override,
     push_token_refresh_timeout_override,
 )
+from app.core.balancer.routing_rules import AccountRoutingRules
 from app.core.balancer.types import UpstreamError
 from app.core.config.settings import get_settings
 from app.core.config.settings_cache import get_settings_cache
@@ -155,6 +156,7 @@ class AnthropicProxyService:
         api_key_id: str | None = None,
         scoped_account_ids: Collection[str] | None = None,
         client_ip: str | None = None,
+        routing_rules: AccountRoutingRules | None = None,
     ) -> Response:
         settings = get_settings()
         routing_strategy = resolve_routing_strategy(await get_settings_cache().get())
@@ -183,6 +185,7 @@ class AnthropicProxyService:
                 account_ids=scoped_account_ids,
                 exclude_account_ids=tried,
                 routing_strategy=routing_strategy,
+                routing_rules=routing_rules,
             )
             account = selection.account
             if account is None:

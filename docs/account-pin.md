@@ -31,6 +31,7 @@ consulted at all.
 | Health tier (`healthy` / `probing` / `draining`) | not consulted |
 | Routing policy tiers (`burn_first`, `normal`, `preserve`) | not consulted |
 | [Pace gates](pace-gates.md) and the pre-reset window | not applied to the pinned account |
+| [Usage ceilings](usage-ceilings.md) | still applied: a pinned account stops at its ceiling |
 | Budget thresholds | not applied to the pinned account |
 | Session stickiness | the pin wins; the session moves onto it |
 | Additional-quota routing policy | does not replace the pin |

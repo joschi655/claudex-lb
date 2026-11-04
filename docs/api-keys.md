@@ -32,3 +32,9 @@ For wiring keys into each client, see [Client Setup](client-setup.md).
 ---
 
 *Spec: [api-keys](https://github.com/Soju06/codex-lb/tree/main/openspec/specs/api-keys)*
+
+## Per-key account routing
+
+Each key can rank and limit the pool's accounts its own way, for example spending your own seat
+first from one device and keeping it for later from another. See
+[Usage Ceilings and Per-Key Routing](usage-ceilings.md#per-key-routing-rules).

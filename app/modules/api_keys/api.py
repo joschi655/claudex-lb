@@ -8,10 +8,13 @@ from app.core.auth.dependencies import (
     set_dashboard_error_format,
     validate_dashboard_session,
 )
+from app.core.balancer.routing_rules import AccountRoutingRule
 from app.core.exceptions import DashboardBadRequestError, DashboardNotFoundError
 from app.dependencies import ApiKeysContext, get_api_keys_context
 from app.modules.api_keys.schemas import (
     ApiKeyAccountCostResponse,
+    ApiKeyAccountRoutingRuleSchema,
+    ApiKeyAccountRoutingRulesUpdateRequest,
     ApiKeyCreateRequest,
     ApiKeyCreateResponse,
     ApiKeyResponse,
@@ -85,6 +88,19 @@ def _to_response(row: ApiKeyData) -> ApiKeyResponse:
             row.pooled_credits.remaining_percent_secondary if row.pooled_credits else None
         ),
         pooled_capacity_credits_primary=(row.pooled_credits.capacity_credits_primary if row.pooled_credits else 0.0),
+        account_routing_rules=[
+            ApiKeyAccountRoutingRuleSchema(
+                account_id=rule.account_id,
+                routing_policy=rule.routing_policy,
+                override_gates=rule.override_gates,
+                usage_ceiling_primary_pct=rule.usage_ceiling_primary_pct,
+                usage_ceiling_secondary_pct=rule.usage_ceiling_secondary_pct,
+                pace_margin_primary_pct=rule.pace_margin_primary_pct,
+                pace_margin_secondary_pct=rule.pace_margin_secondary_pct,
+                pre_reset_window_minutes=rule.pre_reset_window_minutes,
+            )
+            for rule in row.account_routing_rules.values()
+        ],
     )
 
 
@@ -247,6 +263,35 @@ async def delete_api_key(
         details={"key_id": key_id},
     )
     return Response(status_code=204)
+
+
+@router.put("/{key_id}/account-routing-rules", response_model=ApiKeyResponse)
+async def replace_api_key_account_routing_rules(
+    key_id: str,
+    payload: ApiKeyAccountRoutingRulesUpdateRequest,
+    _write_access=Depends(require_dashboard_write_access),
+    context: ApiKeysContext = Depends(get_api_keys_context),
+) -> ApiKeyResponse:
+    rules = [
+        AccountRoutingRule(
+            account_id=rule.account_id,
+            routing_policy=rule.routing_policy,
+            override_gates=rule.override_gates,
+            usage_ceiling_primary_pct=rule.usage_ceiling_primary_pct,
+            usage_ceiling_secondary_pct=rule.usage_ceiling_secondary_pct,
+            pace_margin_primary_pct=rule.pace_margin_primary_pct,
+            pace_margin_secondary_pct=rule.pace_margin_secondary_pct,
+            pre_reset_window_minutes=rule.pre_reset_window_minutes,
+        )
+        for rule in payload.rules
+    ]
+    try:
+        row = await context.service.replace_account_routing_rules(key_id, rules)
+    except ApiKeyNotFoundError as exc:
+        raise DashboardNotFoundError(str(exc)) from exc
+    except ApiKeyValidationError as exc:
+        raise DashboardBadRequestError(str(exc), code="invalid_api_key_payload") from exc
+    return _to_response(row)
 
 
 @router.post("/{key_id}/regenerate", response_model=ApiKeyCreateResponse)
