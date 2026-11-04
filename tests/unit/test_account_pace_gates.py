@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
+from typing import Any
+
 import pytest
 
 from app.core.balancer.logic import (
@@ -28,18 +31,17 @@ def _secondary_reset_after(fraction_elapsed: float) -> int:
     return int(NOW + length * (1.0 - fraction_elapsed))
 
 
-def _state(**overrides: object) -> AccountState:
-    base = {
-        "account_id": "a",
-        "status": AccountStatus.ACTIVE,
-        "used_percent": 0.0,
-        "primary_reset_at": _primary_reset_after(0.5),
-        "primary_window_minutes": PRIMARY_WINDOW_MINUTES,
-        "secondary_used_percent": 0.0,
-        "secondary_reset_at": _secondary_reset_after(0.5),
-    }
-    base.update(overrides)
-    return AccountState(**base)  # type: ignore[arg-type]
+def _state(**overrides: Any) -> AccountState:
+    base = AccountState(
+        account_id="a",
+        status=AccountStatus.ACTIVE,
+        used_percent=0.0,
+        primary_reset_at=_primary_reset_after(0.5),
+        primary_window_minutes=PRIMARY_WINDOW_MINUTES,
+        secondary_used_percent=0.0,
+        secondary_reset_at=_secondary_reset_after(0.5),
+    )
+    return replace(base, **overrides)
 
 
 class TestEvenPaceLine:
